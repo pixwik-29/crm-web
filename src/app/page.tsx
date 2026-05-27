@@ -12,7 +12,7 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { CRMSettings } from '@/components/CRMSettings';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
-  HelpCircle, User, ShieldCheck, Flame, BellRing, Settings
+  HelpCircle, User, ShieldCheck, Flame, Settings
 } from 'lucide-react';
 
 const DashboardContent: React.FC = () => {
@@ -24,7 +24,6 @@ const DashboardContent: React.FC = () => {
     profiles, 
     activityLogs, 
     whatsappHistory, 
-    triggerLeadSimulation, 
     switchUser,
     isLoading
   } = useData();
@@ -89,17 +88,6 @@ const DashboardContent: React.FC = () => {
           </div>
         </div>
 
-        {/* Dynamic Demo Testing Tools */}
-        <div className="flex items-center flex-wrap gap-3 bg-slate-100 dark:bg-zinc-900/90 border border-slate-250 dark:border-zinc-900 rounded-2xl p-1.5 shadow-inner">
-          {/* Quick Simulation trigger */}
-          <button
-            onClick={triggerLeadSimulation}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-xl text-xs font-bold transition-all shadow shadow-orange-500/10 hover:scale-[1.02] active:scale-[0.98]"
-            title="Simulate a new lead captured from Meta Ads/Google Forms"
-          >
-            <BellRing className="w-3.5 h-3.5 animate-bounce" /> Simulate Lead Influx
-          </button>
-        </div>
 
         {/* User profile & settings */}
         <div className="flex items-center gap-3">
