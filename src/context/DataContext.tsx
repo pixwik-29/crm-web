@@ -234,9 +234,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Initialize DB or Local Storage
   useEffect(() => {
+    let leadsChannel: any = null;
+    const client = supabase;
+
     const initData = async () => {
       setIsLoading(true);
-      const client = supabase;
       if (isSupabaseConfigured && client) {
         try {
           // Fetch active user profile
@@ -273,7 +275,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (wTemp && wTemp.length > 0) setWhatsappTemplates(wTemp as WhatsAppTemplate[]);
 
           // Set up real-time listener subscriptions
-          const leadsChannel = client.channel('realtime-db-changes')
+          leadsChannel = client.channel('realtime-db-changes')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setLeads(prev => [payload.new as Lead, ...prev]);
@@ -297,10 +299,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (payload.eventType === 'INSERT') setWhatsappHistory(prev => [payload.new as WhatsAppMessage, ...prev]);
             })
             .subscribe();
-
-          return () => {
-            client.removeChannel(leadsChannel);
-          };
         } catch (error) {
           console.error("Supabase load error: ", error);
         }
@@ -366,6 +364,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     initData();
+
+    return () => {
+      if (isSupabaseConfigured && client && leadsChannel) {
+        client.removeChannel(leadsChannel);
+      }
+    };
   }, []);
 
   // Persistent writing for offline localStorage mode
