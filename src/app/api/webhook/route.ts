@@ -182,29 +182,42 @@ async function processMetaLead({ leadgenId, formId, pageId, adId }: {
     console.log(`[processMetaLead] Fetching from Graph API: ${graphUrl.replace(metaAccessToken, '***')}`);
     
     try {
+      // Strategy 1: Fetch by leadgen_id directly (requires Advanced Access / approved leads_retrieval)
+      let fieldData: any[] = [];
       const fbResponse = await fetch(graphUrl);
       const fbText = await fbResponse.text();
       
-      if (!fbResponse.ok) {
-        console.warn(`[processMetaLead] Graph API error (status=${fbResponse.status}), using fallback mock lead. Response: ${fbText}`);
-        leadPayload = {
-          name: `Meta Test Lead (${leadgenId})`,
-          phone: '+919999999999',
-          email: 'metalead@perfectscholar.com',
-          neet_marks: 350,
-          preferred_destination: 'Georgia',
-          course: 'MBBS',
-          lead_source: 'Facebook Ads',
-          campaign_name: `Form ID: ${formId || 'N/A'} (Fallback Mock)`,
-          status: '1st followup',
-          score: 65,
-          tags: ['Meta Test Lead', 'Fallback Ingestion']
-        };
-      } else {
+      if (fbResponse.ok) {
         const fbLeadData = JSON.parse(fbText);
-        const fieldData = fbLeadData.field_data || [];
-        console.log(`[processMetaLead] Graph API success. Fields returned: ${fieldData.map((f: any) => f.name).join(', ')}`);
+        fieldData = fbLeadData.field_data || [];
+        console.log(`[processMetaLead] Strategy 1 (leadgen_id direct) success. Fields: ${fieldData.map((f: any) => f.name).join(', ')}`);
+      } else {
+        console.warn(`[processMetaLead] Strategy 1 failed (status=${fbResponse.status}). Trying Strategy 2 (form-level fetch)...`);
         
+        // Strategy 2: Fetch from form endpoint filtered by leadgen_id (works with page token / Standard Access)
+        if (formId) {
+          const filterParam = encodeURIComponent(JSON.stringify([{field: 'id', operator: 'EQUAL', value: leadgenId}]));
+          const formLeadsUrl = `https://graph.facebook.com/v19.0/${formId}/leads?filtering=${filterParam}&access_token=${metaAccessToken}`;
+          console.log(`[processMetaLead] Fetching from form leads endpoint for form ${formId}`);
+          
+          const formRes = await fetch(formLeadsUrl);
+          if (formRes.ok) {
+            const formData = await formRes.json();
+            const lead = formData.data?.[0];
+            if (lead) {
+              fieldData = lead.field_data || [];
+              console.log(`[processMetaLead] Strategy 2 success. Fields: ${fieldData.map((f: any) => f.name).join(', ')}`);
+            } else {
+              console.warn(`[processMetaLead] Strategy 2: Lead not found in form results`);
+            }
+          } else {
+            const formErr = await formRes.text();
+            console.warn(`[processMetaLead] Strategy 2 failed: ${formErr}`);
+          }
+        }
+      }
+      
+      if (fieldData.length > 0) {
         const name = extractField(fieldData, ['full_name', 'name', 'first_name', 'last_name']);
         const phone = extractField(fieldData, ['phone_number', 'phone', 'mobile_number', 'contact_number']);
         const email = extractField(fieldData, ['email']);
@@ -232,6 +245,18 @@ async function processMetaLead({ leadgenId, formId, pageId, adId }: {
           status: '1st followup',
           score,
           tags: ['Facebook Lead Ads']
+        };
+      } else {
+        // Both strategies failed — insert fallback so lead is never lost
+        console.warn('[processMetaLead] Both fetch strategies failed, using fallback mock lead');
+        leadPayload = {
+          name: `Meta Lead (${leadgenId})`,
+          phone: '+910000000000',
+          lead_source: 'Facebook Ads',
+          campaign_name: `Form ID: ${formId || 'N/A'} (Fetch Failed)`,
+          status: '1st followup',
+          score: 40,
+          tags: ['Facebook Lead Ads', 'Fetch Failed - Check Manually']
         };
       }
     } catch (fetchErr: any) {
