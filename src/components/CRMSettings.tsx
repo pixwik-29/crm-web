@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '@/context/DataContext';
 import { 
   Users, Webhook, MessageSquare, ShieldAlert, Check, Copy, 
@@ -62,6 +62,15 @@ export const CRMSettings: React.FC = () => {
   const [userCreateStatus, setUserCreateStatus] = useState<string | null>(null);
   const [userCreateError, setUserCreateError] = useState<string | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+  // Dynamic origin calculation for webhook URLs
+  const [origin, setOrigin] = useState('http://localhost:3000');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   const handleAddUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,7 +194,7 @@ export const CRMSettings: React.FC = () => {
 <script>
 async function submitEduPathLead(leadData) {
   try {
-    const response = await fetch('http://localhost:3002/api/webhook', {
+    const response = await fetch('${origin}/api/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -419,12 +428,12 @@ async function submitEduPathLead(leadData) {
                     <input
                       type="text"
                       readOnly
-                      value="http://localhost:3002/api/webhook"
+                      value={`${origin}/api/webhook`}
                       className="flex-1 bg-slate-150/40 dark:bg-black/40 border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-400 outline-none cursor-not-allowed"
                     />
                     <button
                       type="button"
-                      onClick={() => handleCopyText('http://localhost:3002/api/webhook', 'url')}
+                      onClick={() => handleCopyText(`${origin}/api/webhook`, 'url')}
                       className="px-4 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-500 dark:text-slate-400 rounded-xl text-xs font-semibold flex items-center gap-1.5"
                     >
                       {copiedId === 'url' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
