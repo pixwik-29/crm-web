@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { waitUntil } from '@vercel/functions';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -35,119 +36,31 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    console.log('[Webhook] Received payload:', JSON.stringify(body));
     
     // 1. Detect if this is a Meta/Facebook Lead Gen webhook payload
     if (body.object === 'page' && body.entry && body.entry.length > 0) {
-      console.log('Detected Meta Lead Gen Webhook Payload:', JSON.stringify(body));
-      
       const change = body.entry[0].changes?.[0];
+      
       if (change && change.field === 'leadgen') {
         const leadgenId = change.value?.leadgen_id;
         const formId = change.value?.form_id;
         const pageId = change.value?.page_id;
         const adId = change.value?.ad_id;
         
+        console.log(`[Webhook] Meta leadgen event received. leadgen_id=${leadgenId}, form_id=${formId}, page_id=${pageId}, ad_id=${adId}`);
+
         if (!leadgenId) {
-          return NextResponse.json({ error: 'Leadgen ID not found in Meta payload' }, { status: 400 });
+          console.error('[Webhook] leadgen_id missing from payload');
+          return NextResponse.json({ received: true }, { status: 200 });
         }
-        
-        // Retrieve Meta Access Token from environment variables
-        const metaAccessToken = process.env.META_ACCESS_TOKEN;
-        if (!metaAccessToken) {
-          console.warn('META_ACCESS_TOKEN environment variable not configured. Storing mock lead entry.');
-          const mockLead = {
-            name: `Meta Lead Form User (ID: ${leadgenId.substring(0, 6)})`,
-            phone: '+919999999999',
-            email: 'metalead@perfectscholar.com',
-            lead_source: 'Facebook Ads',
-            campaign_name: 'Meta Form Integration',
-            status: '1st followup',
-            score: 50,
-            tags: ['Meta Ingestion Needed']
-          };
-          
-          if (supabase) {
-            const { data } = await supabase.from('leads').insert([mockLead]).select().single();
-            await supabase.from('activity_logs').insert([{
-              lead_id: data.id,
-              action_type: 'lead_created',
-              description: 'Meta webhook received, but META_ACCESS_TOKEN is missing. Stored fallback lead.'
-            }]);
-          }
-          return NextResponse.json({ success: true, message: 'Meta webhook received. Configure META_ACCESS_TOKEN to fetch real lead fields.', lead: mockLead }, { status: 201 });
-        }
-        
-        // Call Meta Graph API to fetch lead details
-        const graphUrl = `https://graph.facebook.com/v19.0/${leadgenId}?access_token=${metaAccessToken}`;
-        const fbResponse = await fetch(graphUrl);
-        
-        let leadPayload;
-        
-        if (!fbResponse.ok) {
-          const fbErrText = await fbResponse.text();
-          console.warn('Meta Graph API retrieval failed, using fallback mock lead:', fbErrText);
-          
-          // Generate a user-friendly test lead if Meta returned a mock ID (e.g. 444444444444) or if token fetch failed
-          leadPayload = {
-            name: `Meta Test Lead (${leadgenId})`,
-            phone: '+919999999999',
-            email: 'metalead@perfectscholar.com',
-            neet_marks: 350,
-            preferred_destination: 'Georgia',
-            course: 'MBBS',
-            lead_source: 'Facebook Ads',
-            campaign_name: `Form ID: ${formId || 'N/A'} (Fallback Mock)`,
-            status: '1st followup',
-            score: 65,
-            tags: ['Meta Test Lead', 'Fallback Ingestion']
-          };
-        } else {
-          const fbLeadData = await fbResponse.json();
-          const fieldData = fbLeadData.field_data || [];
-          
-          // Extract values using fallback matches
-          const name = extractField(fieldData, ['full_name', 'name', 'first_name', 'last_name']);
-          const phone = extractField(fieldData, ['phone_number', 'phone', 'mobile_number', 'contact_number']);
-          const email = extractField(fieldData, ['email']);
-          const neet_marks = extractField(fieldData, ['neet_marks', 'neet_score', 'neet']);
-          const preferred_destination = extractField(fieldData, ['preferred_destination', 'destination', 'country', 'state']);
-          const budget = extractField(fieldData, ['budget', 'fees', 'investment']);
-          
-          const marks = neetMarksValue(neet_marks);
-          let score = 30;
-          if (marks > 450) score = 90;
-          else if (marks > 300) score = 65;
-          
-          leadPayload = {
-            name: name || 'Meta Lead Form User',
-            phone: phone || '+910000000000',
-            email: email || undefined,
-            neet_marks: marks || null,
-            budget: budget ? parseFloat(budget.replace(/\D/g, '')) : null,
-            preferred_destination: preferred_destination || undefined,
-            course: 'MBBS',
-            lead_source: 'Facebook Ads',
-            campaign_name: `Form ID: ${formId || 'N/A'} (Page ID: ${pageId || 'N/A'})`,
-            status: '1st followup',
-            score,
-            tags: ['Facebook Lead Ads']
-          };
-        }
-        
-        if (supabase) {
-          const { data, error } = await supabase.from('leads').insert([leadPayload]).select().single();
-          if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-          
-          await supabase.from('activity_logs').insert([{
-            lead_id: data.id,
-            action_type: 'lead_created',
-            description: `Lead auto-captured natively from Facebook Ads Form. Ad ID: ${adId || 'N/A'}`
-          }]);
-          
-          return NextResponse.json({ success: true, lead: data }, { status: 201 });
-        } else {
-          return NextResponse.json({ success: true, mode: 'Mock Mode', lead: leadPayload }, { status: 201 });
-        }
+
+        // ✅ CRITICAL: Return 200 OK to Meta IMMEDIATELY before any async processing.
+        // Meta has a ~5 second timeout. If we don't respond in time, it marks as "Pending".
+        // waitUntil runs the processing in the background AFTER the response is sent.
+        waitUntil(processMetaLead({ leadgenId, formId, pageId, adId }));
+
+        return NextResponse.json({ received: true }, { status: 200 });
       }
     }
     
@@ -236,6 +149,132 @@ export async function POST(req: NextRequest) {
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+  }
+}
+
+// Background processor for Meta Lead Ads webhook events
+async function processMetaLead({ leadgenId, formId, pageId, adId }: {
+  leadgenId: string;
+  formId?: string;
+  pageId?: string;
+  adId?: string;
+}) {
+  console.log(`[processMetaLead] Starting background processing for leadgen_id=${leadgenId}`);
+  
+  const metaAccessToken = process.env.META_ACCESS_TOKEN;
+  let leadPayload: any;
+
+  if (!metaAccessToken) {
+    console.warn('[processMetaLead] META_ACCESS_TOKEN not configured, using fallback mock lead');
+    leadPayload = {
+      name: `Meta Lead (${leadgenId})`,
+      phone: '+919999999999',
+      email: 'metalead@perfectscholar.com',
+      lead_source: 'Facebook Ads',
+      campaign_name: 'Meta Form Integration (Token Missing)',
+      status: '1st followup',
+      score: 50,
+      tags: ['Meta Ingestion', 'Token Missing']
+    };
+  } else {
+    // Fetch lead details from Meta Graph API
+    const graphUrl = `https://graph.facebook.com/v19.0/${leadgenId}?access_token=${metaAccessToken}`;
+    console.log(`[processMetaLead] Fetching from Graph API: ${graphUrl.replace(metaAccessToken, '***')}`);
+    
+    try {
+      const fbResponse = await fetch(graphUrl);
+      const fbText = await fbResponse.text();
+      
+      if (!fbResponse.ok) {
+        console.warn(`[processMetaLead] Graph API error (status=${fbResponse.status}), using fallback mock lead. Response: ${fbText}`);
+        leadPayload = {
+          name: `Meta Test Lead (${leadgenId})`,
+          phone: '+919999999999',
+          email: 'metalead@perfectscholar.com',
+          neet_marks: 350,
+          preferred_destination: 'Georgia',
+          course: 'MBBS',
+          lead_source: 'Facebook Ads',
+          campaign_name: `Form ID: ${formId || 'N/A'} (Fallback Mock)`,
+          status: '1st followup',
+          score: 65,
+          tags: ['Meta Test Lead', 'Fallback Ingestion']
+        };
+      } else {
+        const fbLeadData = JSON.parse(fbText);
+        const fieldData = fbLeadData.field_data || [];
+        console.log(`[processMetaLead] Graph API success. Fields returned: ${fieldData.map((f: any) => f.name).join(', ')}`);
+        
+        const name = extractField(fieldData, ['full_name', 'name', 'first_name', 'last_name']);
+        const phone = extractField(fieldData, ['phone_number', 'phone', 'mobile_number', 'contact_number']);
+        const email = extractField(fieldData, ['email']);
+        const neet_marks = extractField(fieldData, ['neet_marks', 'neet_score', 'neet']);
+        const preferred_destination = extractField(fieldData, ['preferred_destination', 'destination', 'country', 'state', 'city']);
+        const budget = extractField(fieldData, ['budget', 'fees', 'investment']);
+
+        console.log(`[processMetaLead] Parsed fields: name="${name}", phone="${phone}", email="${email}"`);
+        
+        const marks = neetMarksValue(neet_marks);
+        let score = 30;
+        if (marks > 450) score = 90;
+        else if (marks > 300) score = 65;
+        
+        leadPayload = {
+          name: name || 'Meta Lead Form User',
+          phone: phone || '+910000000000',
+          email: email || undefined,
+          neet_marks: marks || null,
+          budget: budget ? parseFloat(budget.replace(/\D/g, '')) : null,
+          preferred_destination: preferred_destination || undefined,
+          course: 'MBBS',
+          lead_source: 'Facebook Ads',
+          campaign_name: `Form ID: ${formId || 'N/A'} (Page ID: ${pageId || 'N/A'})`,
+          status: '1st followup',
+          score,
+          tags: ['Facebook Lead Ads']
+        };
+      }
+    } catch (fetchErr: any) {
+      console.error('[processMetaLead] Network error fetching from Graph API:', fetchErr.message);
+      leadPayload = {
+        name: `Meta Lead (${leadgenId})`,
+        phone: '+919999999999',
+        lead_source: 'Facebook Ads',
+        campaign_name: `Form ID: ${formId || 'N/A'} (Network Error)`,
+        status: '1st followup',
+        score: 40,
+        tags: ['Meta Lead', 'Fetch Error']
+      };
+    }
+  }
+
+  // Insert lead into Supabase
+  if (!supabase) {
+    console.warn('[processMetaLead] Supabase not configured, cannot insert lead');
+    return;
+  }
+
+  console.log('[processMetaLead] Inserting lead into Supabase:', JSON.stringify(leadPayload));
+  
+  try {
+    const { data, error } = await supabase.from('leads').insert([leadPayload]).select().single();
+    
+    if (error) {
+      console.error('[processMetaLead] Supabase insert error:', error.message, error.details);
+      return;
+    }
+    
+    console.log(`[processMetaLead] ✅ Lead inserted successfully! ID=${data.id}, Name="${data.name}"`);
+    
+    await supabase.from('activity_logs').insert([{
+      lead_id: data.id,
+      action_type: 'lead_created',
+      description: `Lead auto-captured from Facebook Ads. LeadGen ID: ${leadgenId}. Ad ID: ${adId || 'N/A'}`
+    }]);
+    
+    console.log('[processMetaLead] Activity log created.');
+  } catch (dbErr: any) {
+    console.error('[processMetaLead] Exception during DB insert:', dbErr.message);
   }
 }
 
