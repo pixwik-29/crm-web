@@ -219,13 +219,36 @@ CREATE POLICY "Admins can manage templates" ON public.whatsapp_templates
 -- Trigger to automatically create a profile record when a new user registers in auth.users
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
+DECLARE
+  default_role user_role := 'counsellor'::user_role;
+  actual_role user_role;
+  meta_role text;
 BEGIN
+  -- Safely extract and check role
+  IF new.raw_user_meta_data IS NOT NULL AND (new.raw_user_meta_data ? 'role') THEN
+    meta_role := new.raw_user_meta_data->>'role';
+    BEGIN
+      actual_role := meta_role::user_role;
+    EXCEPTION WHEN OTHERS THEN
+      actual_role := default_role;
+    END;
+  ELSE
+    actual_role := default_role;
+  END IF;
+
   INSERT INTO public.profiles (id, full_name, role, phone)
   VALUES (
     new.id,
-    COALESCE(new.raw_user_meta_data->>'full_name', 'New Counsellor'),
-    COALESCE((new.raw_user_meta_data->>'role')::user_role, 'counsellor'::user_role),
-    new.raw_user_meta_data->>'phone'
+    COALESCE(
+      new.raw_user_meta_data->>'full_name', 
+      split_part(new.email, '@', 1), 
+      'New Counsellor'
+    ),
+    actual_role,
+    CASE 
+      WHEN new.raw_user_meta_data IS NOT NULL THEN new.raw_user_meta_data->>'phone'
+      ELSE NULL
+    END
   );
   RETURN new;
 END;
