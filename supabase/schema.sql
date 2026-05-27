@@ -224,16 +224,17 @@ DECLARE
   actual_role public.user_role;
   meta_role text;
 BEGIN
-  -- Safely extract and check role
-  IF new.raw_user_meta_data IS NOT NULL AND (new.raw_user_meta_data ? 'role') THEN
+  -- Safely extract and check role from metadata
+  actual_role := default_role;
+  IF new.raw_user_meta_data IS NOT NULL THEN
     meta_role := new.raw_user_meta_data->>'role';
-    BEGIN
-      actual_role := meta_role::public.user_role;
-    EXCEPTION WHEN OTHERS THEN
-      actual_role := default_role;
-    END;
-  ELSE
-    actual_role := default_role;
+    IF meta_role IS NOT NULL AND meta_role <> '' THEN
+      BEGIN
+        actual_role := meta_role::public.user_role;
+      EXCEPTION WHEN OTHERS THEN
+        actual_role := default_role;
+      END;
+    END IF;
   END IF;
 
   INSERT INTO public.profiles (id, full_name, role, phone)
@@ -241,7 +242,7 @@ BEGIN
     new.id,
     COALESCE(
       new.raw_user_meta_data->>'full_name', 
-      split_part(new.email, '@', 1), 
+      CASE WHEN new.email IS NOT NULL THEN split_part(new.email, '@', 1) ELSE NULL END,
       'New Counsellor'
     ),
     actual_role,
@@ -253,6 +254,9 @@ BEGIN
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Drop trigger first to prevent duplicate key/trigger errors if rerun
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
