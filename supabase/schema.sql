@@ -220,15 +220,15 @@ CREATE POLICY "Admins can manage templates" ON public.whatsapp_templates
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 DECLARE
-  default_role user_role := 'counsellor'::user_role;
-  actual_role user_role;
+  default_role public.user_role := 'counsellor'::public.user_role;
+  actual_role public.user_role;
   meta_role text;
 BEGIN
   -- Safely extract and check role
   IF new.raw_user_meta_data IS NOT NULL AND (new.raw_user_meta_data ? 'role') THEN
     meta_role := new.raw_user_meta_data->>'role';
     BEGIN
-      actual_role := meta_role::user_role;
+      actual_role := meta_role::public.user_role;
     EXCEPTION WHEN OTHERS THEN
       actual_role := default_role;
     END;
@@ -252,7 +252,7 @@ BEGIN
   );
   RETURN new;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
