@@ -287,46 +287,46 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 text-sm font-semibold">
+      <div className="flex overflow-x-auto scrollbar-none border-b border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-semibold">
         <button
           onClick={() => setActiveTab('notes')}
-          className={`flex-1 py-4 flex items-center justify-center gap-2 border-b-2 transition-all ${
+          className={`flex-1 flex-shrink-0 whitespace-nowrap px-4 py-3.5 flex items-center justify-center gap-2 border-b-2 transition-all ${
             activeTab === 'notes'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
               : 'border-transparent text-slate-400 hover:text-slate-800 dark:hover:text-white'
           }`}
         >
-          <FileText className="w-4 h-4" /> Internal Notes ({leadNotes.length})
+          <FileText className="w-4 h-4 text-slate-450 dark:text-slate-400" /> Internal Notes ({leadNotes.length})
         </button>
         <button
           onClick={() => setActiveTab('tasks')}
-          className={`flex-1 py-4 flex items-center justify-center gap-2 border-b-2 transition-all ${
+          className={`flex-1 flex-shrink-0 whitespace-nowrap px-4 py-3.5 flex items-center justify-center gap-2 border-b-2 transition-all ${
             activeTab === 'tasks'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
               : 'border-transparent text-slate-400 hover:text-slate-800 dark:hover:text-white'
           }`}
         >
-          <Clock className="w-4 h-4" /> Tasks ({leadTasks.filter(t => !t.is_completed).length})
+          <Clock className="w-4 h-4 text-slate-450 dark:text-slate-400" /> Tasks ({leadTasks.filter(t => !t.is_completed).length})
         </button>
         <button
           onClick={() => setActiveTab('whatsapp')}
-          className={`flex-1 py-4 flex items-center justify-center gap-2 border-b-2 transition-all ${
+          className={`flex-1 flex-shrink-0 whitespace-nowrap px-4 py-3.5 flex items-center justify-center gap-2 border-b-2 transition-all ${
             activeTab === 'whatsapp'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
               : 'border-transparent text-slate-400 hover:text-slate-800 dark:hover:text-white'
           }`}
         >
-          <MessageCircle className="w-4 h-4" /> WhatsApp Chats ({leadChats.length})
+          <MessageCircle className="w-4 h-4 text-slate-450 dark:text-slate-400" /> WhatsApp Chats ({leadChats.length})
         </button>
         <button
           onClick={() => setActiveTab('timeline')}
-          className={`flex-1 py-4 flex items-center justify-center gap-2 border-b-2 transition-all ${
+          className={`flex-1 flex-shrink-0 whitespace-nowrap px-4 py-3.5 flex items-center justify-center gap-2 border-b-2 transition-all ${
             activeTab === 'timeline'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
               : 'border-transparent text-slate-400 hover:text-slate-800 dark:hover:text-white'
           }`}
         >
-          <Activity className="w-4 h-4" /> Activity Log
+          <Activity className="w-4 h-4 text-slate-450 dark:text-slate-400" /> Activity Log
         </button>
       </div>
 

@@ -205,10 +205,10 @@ const DashboardContent: React.FC = () => {
         {/* Row 2: Tabs selector bar */}
         <div className="flex flex-wrap gap-2 justify-between items-center border-b border-slate-200 dark:border-zinc-900 pb-2">
           
-          <div className="flex gap-2">
+          <div className="flex overflow-x-auto gap-2 pb-1.5 w-full md:w-auto -mx-6 px-6 md:mx-0 md:px-0">
             <button
               onClick={() => setActiveView('board')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                 activeView === 'board'
                   ? 'bg-indigo-600 text-white shadow shadow-indigo-500/20'
                   : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
@@ -219,7 +219,7 @@ const DashboardContent: React.FC = () => {
             
             <button
               onClick={() => setActiveView('list')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                 activeView === 'list'
                   ? 'bg-indigo-600 text-white shadow shadow-indigo-500/20'
                   : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
@@ -230,7 +230,7 @@ const DashboardContent: React.FC = () => {
 
             <button
               onClick={() => setActiveView('analytics')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                 activeView === 'analytics'
                   ? 'bg-indigo-600 text-white shadow shadow-indigo-500/20'
                   : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
@@ -241,7 +241,7 @@ const DashboardContent: React.FC = () => {
 
             <button
               onClick={() => setActiveView('forms')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                 activeView === 'forms'
                   ? 'bg-indigo-600 text-white shadow shadow-indigo-500/20'
                   : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
@@ -252,7 +252,7 @@ const DashboardContent: React.FC = () => {
 
             <button
               onClick={() => setActiveView('settings')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                 activeView === 'settings'
                   ? 'bg-indigo-600 text-white shadow shadow-indigo-500/20'
                   : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
