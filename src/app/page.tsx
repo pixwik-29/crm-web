@@ -12,7 +12,7 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { CRMSettings } from '@/components/CRMSettings';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
-  HelpCircle, User, ShieldCheck, Flame, Settings
+  HelpCircle, User, ShieldCheck, Flame, Settings, Globe
 } from 'lucide-react';
 
 const DashboardContent: React.FC = () => {
@@ -37,6 +37,33 @@ const DashboardContent: React.FC = () => {
   // Lead Modals state
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
+
+  // Global lead source filter
+  const [activeSourceFilter, setActiveSourceFilter] = useState<string>('All');
+
+  // Derive unique sources from leads dynamically
+  const allSources = ['All', ...Array.from(new Set(leads.map(l => l.lead_source).filter(Boolean)))];
+
+  // Source-filtered leads passed to all views
+  const filteredLeads = activeSourceFilter === 'All'
+    ? leads
+    : leads.filter(l => l.lead_source === activeSourceFilter);
+
+  const getSourcePillStyle = (source: string, isActive: boolean) => {
+    if (!isActive) return 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900';
+    const map: Record<string, string> = {
+      'All':              'bg-indigo-600 text-white border-transparent shadow shadow-indigo-500/20',
+      'Facebook Ads':     'bg-blue-600 text-white border-transparent shadow shadow-blue-500/20',
+      'Instagram Ads':    'bg-pink-600 text-white border-transparent shadow shadow-pink-500/20',
+      'Google Ads':       'bg-amber-500 text-white border-transparent shadow shadow-amber-500/20',
+      'WhatsApp Campaign':'bg-emerald-600 text-white border-transparent shadow shadow-emerald-500/20',
+      'Website Form':     'bg-cyan-600 text-white border-transparent shadow shadow-cyan-500/20',
+      'Referral':         'bg-purple-600 text-white border-transparent shadow shadow-purple-500/20',
+      'Organic':          'bg-teal-600 text-white border-transparent shadow shadow-teal-500/20',
+      'Manual Entry':     'bg-slate-600 text-white border-transparent shadow shadow-slate-500/20',
+    };
+    return map[source] || 'bg-indigo-600 text-white border-transparent shadow shadow-indigo-500/20';
+  };
 
   // Apply dark mode class to html document or wrapper
   useEffect(() => {
@@ -136,7 +163,43 @@ const DashboardContent: React.FC = () => {
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
         
         {/* Row 1: KPI Stats widgets */}
-        <CRMStats leads={leads} tasks={tasks} />
+        <CRMStats leads={filteredLeads} tasks={tasks} />
+
+        {/* Row 1.5: Lead Source Filter Pills */}
+        <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2 shadow-sm">
+          <div className="flex items-center gap-1.5 mr-2 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
+            <Globe className="w-3.5 h-3.5" /> Filter by Source
+          </div>
+          {allSources.map(source => {
+            const count = source === 'All' ? leads.length : leads.filter(l => l.lead_source === source).length;
+            const isActive = activeSourceFilter === source;
+            return (
+              <button
+                key={source}
+                id={`source-filter-${source.replace(/\s+/g, '-').toLowerCase()}`}
+                onClick={() => setActiveSourceFilter(source)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 border ${
+                  getSourcePillStyle(source, isActive)
+                }`}
+              >
+                {source}
+                <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-md text-[10px] font-extrabold ${
+                  isActive ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-slate-400'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+          {activeSourceFilter !== 'All' && (
+            <button
+              onClick={() => setActiveSourceFilter('All')}
+              className="ml-auto text-[10px] font-semibold text-slate-400 hover:text-rose-500 transition-colors"
+            >
+              ✕ Clear
+            </button>
+          )}
+        </div>
 
         {/* Row 2: Tabs selector bar */}
         <div className="flex flex-wrap gap-2 justify-between items-center border-b border-slate-200 dark:border-zinc-900 pb-2">
@@ -188,7 +251,14 @@ const DashboardContent: React.FC = () => {
           </div>
 
           <div className="text-xs text-slate-400 dark:text-slate-500 font-semibold">
-            {leads.length} Leads captured • {tasks.filter(t => !t.is_completed).length} Pending Tasks
+            {activeSourceFilter !== 'All' ? (
+              <span>
+                <span className="text-indigo-500 font-bold">{filteredLeads.length}</span> of {leads.length} leads
+                {' '}• <span className="text-indigo-400">{activeSourceFilter}</span>
+              </span>
+            ) : (
+              <span>{leads.length} Leads captured • {tasks.filter(t => !t.is_completed).length} Pending Tasks</span>
+            )}
           </div>
 
         </div>
@@ -198,7 +268,7 @@ const DashboardContent: React.FC = () => {
           
           {activeView === 'board' && (
             <KanbanBoard 
-              leads={leads} 
+              leads={filteredLeads} 
               profiles={profiles} 
               onSelectLead={setSelectedLead} 
             />
@@ -206,7 +276,7 @@ const DashboardContent: React.FC = () => {
 
           {activeView === 'list' && (
             <LeadsTable
-              leads={leads}
+              leads={filteredLeads}
               profiles={profiles}
               onSelectLead={setSelectedLead}
               onOpenAddModal={() => setIsAddOpen(true)}
@@ -215,7 +285,7 @@ const DashboardContent: React.FC = () => {
 
           {activeView === 'analytics' && (
             <CRMAnalytics
-              leads={leads}
+              leads={filteredLeads}
               profiles={profiles}
               whatsappMessages={whatsappHistory}
             />
