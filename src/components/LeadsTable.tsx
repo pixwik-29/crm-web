@@ -13,7 +13,10 @@ interface LeadsTableProps {
 }
 
 export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelectLead, onOpenAddModal }) => {
-  const { updateLead, deleteLead, currentUser, settings } = useData();
+  const { updateLead, deleteLead, deleteLeads, currentUser, settings } = useData();
+  
+  // Selection state for bulk actions
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -130,6 +133,19 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
     document.body.removeChild(link);
   };
 
+  // Bulk Delete action
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (confirm(`Are you sure you want to delete ${selectedIds.length} selected leads?`)) {
+      try {
+        await deleteLeads(selectedIds);
+        setSelectedIds([]);
+      } catch (err) {
+        console.error("Failed to bulk delete leads:", err);
+      }
+    }
+  };
+
   const getStatusBadgeStyle = (status: string) => {
     // Try to find the stage style from settings pipeline stages
     const matchedStage = (settings.pipeline_stages || []).find(s => s.id === status);
@@ -179,6 +195,15 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
 
         {/* Action buttons */}
         <div className="flex flex-wrap items-center gap-3">
+          {selectedIds.length > 0 && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+            <button
+              onClick={handleBulkDelete}
+              className="px-4 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl text-xs font-bold flex items-center gap-2 shadow-md shadow-rose-500/10 transition-all hover:scale-[1.01] active:scale-[0.98] animate-fade-in"
+            >
+              <Trash2 className="w-4 h-4" /> Delete Selected ({selectedIds.length})
+            </button>
+          )}
+
           <button 
             onClick={handleExportCSV}
             className="px-4 py-3 border border-slate-200 dark:border-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-900/50 text-slate-600 dark:text-slate-300 rounded-2xl text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
@@ -310,6 +335,22 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
         <table className="w-full border-collapse text-left text-sm text-slate-500 dark:text-slate-400">
           <thead>
             <tr className="border-b border-slate-200 dark:border-zinc-900 font-semibold text-xs text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-zinc-950/20">
+              {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                <th className="px-6 py-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={processedLeads.length > 0 && selectedIds.length === processedLeads.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds(processedLeads.map(l => l.id));
+                      } else {
+                        setSelectedIds([]);
+                      }
+                    }}
+                    className="w-4 h-4 text-indigo-600 border-slate-300 dark:border-zinc-800 rounded focus:ring-indigo-500"
+                  />
+                </th>
+              )}
               <th onClick={() => handleSort('name')} className="px-6 py-4 cursor-pointer hover:text-slate-700 dark:hover:text-slate-200">
                 <span className="flex items-center gap-1.5">Name <ArrowUpDown className="w-3.5 h-3.5" /></span>
               </th>
@@ -333,11 +374,28 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
             {processedLeads.length > 0 ? (
               processedLeads.map(lead => {
                 const assignee = profiles.find(p => p.id === lead.assigned_counsellor_id);
+                const isSelected = selectedIds.includes(lead.id);
                 return (
                   <tr 
                     key={lead.id} 
-                    className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors group"
+                    className={`hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors group ${isSelected ? 'bg-slate-50/70 dark:bg-zinc-900/30' : ''}`}
                   >
+                    {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                      <td className="px-6 py-4 w-10">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedIds(prev => [...prev, lead.id]);
+                            } else {
+                              setSelectedIds(prev => prev.filter(id => id !== lead.id));
+                            }
+                          }}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 dark:border-zinc-800 rounded focus:ring-indigo-500"
+                        />
+                      </td>
+                    )}
                     {/* Name & Contact */}
                     <td className="px-6 py-4">
                       <div className="font-semibold text-slate-800 dark:text-slate-200">{lead.name}</div>
@@ -438,7 +496,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
               })
             ) : (
               <tr>
-                <td colSpan={(currentUser?.role === 'admin' || currentUser?.role === 'manager') ? 9 : 8} className="px-6 py-8 text-center text-slate-400 text-xs">
+                <td colSpan={(currentUser?.role === 'admin' || currentUser?.role === 'manager') ? 10 : 8} className="px-6 py-8 text-center text-slate-400 text-xs">
                   No matching leads found
                 </td>
               </tr>

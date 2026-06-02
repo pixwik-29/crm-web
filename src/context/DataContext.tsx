@@ -30,6 +30,7 @@ interface DataContextType {
   addLead: (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at'>) => Promise<Lead>;
   updateLead: (id: string, updates: Partial<Lead>) => Promise<Lead>;
   deleteLead: (id: string) => Promise<void>;
+  deleteLeads: (ids: string[]) => Promise<void>;
   
   // Notes Operations
   addNote: (leadId: string, content: string) => Promise<Note>;
@@ -704,6 +705,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const deleteLeads = async (ids: string[]): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from('leads').delete().in('id', ids);
+      if (error) throw error;
+      setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+    } else {
+      const updated = leads.filter(l => !ids.includes(l.id));
+      setLeads(updated);
+      saveLocal('crm_leads', updated);
+    }
+  };
+
   // Notes
   const addNote = async (leadId: string, content: string): Promise<Note> => {
     const newNote: Note = {
@@ -1105,6 +1118,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addLead,
       updateLead,
       deleteLead,
+      deleteLeads,
       addNote,
       addTask,
       toggleTask,
