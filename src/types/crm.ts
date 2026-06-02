@@ -87,6 +87,26 @@ export interface PipelineStage {
   order: number;
 }
 
+export interface WebFormField {
+  key: string;       // e.g. 'phone', 'email', 'neet_marks'
+  label: string;     // Display label on the form
+  type: 'text' | 'tel' | 'email' | 'number' | 'select';
+  required: boolean;
+  enabled: boolean;
+  options?: string[]; // for select fields
+}
+
+export interface WebForm {
+  id: string;
+  name: string;          // e.g. "MBBS Enquiry Form"
+  lead_source: string;   // e.g. "Website Form"
+  button_text: string;
+  success_message: string;
+  primary_color: string; // hex color
+  fields: WebFormField[];
+  created_at: string;
+}
+
 export interface CRMSettings {
   company_name: string;
   admission_year_prefix: string;
@@ -102,5 +122,5 @@ export interface CRMSettings {
   form_integration_fixed_course?: string;
   form_integration_dynamic_field?: string;
   pipeline_stages?: PipelineStage[];
+  web_forms?: WebForm[];
 }
-
