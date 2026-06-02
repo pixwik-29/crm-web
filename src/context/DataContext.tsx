@@ -696,6 +696,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase.from('leads').delete().eq('id', id);
       if (error) throw error;
+      setLeads(prev => prev.filter(l => l.id !== id));
     } else {
       const updated = leads.filter(l => l.id !== id);
       setLeads(updated);
