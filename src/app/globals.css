@@ -7,6 +7,14 @@
   --foreground: #171717;
 }
 
+@theme {
+  --color-black: #0f1115;
+  --color-zinc-950: #16181d;
+  --color-zinc-900: #20232b;
+  --color-zinc-800: #2d313d;
+  --color-zinc-700: #3f4454;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -15,7 +23,7 @@
 }
 
 .dark {
-  --background: #000000;
+  --background: #0f1115;
   --foreground: #f4f4f5;
 }
 
