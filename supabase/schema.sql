@@ -7,6 +7,7 @@ CREATE TABLE public.profiles (
     full_name TEXT NOT NULL,
     role user_role NOT NULL DEFAULT 'counsellor',
     phone TEXT,
+    push_token TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -269,7 +270,8 @@ INSERT INTO public.whatsapp_templates (name, body) VALUES
 ('Follow-up NEET Marks', 'Dear {{lead_name}}, we noticed you scored {{neet_marks}} in NEET. We have excellent medical college options within your budget of {{budget}} in {{preferred_destination}}. Let us know a good time to connect!'),
 ('Document Checklist', 'Hi {{lead_name}}, please share your 10th and 12th marksheet along with your NEET scorecard so we can begin the eligibility assessment process.');
 
--- MIGRATION NOTE FOR EXISTING DATABASES:
--- If you are updating an existing database, run this query in your Supabase SQL Editor:
--- ALTER TABLE public.leads ADD COLUMN course TEXT;
+-- MIGRATION NOTES FOR EXISTING DATABASES:
+-- Run these queries in your Supabase SQL Editor if upgrading from an older version:
+-- 1. ALTER TABLE public.leads ADD COLUMN course TEXT;
+-- 2. ALTER TABLE public.profiles ADD COLUMN push_token TEXT;
 

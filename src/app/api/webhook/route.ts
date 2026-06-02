@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { waitUntil } from '@vercel/functions';
+import nodemailer from 'nodemailer';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -135,6 +136,9 @@ export async function POST(req: NextRequest) {
         action_type: 'lead_created',
         description: `Lead auto-captured via Webhook from ${lead_source}. Campaign: ${campaign_name || 'N/A'}`
       }]);
+
+      // Trigger background email and push notifications
+      waitUntil(sendNewLeadNotifications(data));
 
       return NextResponse.json({ success: true, lead: data }, { status: 201 });
     } else {
@@ -298,6 +302,9 @@ async function processMetaLead({ leadgenId, formId, pageId, adId }: {
     }]);
     
     console.log('[processMetaLead] Activity log created.');
+
+    // Trigger email and push notifications for Meta Leads
+    await sendNewLeadNotifications(data);
   } catch (dbErr: any) {
     console.error('[processMetaLead] Exception during DB insert:', dbErr.message);
   }
@@ -319,4 +326,154 @@ function extractField(fieldData: any[], fieldNames: string[]): string {
     return field.values[0];
   }
   return '';
+}
+
+// Sends both Email notifications (Zoho SMTP) and Mobile Push notifications (Expo Push API) for new leads
+async function sendNewLeadNotifications(lead: any) {
+  try {
+    if (!supabase) return;
+    console.log('[Notifications] Starting notification dispatch for lead:', lead.id);
+
+    // 1. Fetch all admins, managers, and assigned counselors
+    const { data: recipients, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, phone, push_token, role')
+      .or(`role.eq.admin,role.eq.manager${lead.assigned_counsellor_id ? `,id.eq.${lead.assigned_counsellor_id}` : ''}`);
+
+    if (error) {
+      console.error('[Notifications] Error fetching notification recipients:', error.message);
+      return;
+    }
+
+    if (!recipients || recipients.length === 0) {
+      console.log('[Notifications] No admin, manager, or assigned counselor recipients found.');
+      return;
+    }
+
+    // 2. Load auth users to retrieve their email addresses (emails are not in the profiles table)
+    const { data: authUsers, error: authUsersError } = await supabase.auth.admin.listUsers();
+    if (authUsersError) {
+      console.error('[Notifications] Failed to retrieve auth user emails:', authUsersError.message);
+    }
+
+    const emailsToSend: string[] = ['nash@pixwik.com', 'crm@perfectscholar.com']; // default fallback / admin emails
+
+    if (authUsers && authUsers.users) {
+      recipients.forEach(prof => {
+        const matchingUser = authUsers.users.find(u => u.id === prof.id);
+        if (matchingUser && matchingUser.email && !emailsToSend.includes(matchingUser.email)) {
+          emailsToSend.push(matchingUser.email);
+        }
+      });
+    }
+
+    // 3. Build email notification body
+    const subject = `🔥 New Lead Captured: ${lead.name}`;
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #1a202c;">
+        <div style="text-align: center; margin-bottom: 25px;">
+          <h2 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800; tracking-tight;">Perfect Scholar CRM</h2>
+          <span style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: #a0aec0; letter-spacing: 1.5px; display: block; margin-top: 5px;">New Ingestion Alert</span>
+        </div>
+        
+        <p style="font-size: 15px; line-height: 1.6; color: #4a5568;">Hello Team, a new candidate inquiry has been successfully captured in the lead management database.</p>
+        
+        <div style="background-color: #f7fafc; padding: 20px; border-radius: 12px; margin: 25px 0; border: 1px dashed #e2e8f0;">
+          <table style="width: 100%; font-size: 14px; line-height: 1.5;">
+            <tr>
+              <td style="font-weight: bold; color: #718096; padding: 8px 0; width: 150px; vertical-align: top;">Candidate Name</td>
+              <td style="color: #2d3748; padding: 8px 0; font-weight: bold;">${lead.name}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #718096; padding: 8px 0; vertical-align: top;">Contact Phone</td>
+              <td style="color: #2d3748; padding: 8px 0;">${lead.phone}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #718096; padding: 8px 0; vertical-align: top;">Email Address</td>
+              <td style="color: #2d3748; padding: 8px 0;">${lead.email || 'N/A'}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #718096; padding: 8px 0; vertical-align: top;">NEET Score</td>
+              <td style="color: #2d3748; padding: 8px 0; font-weight: bold; color: #38a169;">${lead.neet_marks || 'N/A'}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #718096; padding: 8px 0; vertical-align: top;">Destination</td>
+              <td style="color: #2d3748; padding: 8px 0;">${lead.preferred_destination || 'N/A'}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #718096; padding: 8px 0; vertical-align: top;">Budget Limit</td>
+              <td style="color: #2d3748; padding: 8px 0;">${lead.budget ? `\u20B9${Number(lead.budget).toLocaleString('en-IN')}` : 'N/A'}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #718096; padding: 8px 0; vertical-align: top;">Lead Source</td>
+              <td style="color: #4f46e5; padding: 8px 0; font-weight: bold;">${lead.lead_source}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #718096; padding: 8px 0; vertical-align: top;">Campaign</td>
+              <td style="color: #2d3748; padding: 8px 0; font-style: italic;">${lead.campaign_name || 'Organic'}</td>
+            </tr>
+          </table>
+        </div>
+        
+        <p style="font-size: 14px; color: #4a5568; line-height: 1.5; margin-bottom: 25px;">Please access your counselors' dashboard to review details and follow up with the candidate immediately.</p>
+        
+        <div style="text-align: center; margin-top: 30px; border-top: 1px solid #edf2f7; padding-top: 20px; font-size: 11px; color: #a0aec0;">
+          This email was auto-generated by the Perfect Scholar Lead Ingestion Webhook.
+        </div>
+      </div>
+    `;
+
+    // 4. Send SMTP Emails via Nodemailer using configured environment variables
+    const host = process.env.SMTP_HOST || 'smtp.zoho.in';
+    const port = parseInt(process.env.SMTP_PORT || '465');
+    const smtpUser = process.env.SMTP_USER || 'crm@perfectscholar.com';
+    const smtpPass = process.env.SMTP_PASS || 'jRpSPCnq9pUa';
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user: smtpUser, pass: smtpPass }
+    });
+
+    for (const toEmail of emailsToSend) {
+      try {
+        await transporter.sendMail({
+          from: `"Perfect Scholar CRM" <${smtpUser}>`,
+          to: toEmail,
+          subject,
+          html: emailHtml
+        });
+        console.log(`[Notifications] Successfully sent email notification to ${toEmail}`);
+      } catch (err: any) {
+        console.error(`[Notifications] Failed to send email to ${toEmail}:`, err.message);
+      }
+    }
+
+    // 5. Send Expo Mobile Push Notifications
+    const pushTokens = recipients
+      .map(r => r.push_token)
+      .filter((t): t is string => !!t && t.startsWith('ExponentPushToken'));
+
+    if (pushTokens.length > 0) {
+      console.log(`[Notifications] Dispatched Expo Push notifications to:`, pushTokens);
+      const pushMessages = pushTokens.map(token => ({
+        to: token,
+        sound: 'default',
+        title: '\uD83D\uDD25 New Lead Ingested!',
+        body: `${lead.name} - NEET: ${lead.neet_marks || 'N/A'} - ${lead.lead_source}`,
+        data: { leadId: lead.id }
+      }));
+
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pushMessages)
+      });
+      const data = await response.json();
+      console.log('[Notifications] Expo Push Notification Delivery Log:', JSON.stringify(data));
+    }
+  } catch (err: any) {
+    console.error('[Notifications] General error in sendNewLeadNotifications:', err.message);
+  }
 }
