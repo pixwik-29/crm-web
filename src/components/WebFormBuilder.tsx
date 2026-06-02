@@ -138,6 +138,168 @@ function generateEmbedCode(form: WebForm, webhookUrl: string): string {
 <\/script>`;
 }
 
+function generatePlainCode(form: WebForm, webhookUrl: string): string {
+  const enabledFields = form.fields.filter(f => f.enabled);
+
+  const inputsHtml = enabledFields.map(f => {
+    if (f.type === 'select' && f.options) {
+      const opts = f.options.map(o => `      <option value="${o}">${o}</option>`).join('\n');
+      return `  <div>\n    <label for="ps_${f.key}">${f.label}${f.required ? ' *' : ''}</label>\n    <select id="ps_${f.key}" name="${f.key}"${f.required ? ' required' : ''}>\n      <option value="">Select...</option>\n${opts}\n    </select>\n  </div>`;
+    }
+    return `  <div>\n    <label for="ps_${f.key}">${f.label}${f.required ? ' *' : ''}</label>\n    <input type="${f.type}" id="ps_${f.key}" name="${f.key}" placeholder="${f.label}"${f.required ? ' required' : ''} />\n  </div>`;
+  }).join('\n\n');
+
+  return `<!-- Perfect Scholar CRM: ${form.name} -->
+<form id="ps-plain-${form.id}">
+${inputsHtml}
+
+  <button type="submit">${form.button_text}</button>
+  <p id="ps-msg-${form.id}" style="display:none"></p>
+</form>
+
+<script>
+document.getElementById('ps-plain-${form.id}').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var frm = e.target;
+  var btn = frm.querySelector('button[type=submit]');
+  var msg = document.getElementById('ps-msg-${form.id}');
+  btn.disabled = true;
+  var data = {
+    lead_source: ${JSON.stringify(form.lead_source)},
+    landing_page_url: window.location.href
+  };
+  var params = new URLSearchParams(window.location.search);
+  ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(function(k){
+    if (params.get(k)) data[k] = params.get(k);
+  });
+  frm.querySelectorAll('input,select').forEach(function(inp){ if (inp.value) data[inp.name] = inp.value; });
+  fetch('${webhookUrl}', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(function(r) {
+    if (r.ok) {
+      frm.style.display = 'none';
+      msg.textContent = '✅ ${form.success_message}';
+      msg.style.display = 'block';
+    } else { btn.disabled = false; alert('Submission failed. Please try again.'); }
+  }).catch(function(){ btn.disabled = false; alert('Network error. Please try again.'); });
+});
+<\/script>`;
+}
+
+function generateReactCode(form: WebForm, webhookUrl: string): string {
+  const enabledFields = form.fields.filter(f => f.enabled);
+
+  const stateLines = enabledFields
+    .map(f => `  const [${f.key}, set${f.key.charAt(0).toUpperCase()+f.key.slice(1)}] = useState('');`)
+    .join('\n');
+
+  const fieldComponents = enabledFields.map(f => {
+    if (f.type === 'select' && f.options) {
+      const opts = f.options.map(o => `          <option value="${o}">${o}</option>`).join('\n');
+      return `      <div>
+        <label htmlFor="${f.key}">${f.label}${f.required ? ' *' : ''}</label>
+        <select
+          id="${f.key}"
+          value={${f.key}}
+          onChange={e => set${f.key.charAt(0).toUpperCase()+f.key.slice(1)}(e.target.value)}
+          ${f.required ? 'required' : ''}
+        >
+          <option value="">Select...</option>
+${opts}
+        </select>
+      </div>`;
+    }
+    return `      <div>
+        <label htmlFor="${f.key}">${f.label}${f.required ? ' *' : ''}</label>
+        <input
+          type="${f.type}"
+          id="${f.key}"
+          placeholder="${f.label}"
+          value={${f.key}}
+          onChange={e => set${f.key.charAt(0).toUpperCase()+f.key.slice(1)}(e.target.value)}
+          ${f.required ? 'required' : ''}
+        />
+      </div>`;
+  }).join('\n\n');
+
+  const dataFields = enabledFields
+    .map(f => `      if (${f.key}) payload.${f.key} = ${f.key};`)
+    .join('\n');
+
+  const componentName = form.name.replace(/[^a-zA-Z0-9]/g, '') + 'Form';
+
+  return `'use client';
+// ${form.name} — Perfect Scholar CRM Lead Form
+// Drop this component anywhere in your Next.js / React app.
+
+import { useState } from 'react';
+
+export default function ${componentName}() {
+${stateLines}
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError('');
+
+    const payload: Record<string, string> = {
+      lead_source: ${JSON.stringify(form.lead_source)},
+      landing_page_url: typeof window !== 'undefined' ? window.location.href : '',
+    };
+
+    // Auto-capture UTM params
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach(k => {
+        const v = params.get(k);
+        if (v) payload[k] = v;
+      });
+    }
+
+${dataFields}
+
+    try {
+      const res = await fetch('${webhookUrl}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        setSuccess(true);
+      } else {
+        setError('Submission failed. Please try again.');
+        setSubmitting(false);
+      }
+    } catch {
+      setError('Network error. Please check your connection.');
+      setSubmitting(false);
+    }
+  };
+
+  if (success) {
+    return <p>✅ ${form.success_message}</p>;
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+${fieldComponents}
+
+      {error && <p style={{ color: 'red' }}>{error}</p>}
+      <button type="submit" disabled={submitting}
+        style={{ backgroundColor: '${form.primary_color}', color: '#fff' }}
+      >
+        {submitting ? 'Submitting...' : '${form.button_text}'}
+      </button>
+    </form>
+  );
+}`;
+}
+
 export const WebFormBuilder: React.FC = () => {
   const { settings, updateSettings, currentUser } = useData();
   const webhookUrl = 'https://crm.perfectscholar.com/api/webhook';
@@ -148,6 +310,7 @@ export const WebFormBuilder: React.FC = () => {
   const [view, setView] = useState<'list' | 'create' | 'embed'>('list');
   const [selectedForm, setSelectedForm] = useState<WebForm | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [embedMode, setEmbedMode] = useState<'styled' | 'plain' | 'react'>('styled');
 
   // Form builder state
   const [formName, setFormName] = useState('');
@@ -202,7 +365,9 @@ export const WebFormBuilder: React.FC = () => {
 
   const handleCopyCode = () => {
     if (!selectedForm) return;
-    const code = generateEmbedCode(selectedForm, webhookUrl);
+    const code = embedMode === 'styled'
+      ? generateEmbedCode(selectedForm, webhookUrl)
+      : generatePlainCode(selectedForm, webhookUrl);
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2500);
@@ -237,12 +402,78 @@ export const WebFormBuilder: React.FC = () => {
           </div>
         </div>
 
+        {/* Mode Toggle */}
+        <div className="flex gap-2 bg-slate-100 dark:bg-zinc-900 rounded-xl p-1 w-fit">
+          <button
+            onClick={() => { setEmbedMode('styled'); setCopiedCode(false); }}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              embedMode === 'styled'
+                ? 'bg-white dark:bg-zinc-800 text-slate-800 dark:text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            🎨 Styled Widget
+          </button>
+          <button
+            onClick={() => { setEmbedMode('plain'); setCopiedCode(false); }}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              embedMode === 'plain'
+                ? 'bg-white dark:bg-zinc-800 text-slate-800 dark:text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            🧾 Plain HTML (No Styles)
+          </button>
+          <button
+            onClick={() => { setEmbedMode('react'); setCopiedCode(false); }}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              embedMode === 'react'
+                ? 'bg-white dark:bg-zinc-800 text-slate-800 dark:text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            ⚛️ React / Next.js
+          </button>
+        </div>
+
+        {/* Mode Description */}
+        {embedMode === 'plain' ? (
+          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded-2xl p-4 flex gap-3">
+            <span className="text-lg flex-shrink-0">🧾</span>
+            <div className="text-sm">
+              <p className="font-bold text-amber-800 dark:text-amber-300 mb-1">Plain HTML — inherits your website's styles</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">A bare <code className="bg-amber-100 dark:bg-amber-900/40 px-1 rounded">&lt;form&gt;</code> with no CSS. Your site's existing stylesheet styles it automatically. Works on any plain HTML, WordPress, or static website.</p>
+            </div>
+          </div>
+        ) : embedMode === 'react' ? (
+          <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-2xl p-4 flex gap-3">
+            <span className="text-lg flex-shrink-0">⚛️</span>
+            <div className="text-sm">
+              <p className="font-bold text-emerald-800 dark:text-emerald-300 mb-1">React / Next.js Component</p>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                Save this as a <code className="bg-emerald-100 dark:bg-emerald-900/40 px-1 rounded">.tsx</code> file (e.g. <code className="bg-emerald-100 dark:bg-emerald-900/40 px-1 rounded">EnquiryForm.tsx</code>) and import it anywhere in your Next.js app.
+                Style it with your existing CSS classes or Tailwind. Has <code className="bg-emerald-100 dark:bg-emerald-900/40 px-1 rounded">'use client'</code> already included.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/40 rounded-2xl p-4 flex gap-3">
+            <Sparkles className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-indigo-700 dark:text-indigo-300">
+              <p className="font-bold mb-1">Styled Widget — self-contained with its own design</p>
+              <p className="text-xs text-indigo-600 dark:text-indigo-400">Includes a complete inline stylesheet. Works on any plain HTML page or WordPress site. Not for use inside React/Next.js JSX files.</p>
+            </div>
+          </div>
+        )}
+
         {/* Code Block */}
         <div className="relative bg-slate-950 dark:bg-black border border-slate-800 dark:border-zinc-900 rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 dark:border-zinc-900">
             <div className="flex items-center gap-2">
               <Code2 className="w-4 h-4 text-indigo-400" />
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Embed Code</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                {embedMode === 'react' ? 'React / Next.js Component (.tsx)' : embedMode === 'plain' ? 'Plain HTML Form Code' : 'Styled Embed Code'}
+              </span>
             </div>
             <button
               onClick={handleCopyCode}
@@ -256,7 +487,12 @@ export const WebFormBuilder: React.FC = () => {
             </button>
           </div>
           <pre className="p-4 text-xs text-indigo-300 overflow-x-auto max-h-96 leading-relaxed font-mono whitespace-pre-wrap break-all">
-            {embedCode}
+            {embedMode === 'react'
+              ? generateReactCode(selectedForm, webhookUrl)
+              : embedMode === 'plain'
+                ? generatePlainCode(selectedForm, webhookUrl)
+                : generateEmbedCode(selectedForm, webhookUrl)
+            }
           </pre>
         </div>
 
