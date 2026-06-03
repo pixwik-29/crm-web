@@ -915,6 +915,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .replace('{{budget}}', lead.budget ? `${(lead.budget / 100000).toFixed(1)} Lakh` : '40 Lakh')
       .replace('{{preferred_destination}}', lead.preferred_destination || 'Georgia/Russia');
 
+    if (template.attachment_url) {
+      body += `\n\nDownload Attachment: ${template.attachment_url}`;
+    }
+
     const newMessage: WhatsAppMessage = {
       id: `wa-${Date.now()}`,
       lead_id: leadId,
@@ -923,6 +927,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'sent',
       created_at: new Date().toISOString()
     };
+
+    // Open WhatsApp Web/Desktop App directly on computer
+    if (typeof window !== 'undefined') {
+      const cleanPhone = lead.phone.replace(/[^0-9]/g, '');
+      const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(body)}`;
+      window.open(waUrl, '_blank');
+    }
 
     if (isSupabaseConfigured && supabase) {
       await supabase.from('whatsapp_history').insert([newMessage]);
@@ -957,6 +968,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const sendCustomWhatsApp = async (leadId: string, message: string): Promise<void> => {
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return;
+
     const newMessage: WhatsAppMessage = {
       id: `wa-${Date.now()}`,
       lead_id: leadId,
@@ -965,6 +979,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'sent',
       created_at: new Date().toISOString()
     };
+
+    // Open WhatsApp Web/Desktop App directly on computer
+    if (typeof window !== 'undefined') {
+      const cleanPhone = lead.phone.replace(/[^0-9]/g, '');
+      const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+      window.open(waUrl, '_blank');
+    }
 
     if (isSupabaseConfigured && supabase) {
       await supabase.from('whatsapp_history').insert([newMessage]);
