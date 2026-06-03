@@ -19,6 +19,9 @@ CREATE TABLE public.leads (
     email TEXT,
     phone TEXT NOT NULL,
     parent_contact TEXT,
+    whatsapp_number TEXT,
+    father_number TEXT,
+    mother_number TEXT,
     neet_marks INTEGER,
     budget NUMERIC,
     preferred_destination TEXT, -- state or country
@@ -58,6 +61,7 @@ CREATE TABLE public.tasks (
     title TEXT NOT NULL,
     description TEXT,
     due_date TIMESTAMP WITH TIME ZONE,
+    notification_sent BOOLEAN DEFAULT false NOT NULL,
     is_completed BOOLEAN DEFAULT false NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL

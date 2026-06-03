@@ -331,7 +331,10 @@ function extractField(fieldData: any[], fieldNames: string[]): string {
 // Sends both Email notifications (Zoho SMTP) and Mobile Push notifications (Expo Push API) for new leads
 async function sendNewLeadNotifications(lead: any) {
   try {
-    if (!supabase) return;
+    if (!supabase) {
+      console.log('[Notifications] Supabase not configured. Skipping notifications.');
+      return;
+    }
     console.log('[Notifications] Starting notification dispatch for lead:', lead.id);
 
     // 1. Fetch all admins, managers, and assigned counselors
@@ -433,10 +436,13 @@ async function sendNewLeadNotifications(lead: any) {
       host,
       port,
       secure: port === 465,
-      auth: { user: smtpUser, pass: smtpPass }
+      auth: { user: smtpUser, pass: smtpPass },
+      connectionTimeout: 5000, // Fail fast to prevent locking Vercel function
+      greetingTimeout: 5000,
+      socketTimeout: 5000
     });
 
-    for (const toEmail of emailsToSend) {
+    const emailPromises = emailsToSend.map(async (toEmail) => {
       try {
         await transporter.sendMail({
           from: `"Perfect Scholar CRM" <${smtpUser}>`,
@@ -448,31 +454,44 @@ async function sendNewLeadNotifications(lead: any) {
       } catch (err: any) {
         console.error(`[Notifications] Failed to send email to ${toEmail}:`, err.message);
       }
-    }
+    });
 
     // 5. Send Expo Mobile Push Notifications
-    const pushTokens = recipients
-      .map(r => r.push_token)
-      .filter((t): t is string => !!t && t.startsWith('ExponentPushToken'));
+    const pushPromise = (async () => {
+      const pushTokens = recipients
+        .map(r => r.push_token)
+        .filter((t): t is string => !!t && t.startsWith('ExponentPushToken'));
 
-    if (pushTokens.length > 0) {
-      console.log(`[Notifications] Dispatched Expo Push notifications to:`, pushTokens);
-      const pushMessages = pushTokens.map(token => ({
-        to: token,
-        sound: 'default',
-        title: '\uD83D\uDD25 New Lead Ingested!',
-        body: `${lead.name} - NEET: ${lead.neet_marks || 'N/A'} - ${lead.lead_source}`,
-        data: { leadId: lead.id }
-      }));
+      if (pushTokens.length > 0) {
+        console.log(`[Notifications] Dispatched Expo Push notifications to:`, pushTokens);
+        const pushMessages = pushTokens.map(token => ({
+          to: token,
+          sound: 'default',
+          title: '\uD83D\uDD25 New Lead Ingested!',
+          body: `${lead.name} - NEET: ${lead.neet_marks || 'N/A'} - ${lead.lead_source}`,
+          data: { leadId: lead.id }
+        }));
 
-      const response = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pushMessages)
-      });
-      const data = await response.json();
-      console.log('[Notifications] Expo Push Notification Delivery Log:', JSON.stringify(data));
-    }
+        try {
+          const response = await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(pushMessages)
+          });
+          const data = await response.json();
+          console.log('[Notifications] Expo Push Notification Delivery Log:', JSON.stringify(data));
+        } catch (pushErr: any) {
+          console.error('[Notifications] Failed to send push notification:', pushErr.message);
+        }
+      } else {
+        console.log('[Notifications] No valid Expo Push Tokens found for recipients.');
+      }
+    })();
+
+    // Await all notification channels concurrently
+    await Promise.all([...emailPromises, pushPromise]);
+    console.log('[Notifications] All notification dispatches completed.');
+
   } catch (err: any) {
     console.error('[Notifications] General error in sendNewLeadNotifications:', err.message);
   }

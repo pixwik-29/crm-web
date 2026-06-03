@@ -14,6 +14,9 @@ export interface Lead {
   email?: string;
   phone: string;
   parent_contact?: string;
+  whatsapp_number?: string;
+  father_number?: string;
+  mother_number?: string;
   neet_marks?: number;
   budget?: number;
   preferred_destination?: string; // State or Country

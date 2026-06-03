@@ -32,6 +32,9 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [whatsappNumber, setWhatsappNumber] = useState('');
+  const [fatherNumber, setFatherNumber] = useState('');
+  const [motherNumber, setMotherNumber] = useState('');
   const [email, setEmail] = useState('');
   const [parentContact, setParentContact] = useState('');
   const [neetMarks, setNeetMarks] = useState('');
@@ -72,6 +75,9 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
       await addLead({
         name,
         phone,
+        whatsapp_number: whatsappNumber || undefined,
+        father_number: fatherNumber || undefined,
+        mother_number: motherNumber || undefined,
         email: email || undefined,
         parent_contact: parentContact || undefined,
         neet_marks: neetMarks ? parsedNeet : undefined,
@@ -89,6 +95,9 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
       // Clear fields and close
       setName('');
       setPhone('');
+      setWhatsappNumber('');
+      setFatherNumber('');
+      setMotherNumber('');
       setEmail('');
       setParentContact('');
       setNeetMarks('');
@@ -161,6 +170,39 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
               placeholder="e.g. +919876543210"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">WhatsApp Number</label>
+            <input
+              type="text"
+              placeholder="e.g. +919876543210"
+              value={whatsappNumber}
+              onChange={(e) => setWhatsappNumber(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Father's Number</label>
+            <input
+              type="text"
+              placeholder="e.g. +919876543211"
+              value={fatherNumber}
+              onChange={(e) => setFatherNumber(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Mother's Number</label>
+            <input
+              type="text"
+              placeholder="e.g. +919876543212"
+              value={motherNumber}
+              onChange={(e) => setMotherNumber(e.target.value)}
               className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all"
             />
           </div>
@@ -283,8 +325,8 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
                 className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-300 outline-none"
               >
                 <option value="">Unassigned (Counsellor gets notified on auto-assignment)</option>
-                {profiles.filter(p => p.role === 'counsellor').map(c => (
-                  <option key={c.id} value={c.id}>{c.full_name}</option>
+                {profiles.map(c => (
+                  <option key={c.id} value={c.id}>{c.full_name} ({c.role})</option>
                 ))}
               </select>
             </div>

@@ -795,12 +795,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Tasks
   const addTask = async (leadId: string, title: string, dueDate?: string): Promise<Task> => {
+    const finalDueDate = dueDate ? new Date(dueDate).toISOString() : new Date(Date.now() + 86400000 * 2).toISOString();
     const newTask: Task = {
       id: `task-${Date.now()}`,
       lead_id: leadId,
       assignee_id: currentUser?.id || 'system',
       title,
-      due_date: dueDate || new Date(Date.now() + 86400000 * 2).toISOString(), // +2 days default
+      due_date: finalDueDate,
       is_completed: false,
       created_at: new Date().toISOString()
     };
@@ -808,7 +809,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('tasks')
-        .insert([{ lead_id: leadId, assignee_id: currentUser?.id, title, due_date: dueDate }])
+        .insert([{ lead_id: leadId, assignee_id: currentUser?.id, title, due_date: finalDueDate }])
         .select()
         .single();
       if (error) throw error;
@@ -926,7 +927,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .replace('{{preferred_destination}}', lead.preferred_destination || 'Georgia/Russia');
 
     if (template.attachment_url) {
-      body += `\n\nDownload Attachment: ${template.attachment_url}`;
+      body += `\n\n📄 Document: ${template.attachment_url}`;
     }
 
     const newMessage: WhatsAppMessage = {

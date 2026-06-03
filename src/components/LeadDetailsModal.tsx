@@ -59,9 +59,11 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const [editNeet, setEditNeet] = useState('');
   const [editBudget, setEditBudget] = useState('');
   const [editDest, setEditDest] = useState('');
-  const [editCourse, setEditCourse] = useState('');
   const [editStatus, setEditStatus] = useState('');
   const [editParent, setEditParent] = useState('');
+  const [editWhatsapp, setEditWhatsapp] = useState('');
+  const [editFather, setEditFather] = useState('');
+  const [editMother, setEditMother] = useState('');
   const [editCounsellor, setEditCounsellor] = useState('');
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,9 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
       setEditCourse(lead.course || '');
       setEditStatus(lead.status);
       setEditParent(lead.parent_contact || '');
+      setEditWhatsapp(lead.whatsapp_number || '');
+      setEditFather(lead.father_number || '');
+      setEditMother(lead.mother_number || '');
       setEditCounsellor(lead.assigned_counsellor_id || '');
       setIsEditing(false);
     }
@@ -111,6 +116,9 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
         course: editCourse,
         status: editStatus,
         parent_contact: editParent,
+        whatsapp_number: editWhatsapp || undefined,
+        father_number: editFather || undefined,
+        mother_number: editMother || undefined,
         assigned_counsellor_id: editCounsellor || null
       });
       setIsEditing(false);
@@ -182,8 +190,20 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
               <input type="text" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white" />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Parent Phone</label>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Parent Contact</label>
               <input type="text" value={editParent} onChange={(e) => setEditParent(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">WhatsApp Number</label>
+              <input type="text" value={editWhatsapp} onChange={(e) => setEditWhatsapp(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Father's Number</label>
+              <input type="text" value={editFather} onChange={(e) => setEditFather(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Mother's Number</label>
+              <input type="text" value={editMother} onChange={(e) => setEditMother(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white" />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">NEET Marks</label>
@@ -216,8 +236,8 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned Counsellor</label>
                 <select value={editCounsellor} onChange={(e) => setEditCounsellor(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white">
                   <option value="">Unassigned</option>
-                  {profiles.filter(p => p.role === 'counsellor').map(c => (
-                    <option key={c.id} value={c.id}>{c.full_name}</option>
+                  {profiles.map(c => (
+                    <option key={c.id} value={c.id}>{c.full_name} ({c.role})</option>
                   ))}
                 </select>
               </div>
@@ -246,6 +266,27 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
             <div>
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Parent Contact</p>
               <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1">{lead.parent_contact || '--'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">WhatsApp Number</p>
+              <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1 flex items-center gap-1.5">
+                {lead.whatsapp_number || '--'}
+                {lead.whatsapp_number && <a href={`https://wa.me/${lead.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-emerald-500" title="Open WhatsApp"><MessageCircle className="w-3.5 h-3.5" /></a>}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Father's Number</p>
+              <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1 flex items-center gap-1.5">
+                {lead.father_number || '--'}
+                {lead.father_number && <a href={`tel:${lead.father_number}`} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-blue-500" title="Call Father"><Phone className="w-3.5 h-3.5" /></a>}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Mother's Number</p>
+              <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1 flex items-center gap-1.5">
+                {lead.mother_number || '--'}
+                {lead.mother_number && <a href={`tel:${lead.mother_number}`} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-blue-500" title="Call Mother"><Phone className="w-3.5 h-3.5" /></a>}
+              </p>
             </div>
             <div>
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">NEET score</p>
@@ -316,7 +357,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
               : 'border-transparent text-slate-400 hover:text-slate-800 dark:hover:text-white'
           }`}
         >
-          <MessageCircle className="w-4 h-4 text-slate-450 dark:text-slate-400" /> WhatsApp Chats ({leadChats.length})
+          <MessageCircle className="w-4 h-4 text-slate-450 dark:text-slate-400" /> Send WhatsApp
         </button>
         <button
           onClick={() => setActiveTab('timeline')}
@@ -399,7 +440,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                   <Calendar className="w-4 h-4 text-slate-400" />
                   <span>Due Date:</span>
                   <input
-                    type="date"
+                    type="datetime-local"
                     value={newTaskDueDate}
                     onChange={(e) => setNewTaskDueDate(e.target.value)}
                     className="bg-transparent border border-slate-200 dark:border-zinc-900 rounded-lg p-1 text-slate-600 dark:text-slate-400 focus:outline-none"
@@ -445,7 +486,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                         {task.due_date && (
                           <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-1 font-medium">
                             <Clock className="w-3 h-3" />
-                            Due: {new Date(task.due_date).toLocaleDateString()}
+                            Due: {new Date(task.due_date).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                           </span>
                         )}
                       </div>
@@ -461,14 +502,18 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
 
         {/* TAB: WHATSAPP */}
         {activeTab === 'whatsapp' && (
-          <div className="flex flex-col h-[400px] border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950/40">
+          <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950/40 p-6 space-y-4">
             
+            <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Select a template to send directly to the lead via the WhatsApp Desktop app or Web.
+            </div>
+
             {/* Template Selector */}
-            <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex gap-2 items-center bg-slate-900/50">
+            <div className="flex gap-2 items-center">
               <select
                 value={selectedTemplateId}
                 onChange={(e) => setSelectedTemplateId(e.target.value)}
-                className="flex-1 bg-slate-950 border border-slate-800 text-xs rounded-xl p-2 outline-none text-slate-300"
+                className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm rounded-xl p-3 outline-none text-slate-700 dark:text-slate-300"
               >
                 <option value="">-- Choose WhatsApp Template --</option>
                 {whatsappTemplates.map(t => (
@@ -478,58 +523,11 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
               <button
                 onClick={handleSendWhatsAppTemplate}
                 disabled={!selectedTemplateId}
-                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all"
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2"
               >
-                Send Template
+                <MessageCircle className="w-4 h-4" /> Send Template
               </button>
             </div>
-
-            {/* Chats messages window */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-3 flex flex-col justify-end bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-              {leadChats.length > 0 ? (
-                leadChats.map(msg => (
-                  <div 
-                    key={msg.id}
-                    className={`max-w-[75%] rounded-2xl p-3 text-xs leading-relaxed ${
-                      msg.direction === 'outgoing'
-                        ? 'bg-emerald-600 text-white self-end rounded-br-none shadow-md shadow-emerald-600/10'
-                        : 'bg-slate-800 text-slate-100 self-start rounded-bl-none border border-slate-700/50'
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap font-medium">{msg.message_text}</p>
-                    <div className="flex justify-end items-center gap-1.5 mt-1 text-[9px] text-emerald-200 dark:text-slate-400">
-                      <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      {msg.direction === 'outgoing' && (
-                        <span className="font-extrabold uppercase text-[8px]">
-                          {msg.status}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-slate-500 text-xs">No WhatsApp interactions logged</div>
-              )}
-              <div ref={chatBottomRef} />
-            </div>
-
-            {/* Custom Input */}
-            <form onSubmit={handleSendCustomWhatsApp} className="p-3 border-t border-slate-200 dark:border-slate-800 flex gap-2 bg-slate-900/50">
-              <input
-                type="text"
-                placeholder="Type custom reply message..."
-                value={customMsg}
-                onChange={(e) => setCustomMsg(e.target.value)}
-                className="flex-1 bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-3 py-2.5 text-xs outline-none text-white"
-              />
-              <button 
-                type="submit"
-                className="p-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg transition-all"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
-
           </div>
         )}
 

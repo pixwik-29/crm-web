@@ -82,7 +82,7 @@ export const CRMAnalytics: React.FC<CRMAnalyticsProps> = ({ leads, profiles, wha
     .slice(0, 5); // top 5 campaigns
 
   // 3. Counsellor Performance
-  const counsellors = profiles.filter(p => p.role === 'counsellor');
+  const counsellors = profiles;
   const counsellorData = counsellors.map(c => {
     const assignedLeads = leads.filter(l => l.assigned_counsellor_id === c.id);
     const total = assignedLeads.length;

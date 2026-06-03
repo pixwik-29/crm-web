@@ -457,64 +457,7 @@ async function submitEduPathLead(leadData) {
               </div>
             </div>
 
-            {/* WhatsApp Integration Parameters */}
-            <div className="pt-4 border-t border-slate-100 dark:border-zinc-900 space-y-4">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-emerald-500" />
-                <h4 className="font-bold text-xs text-slate-700 dark:text-slate-300">WhatsApp Business API Settings</h4>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number ID</label>
-                  <input
-                    type="text"
-                    value={phoneId}
-                    onChange={(e) => setPhoneId(e.target.value)}
-                    disabled={!isAdmin}
-                    className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 disabled:opacity-60"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">WhatsApp Business Account ID</label>
-                  <input
-                    type="text"
-                    value={accountId}
-                    onChange={(e) => setAccountId(e.target.value)}
-                    disabled={!isAdmin}
-                    className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 disabled:opacity-60"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Meta System User Access Token</label>
-                  <div className="relative">
-                    <input
-                      type="password"
-                      value={whApiToken}
-                      onChange={(e) => setWhApiToken(e.target.value)}
-                      disabled={!isAdmin}
-                      className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 pr-10 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 disabled:opacity-60"
-                    />
-                    <Key className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Automatic Response Template ID</label>
-                  <select
-                    value={autoResponse}
-                    onChange={(e) => setAutoResponse(e.target.value)}
-                    disabled={!isAdmin}
-                    className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-slate-350 outline-none disabled:opacity-60"
-                  >
-                    <option value="welcome">Welcome Message Template</option>
-                    <option value="neet-followup">NEET Marks Follow-up Template</option>
-                  </select>
-                </div>
-              </div>
-            </div>
 
             {/* Meta Lead Webhooks Integration */}
             <div className="pt-4 border-t border-slate-100 dark:border-zinc-900 space-y-4">
@@ -735,18 +678,21 @@ async function submitEduPathLead(leadData) {
                           {isUploading ? (
                             <>
                               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              Uploading File...
+                              Uploading...
                             </>
                           ) : (
                             <>
                               <PlusCircle className="w-3.5 h-3.5" />
-                              Upload PDF or Image File
+                              {tempAttachUrl ? 'Replace Attachment' : 'Upload Document'}
                             </>
                           )}
                         </button>
 
                         {/* Display URL and name inputs side-by-side */}
                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {templateError && templateError.toLowerCase().includes('upload') && (
+                            <p className="text-[10px] text-rose-500 font-semibold absolute -mt-4">⚠️ {templateError}</p>
+                          )}
                           <input
                             type="url"
                             placeholder="Or paste attachment URL..."
@@ -1101,7 +1047,6 @@ async function submitEduPathLead(leadData) {
             <div className="space-y-3">
               {[
                 { name: 'Meta Lead Ads API Webhook', status: 'Healthy Connection', color: 'bg-emerald-500' },
-                { name: 'WhatsApp Business API Feed', status: 'Offline Sandbox (Simulated)', color: 'bg-orange-500' },
                 { name: 'Supabase Realtime Sync', status: 'Active Gateway', color: 'bg-emerald-500' },
                 { name: 'n8n Workflow Webhooks', status: 'Awaiting Webhook Payload', color: 'bg-indigo-500' },
               ].map((conn, idx) => (

@@ -41,7 +41,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
   const sources = ['All', ...Array.from(new Set(accessibleLeads.map(l => l.lead_source)))];
   const statuses = ['All', ...Array.from(new Set(accessibleLeads.map(l => l.status)))];
   const courses = ['All', ...Array.from(new Set(accessibleLeads.map(l => l.course).filter(Boolean) as string[]))];
-  const counsellors = profiles.filter(p => p.role === 'counsellor');
+  const counsellors = profiles;
 
   // Handle sort toggle
   const handleSort = (field: keyof Lead) => {
