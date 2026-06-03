@@ -66,6 +66,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const [editFather, setEditFather] = useState('');
   const [editMother, setEditMother] = useState('');
   const [editCounsellor, setEditCounsellor] = useState('');
+  const [editExternalConsultant, setEditExternalConsultant] = useState('');
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -84,6 +85,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
       setEditFather(lead.father_number || '');
       setEditMother(lead.mother_number || '');
       setEditCounsellor(lead.assigned_counsellor_id || '');
+      setEditExternalConsultant(lead.external_consultant || '');
       setIsEditing(false);
     }
   }, [lead]);
@@ -120,7 +122,8 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
         whatsapp_number: editWhatsapp || undefined,
         father_number: editFather || undefined,
         mother_number: editMother || undefined,
-        assigned_counsellor_id: editCounsellor || null
+        assigned_counsellor_id: editCounsellor || null,
+        external_consultant: editExternalConsultant || undefined
       });
       setIsEditing(false);
     } catch (err) {
@@ -232,6 +235,10 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">External Consultant</label>
+              <input type="text" value={editExternalConsultant} onChange={(e) => setEditExternalConsultant(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white" />
+            </div>
             {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned Counsellor</label>
@@ -323,6 +330,10 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
             <div>
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Lead Source</p>
               <p className="mt-1"><span className="text-[10px] font-bold px-2 py-0.5 border border-slate-200 dark:border-slate-700 rounded-md bg-slate-50 dark:bg-slate-950/30 text-slate-500 dark:text-slate-400">{lead.lead_source}</span></p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">External Consultant</p>
+              <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1">{lead.external_consultant || '--'}</p>
             </div>
             <div>
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Counsellor Assigned</p>

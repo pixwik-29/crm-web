@@ -82,7 +82,8 @@ export async function POST(req: NextRequest) {
       utm_source,
       utm_medium,
       utm_campaign,
-      landing_page_url
+      landing_page_url,
+      external_consultant
     } = body;
 
     if (!name || !phone) {
@@ -117,7 +118,8 @@ export async function POST(req: NextRequest) {
       landing_page_url,
       status: '1st followup',
       score,
-      tags: ['Webhook Ingestion']
+      tags: ['Webhook Ingestion'],
+      external_consultant: external_consultant || null
     };
 
     if (supabase) {
@@ -228,8 +230,9 @@ async function processMetaLead({ leadgenId, formId, pageId, adId }: {
         const neet_marks = extractField(fieldData, ['neet_marks', 'neet_score', 'neet']);
         const preferred_destination = extractField(fieldData, ['preferred_destination', 'destination', 'country', 'state', 'city']);
         const budget = extractField(fieldData, ['budget', 'fees', 'investment']);
+        const external_consultant = extractField(fieldData, ['external_consultant', 'consultant', 'partner', 'agency']);
 
-        console.log(`[processMetaLead] Parsed fields: name="${name}", phone="${phone}", email="${email}"`);
+        console.log(`[processMetaLead] Parsed fields: name="${name}", phone="${phone}", email="${email}", consultant="${external_consultant}"`);
         
         const marks = neetMarksValue(neet_marks);
         let score = 30;
@@ -248,7 +251,8 @@ async function processMetaLead({ leadgenId, formId, pageId, adId }: {
           campaign_name: `Form ID: ${formId || 'N/A'} (Page ID: ${pageId || 'N/A'})`,
           status: '1st followup',
           score,
-          tags: ['Facebook Lead Ads']
+          tags: ['Facebook Lead Ads'],
+          external_consultant: external_consultant || null
         };
       } else {
         // Both strategies failed — insert fallback so lead is never lost

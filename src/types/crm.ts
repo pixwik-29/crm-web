@@ -21,6 +21,7 @@ export interface Lead {
   budget?: number;
   preferred_destination?: string; // State or Country
   course?: string;
+  external_consultant?: string;
   lead_source: string; // Facebook Ads, Instagram Ads, Google Ads, WhatsApp Campaign, etc.
   campaign_name?: string;
   adset_name?: string;
@@ -128,4 +129,41 @@ export interface CRMSettings {
   form_integration_dynamic_field?: string;
   pipeline_stages?: PipelineStage[];
   web_forms?: WebForm[];
+}
+
+export interface VisaApplication {
+  id: string;
+  lead_id: string;
+  status: string; // 'Document Collection', 'Apostille/Verification', 'Embassy Submission', 'Visa Issued', 'Flyer/Pre-departure'
+  target_country?: string;
+  target_college?: string;
+  visa_notes?: string;
+  travel_departure_date?: string;
+  travel_departure_airport?: string;
+  travel_currency_exchanged: boolean;
+  travel_insurance_done: boolean;
+  travel_luggage_guidelines: boolean;
+  travel_pickup_confirmed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VisaRequiredDoc {
+  id: string;
+  country: string;
+  document_name: string;
+  is_required: boolean;
+  created_at: string;
+}
+
+export interface VisaUploadedDoc {
+  id: string;
+  visa_application_id: string;
+  document_name: string;
+  file_url: string;
+  file_name: string;
+  status: 'pending' | 'verified' | 'rejected';
+  is_issuance: boolean;
+  uploaded_at: string;
+  updated_at: string;
 }

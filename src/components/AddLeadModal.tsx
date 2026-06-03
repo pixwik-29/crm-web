@@ -45,6 +45,7 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
   const [campaign, setCampaign] = useState('');
   const [counsellorId, setCounsellorId] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+  const [externalConsultant, setExternalConsultant] = useState('');
   
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,7 +90,8 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
         status: '1st followup',
         assigned_counsellor_id: counsellorId || (currentUser?.role === 'counsellor' ? currentUser.id : null),
         tags: formattedTags,
-        score
+        score,
+        external_consultant: externalConsultant || undefined
       });
 
       // Clear fields and close
@@ -108,6 +110,7 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
       setCampaign('');
       setCounsellorId('');
       setTagsInput('');
+      setExternalConsultant('');
       
       onClose();
     } catch (err: any) {
@@ -312,6 +315,17 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
               placeholder="e.g. MBBS Abroad Campaign June"
               value={campaign}
               onChange={(e) => setCampaign(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">External Consultant Source</label>
+            <input
+              type="text"
+              placeholder="e.g. ABC Agency, John Doe"
+              value={externalConsultant}
+              onChange={(e) => setExternalConsultant(e.target.value)}
               className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all"
             />
           </div>

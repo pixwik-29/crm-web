@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole } from '@/types/crm';
+import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc } from '@/types/crm';
 
 interface DataContextType {
   isConfigured: boolean;
@@ -16,6 +16,18 @@ interface DataContextType {
   whatsappHistory: WhatsAppMessage[];
   whatsappTemplates: WhatsAppTemplate[];
   settings: CRMSettings;
+  
+  // Post-Closing / Visa & Travel Operations
+  visaApplications: VisaApplication[];
+  visaRequiredDocs: VisaRequiredDoc[];
+  visaUploadedDocs: VisaUploadedDoc[];
+  updateVisaApplication: (id: string, updates: Partial<VisaApplication>) => Promise<void>;
+  saveVisaRequiredDoc: (country: string, documentName: string, isRequired: boolean) => Promise<void>;
+  deleteVisaRequiredDoc: (id: string) => Promise<void>;
+  uploadVisaDoc: (visaApplicationId: string, documentName: string, file: File, isIssuance: boolean) => Promise<void>;
+  deleteVisaDoc: (id: string) => Promise<void>;
+  verifyVisaDoc: (id: string, status: 'verified' | 'rejected') => Promise<void>;
+  sendVisaDocToStudent: (uploadedDocId: string) => Promise<void>;
   
   // Auth/User Operations
   login: (email: string, role: UserRole, name: string, password?: string) => Promise<Profile>;
@@ -208,6 +220,17 @@ const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
   { id: 'Closed Lost', name: 'Closed Lost', color: 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400', order: 5 }
 ];
 
+const MOCK_VISA_REQ_DOCS: VisaRequiredDoc[] = [
+  { id: 'vrd-1', country: 'Georgia', document_name: 'Passport Copy', is_required: true, created_at: new Date().toISOString() },
+  { id: 'vrd-2', country: 'Georgia', document_name: '12th Marksheet', is_required: true, created_at: new Date().toISOString() },
+  { id: 'vrd-3', country: 'Georgia', document_name: 'NEET Score Card', is_required: true, created_at: new Date().toISOString() },
+  { id: 'vrd-4', country: 'Georgia', document_name: 'Police Clearance Certificate', is_required: true, created_at: new Date().toISOString() },
+  { id: 'vrd-5', country: 'Russia', document_name: 'Passport Copy', is_required: true, created_at: new Date().toISOString() },
+  { id: 'vrd-6', country: 'Russia', document_name: '12th Marksheet', is_required: true, created_at: new Date().toISOString() },
+  { id: 'vrd-7', country: 'Russia', document_name: 'NEET Score Card', is_required: true, created_at: new Date().toISOString() },
+  { id: 'vrd-8', country: 'Russia', document_name: 'Medical Health Certificate', is_required: true, created_at: new Date().toISOString() }
+];
+
 const DEFAULT_SETTINGS: CRMSettings = {
   company_name: 'Perfect Scholar Lead Management',
   admission_year_prefix: '2026',
@@ -235,6 +258,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [whatsappHistory, setWhatsappHistory] = useState<WhatsAppMessage[]>([]);
   const [whatsappTemplates, setWhatsappTemplates] = useState<WhatsAppTemplate[]>(DEFAULT_TEMPLATES);
   const [settings, setSettings] = useState<CRMSettings>(DEFAULT_SETTINGS);
+  
+  // Post-Closing States
+  const [visaApplications, setVisaApplications] = useState<VisaApplication[]>([]);
+  const [visaRequiredDocs, setVisaRequiredDocs] = useState<VisaRequiredDoc[]>([]);
+  const [visaUploadedDocs, setVisaUploadedDocs] = useState<VisaUploadedDoc[]>([]);
+  
   const [isLoading, setIsLoading] = useState(true);
 
   // Initialize DB or Local Storage
@@ -276,8 +305,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const { data: wHist } = await client.from('whatsapp_history').select('*').order('created_at', { ascending: false });
           if (wHist) setWhatsappHistory(wHist as WhatsAppMessage[]);
 
-          const { data: wTemp } = await client.from('whatsapp_templates').select('*');
+           const { data: wTemp } = await client.from('whatsapp_templates').select('*');
           if (wTemp && wTemp.length > 0) setWhatsappTemplates(wTemp as WhatsAppTemplate[]);
+
+          const { data: vApps } = await client.from('visa_applications').select('*');
+          if (vApps) setVisaApplications(vApps as VisaApplication[]);
+
+          const { data: vReqDocs } = await client.from('visa_required_docs').select('*');
+          if (vReqDocs) setVisaRequiredDocs(vReqDocs as VisaRequiredDoc[]);
+
+          const { data: vUpDocs } = await client.from('visa_uploaded_docs').select('*');
+          if (vUpDocs) setVisaUploadedDocs(vUpDocs as VisaUploadedDoc[]);
 
           // Set up real-time listener subscriptions
           leadsChannel = client.channel('realtime-db-changes')
@@ -313,6 +351,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setWhatsappTemplates(prev => prev.map(t => t.id === payload.new.id ? (payload.new as WhatsAppTemplate) : t));
               } else if (payload.eventType === 'DELETE') {
                 setWhatsappTemplates(prev => prev.filter(t => t.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_applications' }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setVisaApplications(prev => [payload.new as VisaApplication, ...prev]);
+              } else if (payload.eventType === 'UPDATE') {
+                setVisaApplications(prev => prev.map(va => va.id === payload.new.id ? (payload.new as VisaApplication) : va));
+              } else if (payload.eventType === 'DELETE') {
+                setVisaApplications(prev => prev.filter(va => va.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_required_docs' }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setVisaRequiredDocs(prev => [...prev, payload.new as VisaRequiredDoc]);
+              } else if (payload.eventType === 'UPDATE') {
+                setVisaRequiredDocs(prev => prev.map(vrd => vrd.id === payload.new.id ? (payload.new as VisaRequiredDoc) : vrd));
+              } else if (payload.eventType === 'DELETE') {
+                setVisaRequiredDocs(prev => prev.filter(vrd => vrd.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_uploaded_docs' }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setVisaUploadedDocs(prev => [payload.new as VisaUploadedDoc, ...prev]);
+              } else if (payload.eventType === 'UPDATE') {
+                setVisaUploadedDocs(prev => prev.map(vud => vud.id === payload.new.id ? (payload.new as VisaUploadedDoc) : vud));
+              } else if (payload.eventType === 'DELETE') {
+                setVisaUploadedDocs(prev => prev.filter(vud => vud.id !== payload.old.id));
               }
             })
             .subscribe();
@@ -378,7 +443,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!storedProfiles) localStorage.setItem('crm_profiles', JSON.stringify(MOCK_PROFILES));
         if (!storedLeads && !hasLegacyStages) localStorage.setItem('crm_leads', JSON.stringify(MOCK_LEADS));
         if (!storedSettings && !hasLegacyStages) localStorage.setItem('crm_settings', JSON.stringify(DEFAULT_SETTINGS));
-        if (!storedWTemp) localStorage.setItem('crm_whatsapp_templates', JSON.stringify(DEFAULT_TEMPLATES));
+         if (!storedWTemp) localStorage.setItem('crm_whatsapp_templates', JSON.stringify(DEFAULT_TEMPLATES));
+
+        const storedVApps = localStorage.getItem('crm_visa_apps');
+        const storedVReqDocs = localStorage.getItem('crm_visa_req_docs');
+        const storedVUpDocs = localStorage.getItem('crm_visa_up_docs');
+
+        let parsedVApps = storedVApps ? JSON.parse(storedVApps) : [];
+        let parsedVReqDocs = storedVReqDocs ? JSON.parse(storedVReqDocs) : MOCK_VISA_REQ_DOCS;
+        let parsedVUpDocs = storedVUpDocs ? JSON.parse(storedVUpDocs) : [];
+
+        setVisaApplications(parsedVApps);
+        setVisaRequiredDocs(parsedVReqDocs);
+        setVisaUploadedDocs(parsedVUpDocs);
+
+        if (!storedVReqDocs) localStorage.setItem('crm_visa_req_docs', JSON.stringify(MOCK_VISA_REQ_DOCS));
       }
       setIsLoading(false);
     };
@@ -670,23 +749,42 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return data as Lead;
     } else {
-      let updatedLead: Lead | null = null;
-      const updatedLeads = leads.map(l => {
-        if (l.id === id) {
-          updatedLead = {
-            ...l,
-            ...updates,
-            updated_at: new Date().toISOString()
-          };
-          return updatedLead;
-        }
-        return l;
-      });
+      const leadItem = leads.find(l => l.id === id);
+      if (!leadItem) throw new Error("Lead not found");
 
-      if (!updatedLead) throw new Error("Lead not found");
+      const updatedLeadItem: Lead = {
+        ...leadItem,
+        ...updates,
+        updated_at: new Date().toISOString()
+      };
+
+      const updatedLeads = leads.map(l => l.id === id ? updatedLeadItem : l);
 
       setLeads(updatedLeads);
       saveLocal('crm_leads', updatedLeads);
+
+      // Automated Visa Case Creation for Closed Won leads in Mock Mode
+      if (updates.status === 'Closed Won' && leads.find(l => l.id === id)?.status !== 'Closed Won') {
+        const exists = visaApplications.some(va => va.lead_id === id);
+        if (!exists) {
+          const newApp: VisaApplication = {
+            id: `va-${Date.now()}`,
+            lead_id: id,
+            status: 'Document Collection',
+            target_country: updatedLeadItem.preferred_destination || '',
+            target_college: updatedLeadItem.course || '',
+            travel_currency_exchanged: false,
+            travel_insurance_done: false,
+            travel_luggage_guidelines: false,
+            travel_pickup_confirmed: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          const updatedApps = [newApp, ...visaApplications];
+          setVisaApplications(updatedApps);
+          saveLocal('crm_visa_apps', updatedApps);
+        }
+      }
 
       // Log activity
       const actions: ActivityLog[] = [];
@@ -718,7 +816,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         saveLocal('crm_logs', updatedLogs);
       }
 
-      return updatedLead;
+      return updatedLeadItem;
     }
   };
 
@@ -1262,6 +1360,257 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // New Visa Processing Actions
+  const updateVisaApplication = async (id: string, updates: Partial<VisaApplication>): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('visa_applications')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      if (error) throw error;
+    } else {
+      const updated = visaApplications.map(va => {
+        if (va.id === id) {
+          return {
+            ...va,
+            ...updates,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return va;
+      });
+      setVisaApplications(updated);
+      saveLocal('crm_visa_apps', updated);
+    }
+  };
+
+  const saveVisaRequiredDoc = async (country: string, documentName: string, isRequired: boolean): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('visa_required_docs')
+        .upsert({
+          country,
+          document_name: documentName,
+          is_required: isRequired
+        }, { onConflict: 'country,document_name' });
+      if (error) throw error;
+    } else {
+      let exists = false;
+      const updated = visaRequiredDocs.map(vrd => {
+        if (vrd.country === country && vrd.document_name === documentName) {
+          exists = true;
+          return { ...vrd, is_required: isRequired };
+        }
+        return vrd;
+      });
+      if (exists) {
+        setVisaRequiredDocs(updated);
+        saveLocal('crm_visa_req_docs', updated);
+      } else {
+        const newDoc: VisaRequiredDoc = {
+          id: `vrd-${Date.now()}`,
+          country,
+          document_name: documentName,
+          is_required: isRequired,
+          created_at: new Date().toISOString()
+        };
+        const updatedDocs = [...visaRequiredDocs, newDoc];
+        setVisaRequiredDocs(updatedDocs);
+        saveLocal('crm_visa_req_docs', updatedDocs);
+      }
+    }
+  };
+
+  const deleteVisaRequiredDoc = async (id: string): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('visa_required_docs')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    } else {
+      const updated = visaRequiredDocs.filter(vrd => vrd.id !== id);
+      setVisaRequiredDocs(updated);
+      saveLocal('crm_visa_req_docs', updated);
+    }
+  };
+
+  const uploadVisaDoc = async (visaApplicationId: string, documentName: string, file: File, isIssuance: boolean = false): Promise<void> => {
+    let fileUrl = '';
+    let fileName = file.name;
+
+    if (isSupabaseConfigured && supabase) {
+      const bucketName = 'visa_documents';
+      const fileKey = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+      
+      let { data, error } = await supabase.storage.from(bucketName).upload(fileKey, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+      
+      if (error) {
+        try {
+          await supabase.storage.createBucket(bucketName, {
+            public: true,
+            fileSizeLimit: 10485760 // 10MB
+          });
+          
+          const retryResult = await supabase.storage.from(bucketName).upload(fileKey, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+          if (retryResult.error) throw retryResult.error;
+          data = retryResult.data;
+        } catch (bucketErr: any) {
+          throw new Error(error.message || "Failed to upload file to storage.");
+        }
+      }
+      
+      const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(fileKey);
+      fileUrl = urlData.publicUrl;
+    } else {
+      fileUrl = `https://mockstorage.com/visa_documents/${Date.now()}_${file.name}`;
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('visa_uploaded_docs')
+        .upsert({
+          visa_application_id: visaApplicationId,
+          document_name: documentName,
+          file_url: fileUrl,
+          file_name: fileName,
+          is_issuance: isIssuance,
+          status: 'pending',
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'visa_application_id,document_name' });
+      if (error) throw error;
+    } else {
+      let exists = false;
+      const updated = visaUploadedDocs.map(vud => {
+        if (vud.visa_application_id === visaApplicationId && vud.document_name === documentName) {
+          exists = true;
+          return {
+            ...vud,
+            file_url: fileUrl,
+            file_name: fileName,
+            is_issuance: isIssuance,
+            status: 'pending' as const,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return vud;
+      });
+
+      if (exists) {
+        setVisaUploadedDocs(updated);
+        saveLocal('crm_visa_up_docs', updated);
+      } else {
+        const newUpDoc: VisaUploadedDoc = {
+          id: `vud-${Date.now()}`,
+          visa_application_id: visaApplicationId,
+          document_name: documentName,
+          file_url: fileUrl,
+          file_name: fileName,
+          status: 'pending',
+          is_issuance: isIssuance,
+          uploaded_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        const updatedDocs = [newUpDoc, ...visaUploadedDocs];
+        setVisaUploadedDocs(updatedDocs);
+        saveLocal('crm_visa_up_docs', updatedDocs);
+      }
+    }
+  };
+
+  const deleteVisaDoc = async (id: string): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('visa_uploaded_docs')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    } else {
+      const updated = visaUploadedDocs.filter(vud => vud.id !== id);
+      setVisaUploadedDocs(updated);
+      saveLocal('crm_visa_up_docs', updated);
+    }
+  };
+
+  const verifyVisaDoc = async (id: string, status: 'verified' | 'rejected'): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('visa_uploaded_docs')
+        .update({
+          status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      if (error) throw error;
+    } else {
+      const updated = visaUploadedDocs.map(vud => {
+        if (vud.id === id) {
+          return {
+            ...vud,
+            status,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return vud;
+      });
+      setVisaUploadedDocs(updated);
+      saveLocal('crm_visa_up_docs', updated);
+    }
+  };
+
+  const sendVisaDocToStudent = async (uploadedDocId: string): Promise<void> => {
+    const doc = visaUploadedDocs.find(vud => vud.id === uploadedDocId);
+    if (!doc) return;
+    const vApp = visaApplications.find(va => va.id === doc.visa_application_id);
+    if (!vApp) return;
+    const lead = leads.find(l => l.id === vApp.lead_id);
+    if (!lead) return;
+
+    const message = `Hello ${lead.name}, your official ${doc.document_name} for ${vApp.target_college || lead.course || 'your selected college'} has been issued! You can view and download it here: ${doc.file_url}`;
+    
+    if (typeof window !== 'undefined') {
+      const targetPhone = lead.whatsapp_number || lead.phone;
+      let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length === 10) {
+        cleanPhone = `91${cleanPhone}`;
+      } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+        cleanPhone = `91${cleanPhone.substring(1)}`;
+      }
+      const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+      window.open(waUrl, '_blank');
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('activity_logs').insert([{
+        lead_id: lead.id,
+        actor_id: currentUser?.id,
+        action_type: 'whatsapp_sent',
+        description: `Sent official document (${doc.document_name}) link to student via WhatsApp`
+      }]);
+    } else {
+      const log: ActivityLog = {
+        id: `log-${Date.now()}`,
+        lead_id: lead.id,
+        actor_id: currentUser?.id || 'system',
+        action_type: 'whatsapp_sent',
+        description: `Sent official document (${doc.document_name}) link to student via WhatsApp`,
+        created_at: new Date().toISOString()
+      };
+      const updatedLogs = [log, ...activityLogs];
+      setActivityLogs(updatedLogs);
+      saveLocal('crm_logs', updatedLogs);
+    }
+  };
+
   // Periodically request notification permissions
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
@@ -1301,6 +1650,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateWhatsAppTemplate,
       deleteWhatsAppTemplate,
       uploadAttachment,
+      
+      // Visa Operations
+      visaApplications,
+      visaRequiredDocs,
+      visaUploadedDocs,
+      updateVisaApplication,
+      saveVisaRequiredDoc,
+      deleteVisaRequiredDoc,
+      uploadVisaDoc,
+      deleteVisaDoc,
+      verifyVisaDoc,
+      sendVisaDocToStudent,
+      
       triggerLeadSimulation,
       isLoading
     }}>
