@@ -42,6 +42,9 @@ interface DataContextType {
   // WhatsApp Operations
   sendWhatsAppTemplate: (leadId: string, templateId: string) => Promise<void>;
   sendCustomWhatsApp: (leadId: string, message: string) => Promise<void>;
+  addWhatsAppTemplate: (template: Omit<WhatsAppTemplate, 'id' | 'created_at'>) => Promise<WhatsAppTemplate>;
+  updateWhatsAppTemplate: (id: string, updates: Partial<Omit<WhatsAppTemplate, 'id' | 'created_at'>>) => Promise<WhatsAppTemplate>;
+  deleteWhatsAppTemplate: (id: string) => Promise<void>;
   
   // Simulation Helpers
   triggerLeadSimulation: () => void;
@@ -299,6 +302,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_history' }, (payload) => {
               if (payload.eventType === 'INSERT') setWhatsappHistory(prev => [payload.new as WhatsAppMessage, ...prev]);
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_templates' }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setWhatsappTemplates(prev => {
+                  if (prev.some(t => t.id === payload.new.id)) return prev;
+                  return [...prev, payload.new as WhatsAppTemplate];
+                });
+              } else if (payload.eventType === 'UPDATE') {
+                setWhatsappTemplates(prev => prev.map(t => t.id === payload.new.id ? (payload.new as WhatsAppTemplate) : t));
+              } else if (payload.eventType === 'DELETE') {
+                setWhatsappTemplates(prev => prev.filter(t => t.id !== payload.old.id));
+              }
+            })
             .subscribe();
         } catch (error) {
           console.error("Supabase load error: ", error);
@@ -313,6 +328,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const storedLogs = localStorage.getItem('crm_logs');
         const storedWHist = localStorage.getItem('crm_whist');
         const storedSettings = localStorage.getItem('crm_settings');
+        const storedWTemp = localStorage.getItem('crm_whatsapp_templates');
 
         let parsedUser = storedUser ? JSON.parse(storedUser) : null;
         let parsedProfiles = storedProfiles ? JSON.parse(storedProfiles) : MOCK_PROFILES;
@@ -322,6 +338,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let parsedLogs = storedLogs ? JSON.parse(storedLogs) : [];
         let parsedWHist = storedWHist ? JSON.parse(storedWHist) : [];
         let parsedSettings = storedSettings ? JSON.parse(storedSettings) : DEFAULT_SETTINGS;
+        let parsedWTemp = storedWTemp ? JSON.parse(storedWTemp) : DEFAULT_TEMPLATES;
 
         // Auto-migration: if local storage has stale/legacy pipeline stages, reset to the new default stages
         const hasLegacyStages = parsedSettings.pipeline_stages?.some(
@@ -353,13 +370,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTasks(parsedTasks);
         setActivityLogs(parsedLogs);
         setWhatsappHistory(parsedWHist);
-        setWhatsappTemplates(DEFAULT_TEMPLATES);
+        setWhatsappTemplates(parsedWTemp);
         setSettings(parsedSettings);
         
         // Populate default arrays if empty initially
         if (!storedProfiles) localStorage.setItem('crm_profiles', JSON.stringify(MOCK_PROFILES));
         if (!storedLeads && !hasLegacyStages) localStorage.setItem('crm_leads', JSON.stringify(MOCK_LEADS));
         if (!storedSettings && !hasLegacyStages) localStorage.setItem('crm_settings', JSON.stringify(DEFAULT_SETTINGS));
+        if (!storedWTemp) localStorage.setItem('crm_whatsapp_templates', JSON.stringify(DEFAULT_TEMPLATES));
       }
       setIsLoading(false);
     };
@@ -1024,6 +1042,70 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return "Thanks for details. What is the next step for admission process? Can we schedule a video call?";
   };
 
+  const addWhatsAppTemplate = async (templateData: Omit<WhatsAppTemplate, 'id' | 'created_at'>): Promise<WhatsAppTemplate> => {
+    const newTemplate = {
+      ...templateData,
+      id: `temp-${Date.now()}`,
+      created_at: new Date().toISOString()
+    } as WhatsAppTemplate;
+
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('whatsapp_templates')
+        .insert([templateData])
+        .select()
+        .single();
+      if (error) throw error;
+      return data as WhatsAppTemplate;
+    } else {
+      const updated = [...whatsappTemplates, newTemplate];
+      setWhatsappTemplates(updated);
+      saveLocal('crm_whatsapp_templates', updated);
+      return newTemplate;
+    }
+  };
+
+  const updateWhatsAppTemplate = async (id: string, updates: Partial<Omit<WhatsAppTemplate, 'id' | 'created_at'>>): Promise<WhatsAppTemplate> => {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('whatsapp_templates')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as WhatsAppTemplate;
+    } else {
+      let updatedTemplate: WhatsAppTemplate | null = null;
+      const updatedTemplates = whatsappTemplates.map(t => {
+        if (t.id === id) {
+          updatedTemplate = { ...t, ...updates };
+          return updatedTemplate;
+        }
+        return t;
+      });
+      if (!updatedTemplate) throw new Error("Template not found");
+      setWhatsappTemplates(updatedTemplates);
+      saveLocal('crm_whatsapp_templates', updatedTemplates);
+      return updatedTemplate;
+    }
+  };
+
+  const deleteWhatsAppTemplate = async (id: string): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('whatsapp_templates')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      setWhatsappTemplates(prev => prev.filter(t => t.id !== id));
+    } else {
+      const updated = whatsappTemplates.filter(t => t.id !== id);
+      setWhatsappTemplates(updated);
+      saveLocal('crm_whatsapp_templates', updated);
+    }
+  };
+
   // Simulate a lead coming in from Facebook Ads/Google Ads
   const triggerLeadSimulation = () => {
     const names = ['Rakesh Gupta', 'Meera Deshmukh', 'Tarun Sen', 'Devika Nair', 'Aman Oberoi'];
@@ -1124,6 +1206,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toggleTask,
       sendWhatsAppTemplate,
       sendCustomWhatsApp,
+      addWhatsAppTemplate,
+      updateWhatsAppTemplate,
+      deleteWhatsAppTemplate,
       triggerLeadSimulation,
       isLoading
     }}>

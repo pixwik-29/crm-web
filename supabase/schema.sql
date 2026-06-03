@@ -88,6 +88,8 @@ CREATE TABLE public.whatsapp_templates (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     body TEXT NOT NULL,
+    attachment_url TEXT,
+    attachment_name TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

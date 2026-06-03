@@ -27,7 +27,11 @@ export const CRMSettings: React.FC = () => {
     settings, 
     updateSettings, 
     updateProfileRole,
-    createUserProfile
+    createUserProfile,
+    whatsappTemplates,
+    addWhatsAppTemplate,
+    updateWhatsAppTemplate,
+    deleteWhatsAppTemplate
   } = useData();
 
   // Settings form states
@@ -48,6 +52,15 @@ export const CRMSettings: React.FC = () => {
     settings.pipeline_stages ? [...settings.pipeline_stages].sort((a,b) => a.order - b.order) : []
   );
   const [newStageName, setNewStageName] = useState('');
+
+  // WhatsApp Template States
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [tempName, setTempName] = useState('');
+  const [tempBody, setTempBody] = useState('');
+  const [tempAttachUrl, setTempAttachUrl] = useState('');
+  const [tempAttachName, setTempAttachName] = useState('');
+  const [templateStatus, setTemplateStatus] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   // Status/Alerts
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -133,6 +146,65 @@ export const CRMSettings: React.FC = () => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleSaveTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tempName.trim() || !tempBody.trim()) {
+      setTemplateError('Template name and body are required.');
+      return;
+    }
+    setTemplateError(null);
+    setTemplateStatus(editingTemplateId ? 'Saving template updates...' : 'Creating new template...');
+
+    try {
+      if (editingTemplateId) {
+        await updateWhatsAppTemplate(editingTemplateId, {
+          name: tempName.trim(),
+          body: tempBody.trim(),
+          attachment_url: tempAttachUrl.trim() || undefined,
+          attachment_name: tempAttachName.trim() || undefined
+        });
+        setTemplateStatus('Template updated successfully!');
+      } else {
+        await addWhatsAppTemplate({
+          name: tempName.trim(),
+          body: tempBody.trim(),
+          attachment_url: tempAttachUrl.trim() || undefined,
+          attachment_name: tempAttachName.trim() || undefined
+        });
+        setTemplateStatus('Template created successfully!');
+      }
+      // Reset form
+      setEditingTemplateId(null);
+      setTempName('');
+      setTempBody('');
+      setTempAttachUrl('');
+      setTempAttachName('');
+      setTimeout(() => setTemplateStatus(null), 3000);
+    } catch (err: any) {
+      setTemplateError(err.message || 'Failed to save template.');
+    }
+  };
+
+  const handleEditTemplate = (tpl: any) => {
+    setEditingTemplateId(tpl.id);
+    setTempName(tpl.name);
+    setTempBody(tpl.body);
+    setTempAttachUrl(tpl.attachment_url || '');
+    setTempAttachName(tpl.attachment_name || '');
+    setTemplateError(null);
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this template?')) return;
+    try {
+      await deleteWhatsAppTemplate(id);
+      setTemplateStatus('Template deleted successfully!');
+      setTimeout(() => setTemplateStatus(null), 3000);
+    } catch (err: any) {
+      setTemplateError(err.message || 'Failed to delete template.');
+    }
   };
 
   const handleAddStage = () => {
@@ -466,6 +538,176 @@ async function submitEduPathLead(leadData) {
             </div>
 
           </form>
+
+          {/* WhatsApp Message Templates & Attachments Manager */}
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-900 pb-4">
+              <div className="flex items-center gap-2.5">
+                <MessageSquare className="w-5 h-5 text-indigo-500" />
+                <h3 className="font-bold text-slate-800 dark:text-white">WhatsApp Message Templates & Attachments</h3>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Configure message templates and dynamic attachments (PDF/Images) that consultants can select when messaging leads.
+            </p>
+
+            {templateError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-semibold">
+                ⚠️ {templateError}
+              </div>
+            )}
+
+            {templateStatus && (
+              <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-[10px] font-semibold">
+                ℹ️ {templateStatus}
+              </div>
+            )}
+
+            {/* Existing Templates Grid */}
+            <div className="space-y-4">
+              {whatsappTemplates.map((tpl) => (
+                <div 
+                  key={tpl.id} 
+                  className="bg-slate-50 dark:bg-black/40 border border-slate-150 dark:border-zinc-900/60 p-4 rounded-2xl space-y-3"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">{tpl.name}</h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Created at: {new Date(tpl.created_at).toLocaleDateString()}</p>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEditTemplate(tpl)}
+                          className="px-2.5 py-1 bg-indigo-50 dark:bg-zinc-900 hover:bg-indigo-100 dark:hover:bg-zinc-800 text-indigo-600 dark:text-indigo-400 rounded-lg text-[10px] font-bold transition-all"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTemplate(tpl.id)}
+                          className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 rounded-lg transition-all"
+                          title="Delete Template"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-slate-600 dark:text-slate-350 bg-white dark:bg-zinc-950/80 border border-slate-100 dark:border-zinc-900/50 p-2.5 rounded-xl font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
+                    {tpl.body}
+                  </p>
+
+                  {tpl.attachment_url && (
+                    <div className="flex items-center gap-2 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-950/30 px-3 py-1.5 rounded-xl text-[10px] text-indigo-600 dark:text-indigo-400">
+                      <span className="font-bold">📎 Attachment:</span>
+                      <span className="truncate flex-1 font-semibold">{tpl.attachment_name || 'Unnamed attachment'}</span>
+                      <a href={tpl.attachment_url} target="_blank" rel="noreferrer" className="underline hover:text-indigo-500 font-extrabold flex-shrink-0">View File</a>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Template Form (Admin only) */}
+            {isAdmin && (
+              <div className="border-t border-slate-100 dark:border-zinc-900 pt-6 space-y-4">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">
+                  {editingTemplateId ? 'Edit WhatsApp Template' : 'Create New WhatsApp Template'}
+                </h4>
+
+                <form onSubmit={handleSaveTemplate} className="space-y-4">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Template Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Russia Brochure Template"
+                      value={tempName}
+                      onChange={(e) => setTempName(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest">Message Body Text</label>
+                      <div className="flex gap-1.5">
+                        {['lead_name', 'neet_marks', 'budget', 'preferred_destination'].map(p => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setTempBody(prev => prev + ` {{${p}}}`)}
+                            className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-500 dark:text-slate-400 rounded text-[9px] font-bold"
+                          >
+                            +{p}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea
+                      required
+                      rows={4}
+                      placeholder="Enter message text... Use placeholders like {{lead_name}} to personalize."
+                      value={tempBody}
+                      onChange={(e) => setTempBody(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Attachment URL (Optional PDF/Image)</label>
+                      <input
+                        type="url"
+                        placeholder="https://example.com/brochure.pdf"
+                        value={tempAttachUrl}
+                        onChange={(e) => setTempAttachUrl(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Attachment File Name (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. MBBS_in_Russia.pdf"
+                        value={tempAttachName}
+                        onChange={(e) => setTempAttachName(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-[10px] uppercase transition-all shadow hover:scale-[1.01] active:scale-[0.99]"
+                    >
+                      {editingTemplateId ? 'Save Template Updates' : 'Create Template'}
+                    </button>
+                    {editingTemplateId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingTemplateId(null);
+                          setTempName('');
+                          setTempBody('');
+                          setTempAttachUrl('');
+                          setTempAttachName('');
+                        }}
+                        className="px-4 py-2.5 bg-slate-100 hover:bg-slate-250 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-500 dark:text-slate-400 rounded-xl text-[10px] font-bold transition-all"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
 
           {/* Web Custom Ingestion Form Snippet Generator */}
           <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-4">

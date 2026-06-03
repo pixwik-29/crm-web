@@ -364,8 +364,8 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
               <th onClick={() => handleSort('course')} className="px-6 py-4 cursor-pointer hover:text-slate-700 dark:hover:text-slate-200">
                 <span className="flex items-center gap-1.5">Course <ArrowUpDown className="w-3.5 h-3.5" /></span>
               </th>
-              <th className="px-6 py-4">Lead Source</th>
-              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4 whitespace-nowrap">Lead Source</th>
+              <th className="px-6 py-4 whitespace-nowrap">Status</th>
               {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && <th className="px-6 py-4">Counsellor</th>}
               <th className="px-6 py-4 text-right">Actions</th>
             </tr>
@@ -437,14 +437,14 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
  
                     {/* Lead source badge */}
                     <td className="px-6 py-4">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-slate-50 dark:bg-zinc-900 dark:text-slate-300 dark:border-zinc-800 border-slate-200">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-slate-50 dark:bg-zinc-900 dark:text-slate-300 dark:border-zinc-800 border-slate-200 whitespace-nowrap">
                         {lead.lead_source}
                       </span>
                     </td>
 
                     {/* Status */}
                     <td className="px-6 py-4">
-                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-full border ${getStatusBadgeStyle(lead.status)}`}>
+                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-full border whitespace-nowrap ${getStatusBadgeStyle(lead.status)}`}>
                         {lead.status}
                       </span>
                     </td>

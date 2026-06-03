@@ -77,6 +77,8 @@ export interface WhatsAppTemplate {
   id: string;
   name: string;
   body: string;
+  attachment_url?: string;
+  attachment_name?: string;
   created_at: string;
 }
 
