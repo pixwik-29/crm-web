@@ -941,7 +941,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Open WhatsApp Web/Desktop App directly on computer
     if (typeof window !== 'undefined') {
-      const cleanPhone = lead.phone.replace(/[^0-9]/g, '');
+      const targetPhone = lead.whatsapp_number || lead.phone;
+      let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length === 10) {
+        cleanPhone = `91${cleanPhone}`;
+      } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+        cleanPhone = `91${cleanPhone.substring(1)}`;
+      }
       const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(body)}`;
       window.open(waUrl, '_blank');
     }
@@ -993,7 +999,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Open WhatsApp Web/Desktop App directly on computer
     if (typeof window !== 'undefined') {
-      const cleanPhone = lead.phone.replace(/[^0-9]/g, '');
+      const targetPhone = lead.whatsapp_number || lead.phone;
+      let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length === 10) {
+        cleanPhone = `91${cleanPhone}`;
+      } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+        cleanPhone = `91${cleanPhone.substring(1)}`;
+      }
       const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
       window.open(waUrl, '_blank');
     }

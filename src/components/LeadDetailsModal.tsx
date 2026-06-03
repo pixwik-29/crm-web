@@ -272,7 +272,22 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">WhatsApp Number</p>
               <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1 flex items-center gap-1.5">
                 {lead.whatsapp_number || '--'}
-                {lead.whatsapp_number && <a href={`https://wa.me/${lead.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-emerald-500" title="Open WhatsApp"><MessageCircle className="w-3.5 h-3.5" /></a>}
+                {lead.whatsapp_number && (
+                  <a 
+                    href={`https://wa.me/${(() => {
+                      const clean = lead.whatsapp_number.replace(/[^0-9]/g, '');
+                      if (clean.length === 10) return `91${clean}`;
+                      if (clean.length === 11 && clean.startsWith('0')) return `91${clean.substring(1)}`;
+                      return clean;
+                    })()}`} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-emerald-500" 
+                    title="Open WhatsApp"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                  </a>
+                )}
               </p>
             </div>
             <div>
