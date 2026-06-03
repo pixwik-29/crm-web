@@ -691,56 +691,77 @@ async function submitEduPathLead(leadData) {
                   <div className="pt-2 border-t border-dashed border-slate-100 dark:border-zinc-900">
                     <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Brochure / File Attachment (Optional)</label>
                     
-                    <div className="flex flex-col sm:flex-row gap-4 items-stretch">
-                      {/* Hidden File Input */}
-                      <input 
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileUpload}
-                        accept="application/pdf,image/*"
-                        className="hidden"
-                      />
-                      
-                      {/* Upload Button Trigger */}
-                      <button
-                        type="button"
-                        disabled={isUploading}
-                        onClick={() => fileInputRef.current?.click()}
-                        className={`flex-1 sm:flex-none px-5 py-3 border border-dashed rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-                          isUploading 
-                            ? 'bg-slate-50 border-slate-300 text-slate-400 cursor-not-allowed'
-                            : 'bg-indigo-50/50 hover:bg-indigo-100 dark:bg-zinc-900 dark:hover:bg-zinc-850 border-indigo-200 dark:border-zinc-800 text-indigo-600 dark:text-indigo-400'
-                        }`}
-                      >
-                        {isUploading ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            Uploading File...
-                          </>
-                        ) : (
-                          <>
-                            <PlusCircle className="w-3.5 h-3.5" />
-                            Upload PDF or Image File
-                          </>
-                        )}
-                      </button>
+                    <div className="flex flex-col gap-3">
+                      {tempAttachUrl && (
+                        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2.5 rounded-xl text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                          <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="font-bold">Attached:</span>
+                          <span className="truncate flex-1 font-semibold">{tempAttachName || 'Attached Document'}</span>
+                          <a href={tempAttachUrl} target="_blank" rel="noreferrer" className="underline hover:text-emerald-500 font-extrabold flex-shrink-0 mr-1.5">Preview Upload</a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTempAttachUrl('');
+                              setTempAttachName('');
+                            }}
+                            className="text-rose-500 hover:text-rose-600 font-extrabold flex-shrink-0 text-[10px] bg-rose-500/10 hover:bg-rose-500/20 px-2 py-0.5 rounded-lg"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
 
-                      {/* Display URL and name inputs side-by-side */}
-                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <input
-                          type="url"
-                          placeholder="Or paste attachment URL..."
-                          value={tempAttachUrl}
-                          onChange={(e) => setTempAttachUrl(e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                      <div className="flex flex-col sm:flex-row gap-4 items-stretch">
+                        {/* Hidden File Input */}
+                        <input 
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileUpload}
+                          accept="application/pdf,image/*"
+                          className="hidden"
                         />
-                        <input
-                          type="text"
-                          placeholder="Attachment display name..."
-                          value={tempAttachName}
-                          onChange={(e) => setTempAttachName(e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
-                        />
+                        
+                        {/* Upload Button Trigger */}
+                        <button
+                          type="button"
+                          disabled={isUploading}
+                          onClick={() => fileInputRef.current?.click()}
+                          className={`flex-1 sm:flex-none px-5 py-3 border border-dashed rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                            isUploading 
+                              ? 'bg-slate-50 border-slate-300 text-slate-400 cursor-not-allowed'
+                              : 'bg-indigo-50/50 hover:bg-indigo-100 dark:bg-zinc-900 dark:hover:bg-zinc-850 border-indigo-200 dark:border-zinc-800 text-indigo-600 dark:text-indigo-400'
+                          }`}
+                        >
+                          {isUploading ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              Uploading File...
+                            </>
+                          ) : (
+                            <>
+                              <PlusCircle className="w-3.5 h-3.5" />
+                              Upload PDF or Image File
+                            </>
+                          )}
+                        </button>
+
+                        {/* Display URL and name inputs side-by-side */}
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <input
+                            type="url"
+                            placeholder="Or paste attachment URL..."
+                            value={tempAttachUrl}
+                            onChange={(e) => setTempAttachUrl(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Attachment display name..."
+                            value={tempAttachName}
+                            onChange={(e) => setTempAttachName(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
