@@ -282,3 +282,27 @@ INSERT INTO public.whatsapp_templates (name, body) VALUES
 --    CREATE POLICY "Allow auth upload access" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'whatsapp_attachments');
 --    CREATE POLICY "Allow auth manage access" ON storage.objects FOR ALL TO authenticated USING (bucket_id = 'whatsapp_attachments');
 
+-- 4. RPC to safely verify if a phone number is registered without requiring prior authentication (RLS bypass)
+CREATE OR REPLACE FUNCTION public.check_phone_registered(phone_num TEXT)
+RETURNS TABLE(registered BOOLEAN, email TEXT, full_name TEXT, role TEXT) AS $$
+DECLARE
+  clean_input TEXT;
+BEGIN
+  clean_input := regexp_replace(phone_num, '\D', '', 'g');
+  RETURN QUERY
+  SELECT 
+    TRUE as registered,
+    au.email::TEXT,
+    p.full_name::TEXT,
+    p.role::TEXT
+  FROM public.profiles p
+  JOIN auth.users au ON au.id = p.id
+  WHERE 
+    regexp_replace(p.phone, '\D', '', 'g') = clean_input
+    OR regexp_replace(p.phone, '\D', '', 'g') = '91' || clean_input
+    OR (length(clean_input) >= 10 AND regexp_replace(p.phone, '\D', '', 'g') LIKE '%' || clean_input)
+  LIMIT 1;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+

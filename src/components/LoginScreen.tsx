@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useData } from '@/context/DataContext';
+import { supabase } from '@/lib/supabase';
 import { LogIn, UserCheck, ShieldAlert, Sparkles, Key, Mail, User, Info, ArrowLeft, Phone, Smartphone } from 'lucide-react';
 
 interface Credential {
@@ -98,7 +99,28 @@ export const LoginScreen: React.FC = () => {
     try {
       if (isConfigured) {
         // Real Supabase Connection Login
-        await login(email, 'counsellor', '', password); // In Supabase, email/password handles credentials
+        const profile = await login(email, 'counsellor', '', password); // In Supabase, email/password handles credentials
+        
+        // Save these credentials locally so that future Phone OTP logins work on this device
+        if (typeof window !== 'undefined' && profile) {
+          const stored = localStorage.getItem('crm_credentials');
+          const creds = stored ? JSON.parse(stored) : [];
+          const index = creds.findIndex((c: any) => c.email.toLowerCase() === email.toLowerCase());
+          const newCred = {
+            email: email,
+            password: password,
+            name: profile.full_name,
+            role: profile.role,
+            profileId: profile.id,
+            phone: profile.phone
+          };
+          if (index > -1) {
+            creds[index] = newCred;
+          } else {
+            creds.push(newCred);
+          }
+          localStorage.setItem('crm_credentials', JSON.stringify(creds));
+        }
       } else {
         // Local sandbox verification
         const creds = getCredentials();
@@ -146,12 +168,33 @@ export const LoginScreen: React.FC = () => {
     try {
       const creds = getCredentials();
       const cleanInputPhone = phone.replace(/\D/g, '');
+      let foundCred: Credential | undefined;
 
-      const foundCred = creds.find(c => {
+      const localCred = creds.find(c => {
         if (!c.phone) return false;
         const cleanCredPhone = c.phone.replace(/\D/g, '');
         return cleanCredPhone.endsWith(cleanInputPhone) || cleanInputPhone.endsWith(cleanCredPhone);
       });
+
+      if (localCred) {
+        foundCred = localCred;
+      } else if (isConfigured && supabase) {
+        // Look up registered phone number in Supabase profiles bypassing RLS via server-side RPC
+        const { data, error: rpcError } = await supabase.rpc('check_phone_registered', { phone_num: cleanInputPhone });
+        if (rpcError) {
+          console.error("RPC Phone Check Error:", rpcError);
+        } else if (data && data.length > 0) {
+          const matched = data[0];
+          foundCred = {
+            email: matched.email,
+            password: 'counsellor123', // Default password fallback for new users
+            name: matched.full_name,
+            role: matched.role as any,
+            profileId: matched.email,
+            phone: matched.phone || phone
+          };
+        }
+      }
 
       if (!foundCred) {
         setError('This phone number is not registered in the system.');
@@ -202,11 +245,27 @@ export const LoginScreen: React.FC = () => {
       try {
         const creds = getCredentials();
         const cleanInputPhone = phone.replace(/\D/g, '');
-        const foundCred = creds.find(c => {
+        let foundCred = creds.find(c => {
           if (!c.phone) return false;
           const cleanCredPhone = c.phone.replace(/\D/g, '');
           return cleanCredPhone.endsWith(cleanInputPhone) || cleanInputPhone.endsWith(cleanCredPhone);
         });
+
+        // Dynamic database fallback check
+        if (!foundCred && isConfigured && supabase) {
+          const { data } = await supabase.rpc('check_phone_registered', { phone_num: cleanInputPhone });
+          if (data && data.length > 0) {
+            const matched = data[0];
+            foundCred = {
+              email: matched.email,
+              password: 'counsellor123',
+              name: matched.full_name,
+              role: matched.role as any,
+              profileId: matched.email,
+              phone: matched.phone || phone
+            };
+          }
+        }
 
         if (foundCred) {
           // Log user in

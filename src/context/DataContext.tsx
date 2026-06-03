@@ -469,10 +469,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const createUserProfile = async (email: string, role: UserRole, name: string, phone?: string, password?: string): Promise<Profile> => {
-    const id = `user-${Date.now()}`;
     const formattedPhone = phone ? (phone.startsWith('+') ? phone : `+91${phone}`) : undefined;
+    let finalProfileId = `user-${Date.now()}`;
+
+    // Call Supabase backend API route if configured to create user in auth.users
+    if (isSupabaseConfigured && supabase) {
+      const res = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password: password || 'counsellor123',
+          name,
+          role,
+          phone: formattedPhone
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to create user in auth system.');
+      }
+
+      const data = await res.json();
+      if (data.user && data.user.id) {
+        finalProfileId = data.user.id;
+      }
+    }
+
     const newProf: Profile = {
-      id,
+      id: finalProfileId,
       full_name: name,
       role,
       phone: formattedPhone,
@@ -480,7 +506,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     
     // Update local state and storage
-    const updatedProfiles = [...profiles, newProf];
+    const updatedProfiles = [...profiles.filter(p => p.id !== finalProfileId), newProf];
     setProfiles(updatedProfiles);
     saveLocal('crm_profiles', updatedProfiles);
 
@@ -495,29 +521,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           password: password || 'counsellor123',
           name,
           role,
-          profileId: id,
+          profileId: finalProfileId,
           phone: formattedPhone
         }];
         localStorage.setItem('crm_credentials', JSON.stringify(updatedCreds));
       }
     }
 
-    // Call Supabase if configured
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase
-          .from('profiles')
-          .insert({
-            id,
-            full_name: name,
-            role,
-            phone: formattedPhone,
-            created_at: new Date().toISOString()
-          });
-      } catch (err) {
-        console.error("Supabase profile insert error: ", err);
-      }
-    }
 
     // Trigger asynchronous Welcome Email dispatch with credentials
     try {
