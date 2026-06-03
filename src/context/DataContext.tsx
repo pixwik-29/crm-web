@@ -45,6 +45,7 @@ interface DataContextType {
   addWhatsAppTemplate: (template: Omit<WhatsAppTemplate, 'id' | 'created_at'>) => Promise<WhatsAppTemplate>;
   updateWhatsAppTemplate: (id: string, updates: Partial<Omit<WhatsAppTemplate, 'id' | 'created_at'>>) => Promise<WhatsAppTemplate>;
   deleteWhatsAppTemplate: (id: string) => Promise<void>;
+  uploadAttachment: (file: File) => Promise<{ url: string; name: string }>;
   
   // Simulation Helpers
   triggerLeadSimulation: () => void;
@@ -1106,6 +1107,52 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const uploadAttachment = async (file: File): Promise<{ url: string; name: string }> => {
+    if (isSupabaseConfigured && supabase) {
+      const bucketName = 'whatsapp_attachments';
+      const fileKey = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+      
+      // Attempt upload
+      let { data, error } = await supabase.storage.from(bucketName).upload(fileKey, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+      
+      if (error) {
+        // Try creating bucket if it doesn't exist
+        try {
+          await supabase.storage.createBucket(bucketName, {
+            public: true,
+            fileSizeLimit: 10485760 // 10MB
+          });
+          
+          // Retry upload
+          const retryResult = await supabase.storage.from(bucketName).upload(fileKey, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+          if (retryResult.error) throw retryResult.error;
+          data = retryResult.data;
+        } catch (bucketErr: any) {
+          throw new Error(error.message || "Failed to upload file to storage.");
+        }
+      }
+      
+      const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(fileKey);
+      return {
+        url: urlData.publicUrl,
+        name: file.name
+      };
+    } else {
+      // Offline mock simulation
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return {
+        url: `https://gkayyfwadwwsucpqeefw.supabase.co/storage/v1/object/public/whatsapp_attachments/${Date.now()}_${file.name.replace(/\s+/g, '_')}`,
+        name: file.name
+      };
+    }
+  };
+
   // Simulate a lead coming in from Facebook Ads/Google Ads
   const triggerLeadSimulation = () => {
     const names = ['Rakesh Gupta', 'Meera Deshmukh', 'Tarun Sen', 'Devika Nair', 'Aman Oberoi'];
@@ -1209,6 +1256,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addWhatsAppTemplate,
       updateWhatsAppTemplate,
       deleteWhatsAppTemplate,
+      uploadAttachment,
       triggerLeadSimulation,
       isLoading
     }}>

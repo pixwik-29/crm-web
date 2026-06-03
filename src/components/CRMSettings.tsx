@@ -31,7 +31,8 @@ export const CRMSettings: React.FC = () => {
     whatsappTemplates,
     addWhatsAppTemplate,
     updateWhatsAppTemplate,
-    deleteWhatsAppTemplate
+    deleteWhatsAppTemplate,
+    uploadAttachment
   } = useData();
 
   // Settings form states
@@ -61,6 +62,10 @@ export const CRMSettings: React.FC = () => {
   const [tempAttachName, setTempAttachName] = useState('');
   const [templateStatus, setTemplateStatus] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  
+  // File upload state and ref
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Status/Alerts
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -204,6 +209,31 @@ export const CRMSettings: React.FC = () => {
       setTimeout(() => setTemplateStatus(null), 3000);
     } catch (err: any) {
       setTemplateError(err.message || 'Failed to delete template.');
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setTemplateError(null);
+    setTemplateStatus('Uploading file to Supabase Storage...');
+
+    try {
+      const result = await uploadAttachment(file);
+      setTempAttachUrl(result.url);
+      setTempAttachName(result.name);
+      setTemplateStatus('File uploaded successfully! URL and name configured.');
+      setTimeout(() => setTemplateStatus(null), 3000);
+    } catch (err: any) {
+      setTemplateError(err.message || 'Failed to upload attachment.');
+      setTemplateStatus(null);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -658,26 +688,60 @@ async function submitEduPathLead(leadData) {
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Attachment URL (Optional PDF/Image)</label>
-                      <input
-                        type="url"
-                        placeholder="https://example.com/brochure.pdf"
-                        value={tempAttachUrl}
-                        onChange={(e) => setTempAttachUrl(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                  <div className="pt-2 border-t border-dashed border-slate-100 dark:border-zinc-900">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Brochure / File Attachment (Optional)</label>
+                    
+                    <div className="flex flex-col sm:flex-row gap-4 items-stretch">
+                      {/* Hidden File Input */}
+                      <input 
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        accept="application/pdf,image/*"
+                        className="hidden"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Attachment File Name (Optional)</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. MBBS_in_Russia.pdf"
-                        value={tempAttachName}
-                        onChange={(e) => setTempAttachName(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
-                      />
+                      
+                      {/* Upload Button Trigger */}
+                      <button
+                        type="button"
+                        disabled={isUploading}
+                        onClick={() => fileInputRef.current?.click()}
+                        className={`flex-1 sm:flex-none px-5 py-3 border border-dashed rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                          isUploading 
+                            ? 'bg-slate-50 border-slate-300 text-slate-400 cursor-not-allowed'
+                            : 'bg-indigo-50/50 hover:bg-indigo-100 dark:bg-zinc-900 dark:hover:bg-zinc-850 border-indigo-200 dark:border-zinc-800 text-indigo-600 dark:text-indigo-400'
+                        }`}
+                      >
+                        {isUploading ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            Uploading File...
+                          </>
+                        ) : (
+                          <>
+                            <PlusCircle className="w-3.5 h-3.5" />
+                            Upload PDF or Image File
+                          </>
+                        )}
+                      </button>
+
+                      {/* Display URL and name inputs side-by-side */}
+                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <input
+                          type="url"
+                          placeholder="Or paste attachment URL..."
+                          value={tempAttachUrl}
+                          onChange={(e) => setTempAttachUrl(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Attachment display name..."
+                          value={tempAttachName}
+                          onChange={(e) => setTempAttachName(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                        />
+                      </div>
                     </div>
                   </div>
 

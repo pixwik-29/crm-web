@@ -276,4 +276,9 @@ INSERT INTO public.whatsapp_templates (name, body) VALUES
 -- Run these queries in your Supabase SQL Editor if upgrading from an older version:
 -- 1. ALTER TABLE public.leads ADD COLUMN course TEXT;
 -- 2. ALTER TABLE public.profiles ADD COLUMN push_token TEXT;
+-- 3. Run this to set up Supabase Storage for WhatsApp brochures/attachments:
+--    INSERT INTO storage.buckets (id, name, public) VALUES ('whatsapp_attachments', 'whatsapp_attachments', true) ON CONFLICT (id) DO NOTHING;
+--    CREATE POLICY "Allow public read access" ON storage.objects FOR SELECT USING (bucket_id = 'whatsapp_attachments');
+--    CREATE POLICY "Allow auth upload access" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'whatsapp_attachments');
+--    CREATE POLICY "Allow auth manage access" ON storage.objects FOR ALL TO authenticated USING (bucket_id = 'whatsapp_attachments');
 
