@@ -59,6 +59,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const [editNeet, setEditNeet] = useState('');
   const [editBudget, setEditBudget] = useState('');
   const [editDest, setEditDest] = useState('');
+  const [editCourse, setEditCourse] = useState('');
   const [editStatus, setEditStatus] = useState('');
   const [editParent, setEditParent] = useState('');
   const [editWhatsapp, setEditWhatsapp] = useState('');
