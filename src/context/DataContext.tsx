@@ -35,6 +35,7 @@ interface DataContextType {
   switchUser: (profile: Profile) => void;
   updateProfileRole: (profileId: string, role: UserRole) => Promise<void>;
   createUserProfile: (email: string, role: UserRole, name: string, phone?: string, password?: string) => Promise<Profile>;
+  deleteUserProfile: (profileId: string) => Promise<void>;
   updateSettings: (newSettings: Partial<CRMSettings>) => void;
 
 
@@ -544,6 +545,42 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('profiles')
         .update({ role })
         .eq('id', profileId);
+    }
+  };
+
+  const deleteUserProfile = async (profileId: string) => {
+    // Update local state profiles array
+    const updated = profiles.filter(p => p.id !== profileId);
+    setProfiles(updated);
+    saveLocal('crm_profiles', updated);
+
+    // If deleting currently logged-in user, log them out
+    if (currentUser && currentUser.id === profileId) {
+      logout();
+    }
+
+    // Call Supabase backend delete-user API if configured
+    if (isSupabaseConfigured && supabase) {
+      const res = await fetch('/api/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to delete user account.');
+      }
+    }
+
+    // Remove from mock credentials list
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('crm_credentials');
+      if (stored) {
+        const creds = JSON.parse(stored);
+        const updatedCreds = creds.filter((c: any) => c.profileId !== profileId);
+        localStorage.setItem('crm_credentials', JSON.stringify(updatedCreds));
+      }
     }
   };
 
@@ -1636,6 +1673,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       switchUser,
       updateProfileRole,
       createUserProfile,
+      deleteUserProfile,
       updateSettings,
       addLead,
       updateLead,

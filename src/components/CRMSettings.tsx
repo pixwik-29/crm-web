@@ -7,6 +7,7 @@ import {
   Settings, Key, Shuffle, RefreshCw, PlusCircle, Trash2
 } from 'lucide-react';
 import { PipelineStage } from '@/types/crm';
+import Link from 'next/link';
 
 const COURSES = [
   'MBBS',
@@ -28,6 +29,7 @@ export const CRMSettings: React.FC = () => {
     updateSettings, 
     updateProfileRole,
     createUserProfile,
+    deleteUserProfile,
     whatsappTemplates,
     addWhatsAppTemplate,
     updateWhatsAppTemplate,
@@ -903,7 +905,25 @@ async function submitEduPathLead(leadData) {
                     </div>
                   </div>
 
-                  <div>
+                  <div className="flex items-center gap-2">
+                    {isAdmin && profile.id !== currentUser?.id && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm(`Are you sure you want to permanently delete the profile for ${profile.full_name}?`)) {
+                            try {
+                              await deleteUserProfile(profile.id);
+                            } catch (err: any) {
+                              alert(err.message || "Failed to delete user profile.");
+                            }
+                          }
+                        }}
+                        className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 hover:text-rose-600 rounded-lg transition-all"
+                        title="Delete User Account"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {isAdmin ? (
                       <select
                         value={profile.role}
@@ -1058,6 +1078,25 @@ async function submitEduPathLead(leadData) {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Personal Account Deletion Link */}
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-rose-500" />
+              <h3 className="font-bold text-slate-800 dark:text-white">Account Deletion</h3>
+            </div>
+            <p className="text-xs text-slate-550 dark:text-zinc-400">
+              Need to permanently close your account and delete your associated CRM records? You can request complete data erasure.
+            </p>
+            <div className="pt-2">
+              <Link 
+                href="/data-deletion"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-500 hover:text-rose-650 hover:underline"
+              >
+                Data Deletion Instructions & Request Form →
+              </Link>
             </div>
           </div>
 
