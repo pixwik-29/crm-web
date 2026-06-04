@@ -464,7 +464,7 @@ async function sendNewLeadNotifications(lead: any) {
     const pushPromise = (async () => {
       const pushTokens = recipients
         .map(r => r.push_token)
-        .filter((t): t is string => !!t && t.startsWith('ExponentPushToken'));
+        .filter((t): t is string => !!t && (t.startsWith('ExponentPushToken') || t.startsWith('ExpoPushToken')));
 
       if (pushTokens.length > 0) {
         console.log(`[Notifications] Dispatched Expo Push notifications to:`, pushTokens);

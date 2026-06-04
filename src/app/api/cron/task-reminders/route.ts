@@ -48,7 +48,7 @@ export async function GET(request: Request) {
         .eq('id', task.assignee_id)
         .single();
 
-      if (profile?.push_token && profile.push_token.startsWith('ExponentPushToken')) {
+      if (profile?.push_token && (profile.push_token.startsWith('ExponentPushToken') || profile.push_token.startsWith('ExpoPushToken'))) {
         notificationsToSend.push({
           to: profile.push_token,
           sound: 'default',

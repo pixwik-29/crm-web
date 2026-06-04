@@ -12,6 +12,7 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { CRMSettings } from '@/components/CRMSettings';
 import { WebFormBuilder } from '@/components/WebFormBuilder';
 import { VisaProcessing } from '@/components/VisaProcessing';
+import { Footer } from '@/components/Footer';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
   HelpCircle, User, ShieldCheck, Flame, Settings, Globe, Plane
@@ -332,6 +333,8 @@ const DashboardContent: React.FC = () => {
         </div>
 
       </main>
+
+      <Footer />
 
       {/* Slide Drawer: Lead Details */}
       {currentSelectedLeadDetails && (

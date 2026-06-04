@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useData } from '@/context/DataContext';
 import { supabase } from '@/lib/supabase';
 import { LogIn, UserCheck, ShieldAlert, Sparkles, Key, Mail, User, Info, ArrowLeft, Phone, Smartphone } from 'lucide-react';
+import { Footer } from '@/components/Footer';
 
 interface Credential {
   email: string;
@@ -492,14 +493,15 @@ export const LoginScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-radial from-slate-900 via-slate-950 to-black p-4 text-white relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-between bg-radial from-slate-900 via-slate-950 to-black p-4 text-white relative overflow-hidden">
       
       {/* Background Graphic Accents */}
       <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-blue-600/10 rounded-full blur-[120px]"></div>
       <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-indigo-600/10 rounded-full blur-[120px]"></div>
 
-      {/* Main card */}
-      <div className="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-8 shadow-2xl relative z-10">
+      <div className="flex-1 flex items-center justify-center w-full">
+        {/* Main card */}
+        <div className="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-8 shadow-2xl relative z-10 my-8">
         
         {/* Brand Header */}
         <div className="text-center mb-8 flex flex-col items-center">
@@ -994,7 +996,9 @@ export const LoginScreen: React.FC = () => {
         <div className="mt-8 border-t border-slate-800/80 pt-6 text-center text-[10px] text-slate-500 leading-relaxed">
           Demo database runs inside your browser session storage. Sessions are persistent.
         </div>
+        </div>
       </div>
+      <Footer isLoginScreen={true} />
     </div>
   );
 };
