@@ -1,11 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useData } from '@/context/DataContext';
+
 import { 
   Users, Webhook, MessageSquare, ShieldAlert, Check, Copy, 
-  Settings, Key, Shuffle, RefreshCw, PlusCircle, Trash2
+  Settings, Key, Shuffle, RefreshCw, PlusCircle, Trash2, Wifi, WifiOff
 } from 'lucide-react';
+
 import { PipelineStage } from '@/types/crm';
 import Link from 'next/link';
 
@@ -34,8 +37,11 @@ export const CRMSettings: React.FC = () => {
     addWhatsAppTemplate,
     updateWhatsAppTemplate,
     deleteWhatsAppTemplate,
-    uploadAttachment
+    uploadAttachment,
+    tenantId
   } = useData();
+
+  const searchParams = useSearchParams();
 
   // Settings form states
   const [compName, setCompName] = useState(settings.company_name);
@@ -83,8 +89,30 @@ export const CRMSettings: React.FC = () => {
   const [userCreateError, setUserCreateError] = useState<string | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
+  // Facebook Ads connection state
+  const [fbStatus, setFbStatus] = useState<string | null>(null);
+  const isFbConnected = Boolean(settings.meta_access_token && settings.meta_access_token.trim().length > 10);
+  const fbAppId = process.env.NEXT_PUBLIC_FB_APP_ID;
+
+  // Read URL params set by OAuth callback
+  useEffect(() => {
+    const fbResult = searchParams.get('fb');
+    const fbError = searchParams.get('fb_error');
+    const pageCount = searchParams.get('pages');
+    if (fbResult === 'connected') {
+      setFbStatus(`✅ Facebook connected! ${pageCount ? `${pageCount} page(s) linked.` : ''} Token saved to your workspace.`);
+      setTimeout(() => setFbStatus(null), 8000);
+    } else if (fbError) {
+      setFbStatus(`⚠️ Facebook error: ${fbError}`);
+      setTimeout(() => setFbStatus(null), 8000);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+
   // Dynamic origin calculation for webhook URLs
   const [origin, setOrigin] = useState('http://localhost:3000');
+
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -126,9 +154,9 @@ export const CRMSettings: React.FC = () => {
   };
 
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings({
+    await updateSettings({
       company_name: compName,
       admission_year_prefix: admYear,
       lead_assignment_rule: assignRule,
@@ -145,9 +173,10 @@ export const CRMSettings: React.FC = () => {
       pipeline_stages: stages
     });
 
-    setSaveStatus('Settings successfully saved & synced!');
+    setSaveStatus('Settings successfully saved & synced to cloud!');
     setTimeout(() => setSaveStatus(null), 3000);
   };
+
 
   const handleCopyText = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -466,6 +495,95 @@ async function submitEduPathLead(leadData) {
               <div className="flex items-center gap-2">
                 <Webhook className="w-4 h-4 text-blue-500" />
                 <h4 className="font-bold text-xs text-slate-700 dark:text-slate-300">Meta/Facebook Lead Ads Webhook Settings</h4>
+              </div>
+
+              {/* Facebook Ads Connect Card */}
+              <div className={`rounded-2xl border p-4 space-y-4 ${
+                isFbConnected
+                  ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/40'
+                  : 'bg-slate-50 dark:bg-zinc-900/40 border-slate-200 dark:border-zinc-800'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* Facebook logo */}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      isFbConnected ? 'bg-blue-600' : 'bg-slate-300 dark:bg-zinc-700'
+                    }`}>
+                      <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 dark:text-white">Facebook Ads</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {isFbConnected
+                          ? <><Wifi className="w-3 h-3 text-emerald-500" /><span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Connected – token active</span></>
+                          : <><WifiOff className="w-3 h-3 text-slate-400" /><span className="text-[10px] font-semibold text-slate-400">Not connected</span></>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isFbConnected ? (
+                    <button
+                      type="button"
+                      onClick={() => { setAccessToken(''); updateSettings({ meta_access_token: '' }); }}
+                      className="px-3 py-1.5 rounded-xl text-[10px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/40 hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-all"
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <a
+                      href={fbAppId ? `/api/fb-oauth?tenant_id=${tenantId}` : 'https://developers.facebook.com/apps/'}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all flex items-center gap-1.5 ${
+                        fbAppId
+                          ? 'bg-[#1877F2] hover:bg-[#166fe5] cursor-pointer'
+                          : 'bg-slate-400 cursor-not-allowed'
+                      }`}
+                      title={!fbAppId ? 'Set NEXT_PUBLIC_FB_APP_ID in .env.local to enable OAuth' : ''}
+                    >
+                      <svg viewBox="0 0 24 24" fill="white" className="w-3.5 h-3.5">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                      </svg>
+                      {fbAppId ? 'Connect with Facebook' : 'Set App ID first'}
+                    </a>
+                  )}
+                </div>
+
+                {fbStatus && (
+                  <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-[10px] font-semibold">
+                    {fbStatus}
+                  </div>
+                )}
+
+                {/* Manual Token entry (always shown so admins can paste token) */}
+                {isAdmin && (
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Meta System User Access Token</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={accessToken}
+                        onChange={(e) => setAccessToken(e.target.value)}
+                        placeholder="Paste your long-lived Page / System User token here…"
+                        className="flex-1 bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500 font-mono"
+                      />
+                      {accessToken && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(accessToken, 'fbtoken')}
+                          className="px-3 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-500 dark:text-slate-400 rounded-xl text-xs flex items-center gap-1.5"
+                        >
+                          {copiedId === 'fbtoken' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      Generate a <strong>long-lived System User token</strong> from your{' '}
+                      <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">Business Manager → System Users</a>.
+                      This token is securely stored per-company and used to fetch Facebook Ads leads automatically.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

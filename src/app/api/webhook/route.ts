@@ -59,7 +59,9 @@ export async function POST(req: NextRequest) {
         // ✅ CRITICAL: Return 200 OK to Meta IMMEDIATELY before any async processing.
         // Meta has a ~5 second timeout. If we don't respond in time, it marks as "Pending".
         // waitUntil runs the processing in the background AFTER the response is sent.
-        waitUntil(processMetaLead({ leadgenId, formId, pageId, adId }));
+        // Also pass the tenant_id from the webhook payload if present (for multi-tenant Meta setups)
+        const tenantIdFromPayload = body.tenant_id || 'default';
+        waitUntil(processMetaLead({ leadgenId, formId, pageId, adId, tenantId: tenantIdFromPayload }));
 
         return NextResponse.json({ received: true }, { status: 200 });
       }
@@ -83,7 +85,8 @@ export async function POST(req: NextRequest) {
       utm_medium,
       utm_campaign,
       landing_page_url,
-      external_consultant
+      external_consultant,
+      tenant_id = 'default'
     } = body;
 
     if (!name || !phone) {
@@ -119,7 +122,8 @@ export async function POST(req: NextRequest) {
       status: '1st followup',
       score,
       tags: ['Webhook Ingestion'],
-      external_consultant: external_consultant || null
+      external_consultant: external_consultant || null,
+      tenant_id
     };
 
     if (supabase) {
@@ -136,7 +140,8 @@ export async function POST(req: NextRequest) {
       await supabase.from('activity_logs').insert([{
         lead_id: data.id,
         action_type: 'lead_created',
-        description: `Lead auto-captured via Webhook from ${lead_source}. Campaign: ${campaign_name || 'N/A'}`
+        description: `Lead auto-captured via Webhook from ${lead_source}. Campaign: ${campaign_name || 'N/A'}`,
+        tenant_id: data.tenant_id
       }]);
 
       // Trigger background email and push notifications
@@ -159,19 +164,35 @@ export async function POST(req: NextRequest) {
 }
 
 // Background processor for Meta Lead Ads webhook events
-async function processMetaLead({ leadgenId, formId, pageId, adId }: {
+async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'default' }: {
   leadgenId: string;
   formId?: string;
   pageId?: string;
   adId?: string;
+  tenantId?: string;
 }) {
-  console.log(`[processMetaLead] Starting background processing for leadgen_id=${leadgenId}`);
-  
-  const metaAccessToken = process.env.META_ACCESS_TOKEN;
+  console.log(`[processMetaLead] Starting background processing for leadgen_id=${leadgenId}, tenant=${tenantId}`);
+
+  // Resolve Meta Access Token: first check tenant's database settings, then fall back to env var
+  let metaAccessToken = process.env.META_ACCESS_TOKEN;
+  if (supabase) {
+    const { data: tenantSettings } = await supabase
+      .from('settings')
+      .select('meta_access_token')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (tenantSettings?.meta_access_token) {
+      metaAccessToken = tenantSettings.meta_access_token;
+      console.log(`[processMetaLead] Using tenant-specific Meta token for tenant: ${tenantId}`);
+    } else {
+      console.log(`[processMetaLead] No tenant token found for ${tenantId}, using global env token.`);
+    }
+  }
+
   let leadPayload: any;
 
   if (!metaAccessToken) {
-    console.warn('[processMetaLead] META_ACCESS_TOKEN not configured, using fallback mock lead');
+    console.warn('[processMetaLead] No META_ACCESS_TOKEN configured (env or tenant DB), using fallback mock lead');
     leadPayload = {
       name: `Meta Lead (${leadgenId})`,
       phone: '+919999999999',
@@ -287,6 +308,10 @@ async function processMetaLead({ leadgenId, formId, pageId, adId }: {
     return;
   }
 
+  if (leadPayload) {
+    leadPayload.tenant_id = tenantId;
+  }
+
   console.log('[processMetaLead] Inserting lead into Supabase:', JSON.stringify(leadPayload));
   
   try {
@@ -302,7 +327,8 @@ async function processMetaLead({ leadgenId, formId, pageId, adId }: {
     await supabase.from('activity_logs').insert([{
       lead_id: data.id,
       action_type: 'lead_created',
-      description: `Lead auto-captured from Facebook Ads. LeadGen ID: ${leadgenId}. Ad ID: ${adId || 'N/A'}`
+      description: `Lead auto-captured from Facebook Ads. LeadGen ID: ${leadgenId}. Ad ID: ${adId || 'N/A'}`,
+      tenant_id: data.tenant_id
     }]);
     
     console.log('[processMetaLead] Activity log created.');
@@ -341,10 +367,11 @@ async function sendNewLeadNotifications(lead: any) {
     }
     console.log('[Notifications] Starting notification dispatch for lead:', lead.id);
 
-    // 1. Fetch all admins, managers, and assigned counselors
+    // 1. Fetch all admins, managers, and assigned counselors belonging to the same tenant
     const { data: recipients, error } = await supabase
       .from('profiles')
       .select('id, full_name, phone, push_token, role')
+      .eq('tenant_id', lead.tenant_id || 'default')
       .or(`role.eq.admin,role.eq.manager${lead.assigned_counsellor_id ? `,id.eq.${lead.assigned_counsellor_id}` : ''}`);
 
     if (error) {

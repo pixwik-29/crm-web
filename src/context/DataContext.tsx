@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase as originalSupabase, isSupabaseConfigured as originalIsSupabaseConfigured } from '@/lib/supabase';
 import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc } from '@/types/crm';
 
 interface DataContextType {
@@ -36,7 +36,7 @@ interface DataContextType {
   updateProfileRole: (profileId: string, role: UserRole) => Promise<void>;
   createUserProfile: (email: string, role: UserRole, name: string, phone?: string, password?: string) => Promise<Profile>;
   deleteUserProfile: (profileId: string) => Promise<void>;
-  updateSettings: (newSettings: Partial<CRMSettings>) => void;
+  updateSettings: (newSettings: Partial<CRMSettings>) => Promise<void>;
 
 
   // Lead Operations
@@ -63,6 +63,7 @@ interface DataContextType {
   // Simulation Helpers
   triggerLeadSimulation: () => void;
   isLoading: boolean;
+  tenantId: string;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -266,15 +267,40 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [visaUploadedDocs, setVisaUploadedDocs] = useState<VisaUploadedDoc[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
+  const [tenantId, setTenantId] = useState<string>('default');
+
+  const isSupabaseConfigured = originalIsSupabaseConfigured;
+  const supabase = originalSupabase;
+
+  const getStorageKey = (key: string) => {
+    if (tenantId !== 'default') {
+      return `${key}_tenant_${tenantId}`;
+    }
+    return key;
+  };
 
   // Initialize DB or Local Storage
   useEffect(() => {
     let leadsChannel: any = null;
-    const client = supabase;
+
+    // Read tenant from URL search params
+    const params = new URLSearchParams(window.location.search);
+    const tenant = params.get('tenant') || 'default';
+    setTenantId(tenant);
+
+    const client = originalSupabase;
+    const isDbActive = originalIsSupabaseConfigured && client;
+
+    const getLocalKey = (key: string) => {
+      if (tenant !== 'default') {
+        return `${key}_tenant_${tenant}`;
+      }
+      return key;
+    };
 
     const initData = async () => {
       setIsLoading(true);
-      if (isSupabaseConfigured && client) {
+      if (isDbActive && client) {
         try {
           // Fetch active user profile
           const { data: { session } } = await client.auth.getSession();
@@ -283,44 +309,69 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .from('profiles')
               .select('*')
               .eq('id', session.user.id)
+              .eq('tenant_id', tenant)
               .single();
             if (profile) setCurrentUser(profile as Profile);
           }
 
           // Load other entities
-          const { data: pList } = await client.from('profiles').select('*');
+          const { data: pList } = await client.from('profiles').select('*').eq('tenant_id', tenant);
           if (pList) setProfiles(pList as Profile[]);
 
-          const { data: lList } = await client.from('leads').select('*').order('created_at', { ascending: false });
+          const { data: lList } = await client.from('leads').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
           if (lList) setLeads(lList as Lead[]);
 
-          const { data: nList } = await client.from('notes').select('*').order('created_at', { ascending: false });
+          const { data: nList } = await client.from('notes').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
           if (nList) setNotes(nList as Note[]);
 
-          const { data: tList } = await client.from('tasks').select('*').order('created_at', { ascending: false });
+          const { data: tList } = await client.from('tasks').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
           if (tList) setTasks(tList as Task[]);
 
-          const { data: aList } = await client.from('activity_logs').select('*').order('created_at', { ascending: false });
+          const { data: aList } = await client.from('activity_logs').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
           if (aList) setActivityLogs(aList as ActivityLog[]);
 
-          const { data: wHist } = await client.from('whatsapp_history').select('*').order('created_at', { ascending: false });
+          const { data: wHist } = await client.from('whatsapp_history').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
           if (wHist) setWhatsappHistory(wHist as WhatsAppMessage[]);
 
-           const { data: wTemp } = await client.from('whatsapp_templates').select('*');
+          const { data: wTemp } = await client.from('whatsapp_templates').select('*').eq('tenant_id', tenant);
           if (wTemp && wTemp.length > 0) setWhatsappTemplates(wTemp as WhatsAppTemplate[]);
 
-          const { data: vApps } = await client.from('visa_applications').select('*');
+          const { data: vApps } = await client.from('visa_applications').select('*').eq('tenant_id', tenant);
           if (vApps) setVisaApplications(vApps as VisaApplication[]);
 
-          const { data: vReqDocs } = await client.from('visa_required_docs').select('*');
+          const { data: vReqDocs } = await client.from('visa_required_docs').select('*').eq('tenant_id', tenant);
           if (vReqDocs) setVisaRequiredDocs(vReqDocs as VisaRequiredDoc[]);
 
-          const { data: vUpDocs } = await client.from('visa_uploaded_docs').select('*');
+          const { data: vUpDocs } = await client.from('visa_uploaded_docs').select('*').eq('tenant_id', tenant);
           if (vUpDocs) setVisaUploadedDocs(vUpDocs as VisaUploadedDoc[]);
+
+          // Load settings
+          const { data: dbSettings } = await client
+            .from('settings')
+            .select('*')
+            .eq('tenant_id', tenant)
+            .maybeSingle();
+
+          if (dbSettings) {
+            setSettings(dbSettings as CRMSettings);
+          } else {
+            // Upsert defaults for this new tenant
+            const defaultWithTenant = {
+              ...DEFAULT_SETTINGS,
+              tenant_id: tenant
+            };
+            const { error: insertErr } = await client
+              .from('settings')
+              .upsert(defaultWithTenant);
+            if (insertErr) {
+              console.error("Failed to insert default settings:", insertErr);
+            }
+            setSettings(DEFAULT_SETTINGS);
+          }
 
           // Set up real-time listener subscriptions
           leadsChannel = client.channel('realtime-db-changes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `tenant_id=eq.${tenant}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setLeads(prev => [payload.new as Lead, ...prev]);
               } else if (payload.eventType === 'UPDATE') {
@@ -329,20 +380,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setLeads(prev => prev.filter(l => l.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `tenant_id=eq.${tenant}` }, (payload) => {
               if (payload.eventType === 'INSERT') setNotes(prev => [payload.new as Note, ...prev]);
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `tenant_id=eq.${tenant}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setTasks(prev => [payload.new as Task, ...prev]);
               } else if (payload.eventType === 'UPDATE') {
                 setTasks(prev => prev.map(t => t.id === payload.new.id ? (payload.new as Task) : t));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_history' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_history', filter: `tenant_id=eq.${tenant}` }, (payload) => {
               if (payload.eventType === 'INSERT') setWhatsappHistory(prev => [payload.new as WhatsAppMessage, ...prev]);
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_templates' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_templates', filter: `tenant_id=eq.${tenant}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setWhatsappTemplates(prev => {
                   if (prev.some(t => t.id === payload.new.id)) return prev;
@@ -354,7 +405,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setWhatsappTemplates(prev => prev.filter(t => t.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_applications' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_applications', filter: `tenant_id=eq.${tenant}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setVisaApplications(prev => [payload.new as VisaApplication, ...prev]);
               } else if (payload.eventType === 'UPDATE') {
@@ -363,7 +414,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setVisaApplications(prev => prev.filter(va => va.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_required_docs' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_required_docs', filter: `tenant_id=eq.${tenant}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setVisaRequiredDocs(prev => [...prev, payload.new as VisaRequiredDoc]);
               } else if (payload.eventType === 'UPDATE') {
@@ -372,7 +423,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setVisaRequiredDocs(prev => prev.filter(vrd => vrd.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_uploaded_docs' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_uploaded_docs', filter: `tenant_id=eq.${tenant}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setVisaUploadedDocs(prev => [payload.new as VisaUploadedDoc, ...prev]);
               } else if (payload.eventType === 'UPDATE') {
@@ -381,25 +432,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setVisaUploadedDocs(prev => prev.filter(vud => vud.id !== payload.old.id));
               }
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+              if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+                setSettings(payload.new as CRMSettings);
+              }
+            })
             .subscribe();
         } catch (error) {
           console.error("Supabase load error: ", error);
         }
       } else {
         // LocalStorage fallback mock load
-        const storedUser = localStorage.getItem('crm_user');
-        const storedProfiles = localStorage.getItem('crm_profiles');
-        const storedLeads = localStorage.getItem('crm_leads');
-        const storedNotes = localStorage.getItem('crm_notes');
-        const storedTasks = localStorage.getItem('crm_tasks');
-        const storedLogs = localStorage.getItem('crm_logs');
-        const storedWHist = localStorage.getItem('crm_whist');
-        const storedSettings = localStorage.getItem('crm_settings');
-        const storedWTemp = localStorage.getItem('crm_whatsapp_templates');
+        const storedUser = localStorage.getItem(getLocalKey('crm_user'));
+        const storedProfiles = localStorage.getItem(getLocalKey('crm_profiles'));
+        const storedLeads = localStorage.getItem(getLocalKey('crm_leads'));
+        const storedNotes = localStorage.getItem(getLocalKey('crm_notes'));
+        const storedTasks = localStorage.getItem(getLocalKey('crm_tasks'));
+        const storedLogs = localStorage.getItem(getLocalKey('crm_logs'));
+        const storedWHist = localStorage.getItem(getLocalKey('crm_whist'));
+        const storedSettings = localStorage.getItem(getLocalKey('crm_settings'));
+        const storedWTemp = localStorage.getItem(getLocalKey('crm_whatsapp_templates'));
 
         let parsedUser = storedUser ? JSON.parse(storedUser) : null;
-        let parsedProfiles = storedProfiles ? JSON.parse(storedProfiles) : MOCK_PROFILES;
-        let parsedLeads = storedLeads ? JSON.parse(storedLeads) : MOCK_LEADS;
+        let parsedProfiles = storedProfiles ? JSON.parse(storedProfiles) : (tenant !== 'default' ? [
+          { id: `user-admin-${tenant}`, full_name: `Admin`, role: 'admin' as UserRole, created_at: new Date().toISOString() }
+        ] : MOCK_PROFILES);
+        let parsedLeads = storedLeads ? JSON.parse(storedLeads) : (tenant !== 'default' ? [] : MOCK_LEADS);
         let parsedNotes = storedNotes ? JSON.parse(storedNotes) : [];
         let parsedTasks = storedTasks ? JSON.parse(storedTasks) : [];
         let parsedLogs = storedLogs ? JSON.parse(storedLogs) : [];
@@ -412,7 +470,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           (s: any) => s.id === 'New Lead' || s.id === 'Qualified' || s.id === 'WhatsApp Initiated'
         );
 
-        if (hasLegacyStages) {
+        if (hasLegacyStages && tenant === 'default') {
           parsedSettings = DEFAULT_SETTINGS;
           parsedLeads = MOCK_LEADS;
           parsedNotes = [];
@@ -428,8 +486,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.removeItem('crm_whist');
         }
 
-        if (parsedUser) setCurrentUser(parsedUser);
-        else setCurrentUser(MOCK_PROFILES[0]); // Auto-login as admin initially
+        if (parsedUser) {
+          setCurrentUser(parsedUser);
+        } else if (tenant === 'default') {
+          setCurrentUser(MOCK_PROFILES[0]); // Auto-login as admin initially for default tenant
+        } else {
+          setCurrentUser(null); // Force login screen for non-default tenants
+        }
 
         setProfiles(parsedProfiles);
         setLeads(parsedLeads);
@@ -441,24 +504,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSettings(parsedSettings);
         
         // Populate default arrays if empty initially
-        if (!storedProfiles) localStorage.setItem('crm_profiles', JSON.stringify(MOCK_PROFILES));
-        if (!storedLeads && !hasLegacyStages) localStorage.setItem('crm_leads', JSON.stringify(MOCK_LEADS));
-        if (!storedSettings && !hasLegacyStages) localStorage.setItem('crm_settings', JSON.stringify(DEFAULT_SETTINGS));
-         if (!storedWTemp) localStorage.setItem('crm_whatsapp_templates', JSON.stringify(DEFAULT_TEMPLATES));
+        if (!storedProfiles) localStorage.setItem(getLocalKey('crm_profiles'), JSON.stringify(parsedProfiles));
+        if (!storedLeads && !hasLegacyStages) localStorage.setItem(getLocalKey('crm_leads'), JSON.stringify(parsedLeads));
+        if (!storedSettings && !hasLegacyStages) localStorage.setItem(getLocalKey('crm_settings'), JSON.stringify(parsedSettings));
+         if (!storedWTemp) localStorage.setItem(getLocalKey('crm_whatsapp_templates'), JSON.stringify(parsedWTemp));
 
-        const storedVApps = localStorage.getItem('crm_visa_apps');
-        const storedVReqDocs = localStorage.getItem('crm_visa_req_docs');
-        const storedVUpDocs = localStorage.getItem('crm_visa_up_docs');
+        const storedVApps = localStorage.getItem(getLocalKey('crm_visa_apps'));
+        const storedVReqDocs = localStorage.getItem(getLocalKey('crm_visa_req_docs'));
+        const storedVUpDocs = localStorage.getItem(getLocalKey('crm_visa_up_docs'));
 
         let parsedVApps = storedVApps ? JSON.parse(storedVApps) : [];
-        let parsedVReqDocs = storedVReqDocs ? JSON.parse(storedVReqDocs) : MOCK_VISA_REQ_DOCS;
+        let parsedVReqDocs = storedVReqDocs ? JSON.parse(storedVReqDocs) : (tenant !== 'default' ? [] : MOCK_VISA_REQ_DOCS);
         let parsedVUpDocs = storedVUpDocs ? JSON.parse(storedVUpDocs) : [];
 
         setVisaApplications(parsedVApps);
         setVisaRequiredDocs(parsedVReqDocs);
         setVisaUploadedDocs(parsedVUpDocs);
 
-        if (!storedVReqDocs) localStorage.setItem('crm_visa_req_docs', JSON.stringify(MOCK_VISA_REQ_DOCS));
+        if (!storedVReqDocs) localStorage.setItem(getLocalKey('crm_visa_req_docs'), JSON.stringify(parsedVReqDocs));
       }
       setIsLoading(false);
     };
@@ -466,7 +529,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initData();
 
     return () => {
-      if (isSupabaseConfigured && client && leadsChannel) {
+      if (isDbActive && client && leadsChannel) {
         client.removeChannel(leadsChannel);
       }
     };
@@ -474,8 +537,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Persistent writing for offline localStorage mode
   const saveLocal = (key: string, data: any) => {
-    if (!isSupabaseConfigured) {
-      localStorage.setItem(key, JSON.stringify(data));
+    if (!isSupabaseConfigured || tenantId !== 'default') {
+      localStorage.setItem(getStorageKey(key), JSON.stringify(data));
     }
   };
 
@@ -491,6 +554,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('profiles')
         .select('*')
         .eq('id', data.user?.id)
+        .eq('tenant_id', tenantId)
         .single();
       
       const prof = profile as Profile;
@@ -511,7 +575,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         saveLocal('crm_profiles', updated);
       }
       setCurrentUser(matched);
-      localStorage.setItem('crm_user', JSON.stringify(matched));
+      localStorage.setItem(getStorageKey('crm_user'), JSON.stringify(matched));
       return matched;
     }
   };
@@ -521,12 +585,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       supabase.auth.signOut();
     }
     setCurrentUser(null);
-    localStorage.removeItem('crm_user');
+    localStorage.removeItem(getStorageKey('crm_user'));
   };
 
   const switchUser = (profile: Profile) => {
     setCurrentUser(profile);
-    localStorage.setItem('crm_user', JSON.stringify(profile));
+    localStorage.setItem(getStorageKey('crm_user'), JSON.stringify(profile));
   };
 
   const updateProfileRole = async (profileId: string, role: UserRole) => {
@@ -537,7 +601,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (currentUser && currentUser.id === profileId) {
       const updatedUser = { ...currentUser, role };
       setCurrentUser(updatedUser);
-      localStorage.setItem('crm_user', JSON.stringify(updatedUser));
+      localStorage.setItem(getStorageKey('crm_user'), JSON.stringify(updatedUser));
     }
 
     if (isSupabaseConfigured && supabase) {
@@ -575,11 +639,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Remove from mock credentials list
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('crm_credentials');
+      const stored = localStorage.getItem(getStorageKey('crm_credentials'));
       if (stored) {
         const creds = JSON.parse(stored);
         const updatedCreds = creds.filter((c: any) => c.profileId !== profileId);
-        localStorage.setItem('crm_credentials', JSON.stringify(updatedCreds));
+        localStorage.setItem(getStorageKey('crm_credentials'), JSON.stringify(updatedCreds));
       }
     }
   };
@@ -598,7 +662,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           password: password || 'counsellor123',
           name,
           role,
-          phone: formattedPhone
+          phone: formattedPhone,
+          tenant_id: tenantId
         })
       });
 
@@ -628,7 +693,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Save login credentials to sandbox localStorage
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('crm_credentials');
+      const stored = localStorage.getItem(getStorageKey('crm_credentials'));
       const creds = stored ? JSON.parse(stored) : [];
       const alreadyExists = creds.some((c: any) => c.email.toLowerCase() === email.toLowerCase());
       if (!alreadyExists) {
@@ -640,7 +705,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           profileId: finalProfileId,
           phone: formattedPhone
         }];
-        localStorage.setItem('crm_credentials', JSON.stringify(updatedCreds));
+        localStorage.setItem(getStorageKey('crm_credentials'), JSON.stringify(updatedCreds));
       }
     }
 
@@ -698,10 +763,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
 
-  const updateSettings = (newSettings: Partial<CRMSettings>) => {
+  const updateSettings = async (newSettings: Partial<CRMSettings>) => {
     const updated = { ...settings, ...newSettings };
     setSettings(updated);
     saveLocal('crm_settings', updated);
+    // Persist to database if Supabase is active
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('settings')
+        .upsert({ ...updated, tenant_id: tenantId });
+      if (error) console.error('Failed to persist settings:', error.message);
+    }
   };
 
   // Lead Operations
@@ -719,7 +791,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .insert([{
           ...leadData,
           tags: leadData.tags || [],
-          score: leadData.score || 0
+          score: leadData.score || 0,
+          tenant_id: tenantId
         }])
         .select()
         .single();
@@ -730,7 +803,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lead_id: data.id,
         actor_id: currentUser?.id,
         action_type: 'lead_created',
-        description: `Lead created from source: ${leadData.lead_source}`
+        description: `Lead created from source: ${leadData.lead_source}`,
+        tenant_id: tenantId
       }]);
       
       return data as Lead;
@@ -771,6 +845,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
+        .eq('tenant_id', tenantId)
         .select()
         .single();
       if (error) throw error;
@@ -781,7 +856,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           lead_id: id,
           actor_id: currentUser?.id,
           action_type: 'status_change',
-          description: `Status changed to: ${updates.status}`
+          description: `Status changed to: ${updates.status}`,
+          tenant_id: tenantId
         }]);
       }
       return data as Lead;
@@ -859,7 +935,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteLead = async (id: string): Promise<void> => {
     if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('leads').delete().eq('id', id);
+      const { error } = await supabase.from('leads').delete().eq('id', id).eq('tenant_id', tenantId);
       if (error) throw error;
       setLeads(prev => prev.filter(l => l.id !== id));
     } else {
@@ -871,7 +947,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteLeads = async (ids: string[]): Promise<void> => {
     if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('leads').delete().in('id', ids);
+      const { error } = await supabase.from('leads').delete().in('id', ids).eq('tenant_id', tenantId);
       if (error) throw error;
       setLeads(prev => prev.filter(l => !ids.includes(l.id)));
     } else {
@@ -894,7 +970,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('notes')
-        .insert([{ lead_id: leadId, author_id: currentUser?.id, content }])
+        .insert([{ lead_id: leadId, author_id: currentUser?.id, content, tenant_id: tenantId }])
         .select()
         .single();
       if (error) throw error;
@@ -903,7 +979,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lead_id: leadId,
         actor_id: currentUser?.id,
         action_type: 'note_added',
-        description: `Added internal team note: "${content.substring(0, 40)}${content.length > 40 ? '...' : ''}"`
+        description: `Added internal team note: "${content.substring(0, 40)}${content.length > 40 ? '...' : ''}"`,
+        tenant_id: tenantId
       }]);
 
       return data as Note;
@@ -944,7 +1021,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('tasks')
-        .insert([{ lead_id: leadId, assignee_id: currentUser?.id, title, due_date: finalDueDate }])
+        .insert([{ lead_id: leadId, assignee_id: currentUser?.id, title, due_date: finalDueDate, tenant_id: tenantId }])
         .select()
         .single();
       if (error) throw error;
@@ -953,7 +1030,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lead_id: leadId,
         actor_id: currentUser?.id,
         action_type: 'task_created',
-        description: `Created task: "${title}"`
+        description: `Created task: "${title}"`,
+        tenant_id: tenantId
       }]);
 
       return data as Task;
@@ -988,6 +1066,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('tasks')
         .update({ is_completed: nextCompleted })
         .eq('id', taskId)
+        .eq('tenant_id', tenantId)
         .select()
         .single();
       if (error) throw error;
@@ -996,7 +1075,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lead_id: taskToToggle.lead_id,
         actor_id: currentUser?.id,
         action_type: 'task_completed',
-        description: `Marked task "${taskToToggle.title}" as ${nextCompleted ? 'completed' : 'incomplete'}`
+        description: `Marked task "${taskToToggle.title}" as ${nextCompleted ? 'completed' : 'incomplete'}`,
+        tenant_id: tenantId
       }]);
 
       return data as Task;
@@ -1088,12 +1168,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (isSupabaseConfigured && supabase) {
-      await supabase.from('whatsapp_history').insert([newMessage]);
+      await supabase.from('whatsapp_history').insert([{ ...newMessage, tenant_id: tenantId }]);
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
         actor_id: currentUser?.id,
         action_type: 'whatsapp_sent',
-        description: `Sent WhatsApp template: "${template.name}"`
+        description: `Sent WhatsApp template: "${template.name}"`,
+        tenant_id: tenantId
       }]);
     } else {
       const updated = [newMessage, ...whatsappHistory];
@@ -1146,12 +1227,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (isSupabaseConfigured && supabase) {
-      await supabase.from('whatsapp_history').insert([newMessage]);
+      await supabase.from('whatsapp_history').insert([{ ...newMessage, tenant_id: tenantId }]);
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
         actor_id: currentUser?.id,
         action_type: 'whatsapp_sent',
-        description: `Sent manual WhatsApp: "${message.substring(0, 30)}..."`
+        description: `Sent manual WhatsApp: "${message.substring(0, 30)}..."`,
+        tenant_id: tenantId
       }]);
     } else {
       const updated = [newMessage, ...whatsappHistory];
@@ -1232,7 +1314,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('whatsapp_templates')
-        .insert([templateData])
+        .insert([{ ...templateData, tenant_id: tenantId }])
         .select()
         .single();
       if (error) throw error;
@@ -1251,6 +1333,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('whatsapp_templates')
         .update(updates)
         .eq('id', id)
+        .eq('tenant_id', tenantId)
         .select()
         .single();
       if (error) throw error;
@@ -1276,7 +1359,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase
         .from('whatsapp_templates')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
       if (error) throw error;
       setWhatsappTemplates(prev => prev.filter(t => t.id !== id));
     } else {
@@ -1406,7 +1490,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...updates,
           updated_at: new Date().toISOString()
         })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
       if (error) throw error;
     } else {
       const updated = visaApplications.map(va => {
@@ -1431,7 +1516,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .upsert({
           country,
           document_name: documentName,
-          is_required: isRequired
+          is_required: isRequired,
+          tenant_id: tenantId
         }, { onConflict: 'country,document_name' });
       if (error) throw error;
     } else {
@@ -1466,7 +1552,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase
         .from('visa_required_docs')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
       if (error) throw error;
     } else {
       const updated = visaRequiredDocs.filter(vrd => vrd.id !== id);
@@ -1522,7 +1609,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           file_name: fileName,
           is_issuance: isIssuance,
           status: 'pending',
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          tenant_id: tenantId
         }, { onConflict: 'visa_application_id,document_name' });
       if (error) throw error;
     } else {
@@ -1569,7 +1657,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase
         .from('visa_uploaded_docs')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
       if (error) throw error;
     } else {
       const updated = visaUploadedDocs.filter(vud => vud.id !== id);
@@ -1586,7 +1675,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           status,
           updated_at: new Date().toISOString()
         })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
       if (error) throw error;
     } else {
       const updated = visaUploadedDocs.map(vud => {
@@ -1631,7 +1721,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lead_id: lead.id,
         actor_id: currentUser?.id,
         action_type: 'whatsapp_sent',
-        description: `Sent official document (${doc.document_name}) link to student via WhatsApp`
+        description: `Sent official document (${doc.document_name}) link to student via WhatsApp`,
+        tenant_id: tenantId
       }]);
     } else {
       const log: ActivityLog = {
@@ -1702,7 +1793,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sendVisaDocToStudent,
       
       triggerLeadSimulation,
-      isLoading
+      isLoading,
+      tenantId
     }}>
       {children}
     </DataContext.Provider>
