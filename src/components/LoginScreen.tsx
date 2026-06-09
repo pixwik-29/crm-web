@@ -24,7 +24,7 @@ const DEFAULT_CREDENTIALS: Credential[] = [
 
 
 export const LoginScreen: React.FC = () => {
-  const { login, profiles, switchUser, isConfigured } = useData();
+  const { login, profiles, switchUser, isConfigured, tenantId } = useData();
 
   // Screen modes: 'login' | 'register' | 'forgot' | 'otp' | 'reset-pass'
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'otp' | 'reset-pass'>('login');
@@ -59,8 +59,14 @@ export const LoginScreen: React.FC = () => {
   // Load / Initialize Credentials in localStorage (Sandbox mode helper)
   const getCredentials = (): Credential[] => {
     if (typeof window === 'undefined') return DEFAULT_CREDENTIALS;
-    const stored = localStorage.getItem('crm_credentials');
+    const key = tenantId !== 'default' ? `crm_credentials_tenant_${tenantId}` : 'crm_credentials';
+    const stored = localStorage.getItem(key);
     if (!stored) {
+      if (tenantId !== 'default') {
+        // For tenant workspaces, return empty — real auth goes through Supabase.
+        // Sandbox credentials are seeded by the partner admin portal, not auto-generated.
+        return [];
+      }
       localStorage.setItem('crm_credentials', JSON.stringify(DEFAULT_CREDENTIALS));
       return DEFAULT_CREDENTIALS;
     }
@@ -77,7 +83,8 @@ export const LoginScreen: React.FC = () => {
 
 
   const saveCredentials = (creds: Credential[]) => {
-    localStorage.setItem('crm_credentials', JSON.stringify(creds));
+    const key = tenantId !== 'default' ? `crm_credentials_tenant_${tenantId}` : 'crm_credentials';
+    localStorage.setItem(key, JSON.stringify(creds));
   };
 
   // Auto fill credentials helper for quick demo testing
@@ -104,7 +111,8 @@ export const LoginScreen: React.FC = () => {
         
         // Save these credentials locally so that future Phone OTP logins work on this device
         if (typeof window !== 'undefined' && profile) {
-          const stored = localStorage.getItem('crm_credentials');
+          const key = tenantId !== 'default' ? `crm_credentials_tenant_${tenantId}` : 'crm_credentials';
+          const stored = localStorage.getItem(key);
           const creds = stored ? JSON.parse(stored) : [];
           const index = creds.findIndex((c: any) => c.email.toLowerCase() === email.toLowerCase());
           const newCred = {
@@ -120,7 +128,7 @@ export const LoginScreen: React.FC = () => {
           } else {
             creds.push(newCred);
           }
-          localStorage.setItem('crm_credentials', JSON.stringify(creds));
+          localStorage.setItem(key, JSON.stringify(creds));
         }
       } else {
         // Local sandbox verification
@@ -527,6 +535,20 @@ export const LoginScreen: React.FC = () => {
         {success && (
           <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs text-center font-semibold animate-pulse">
             {success}
+          </div>
+        )}
+
+        {tenantId && tenantId !== 'default' && (
+          <div className="mb-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/35 text-blue-400 text-xs leading-relaxed flex items-start gap-2.5">
+            <Info className="w-4.5 h-4.5 text-blue-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-bold text-[13px] text-white mb-1">
+                Workspace: {tenantId.toUpperCase()}
+              </p>
+              <p className="text-slate-350 text-[11px] leading-relaxed">
+                Sign in using the <span className="text-white font-semibold">email address and password</span> provided to you when this CRM subscription was created.
+              </p>
+            </div>
           </div>
         )}
 

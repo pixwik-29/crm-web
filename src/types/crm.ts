@@ -6,6 +6,7 @@ export interface Profile {
   role: UserRole;
   phone?: string;
   created_at: string;
+  tenant_id?: string;
 }
 
 export interface Lead {
