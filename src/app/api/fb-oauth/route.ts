@@ -8,13 +8,6 @@ export async function GET(req: NextRequest) {
   const appId = process.env.NEXT_PUBLIC_FB_APP_ID;
   const origin = req.nextUrl.origin;
 
-  if (!appId) {
-    return NextResponse.json(
-      { error: 'NEXT_PUBLIC_FB_APP_ID is not configured in environment variables.' },
-      { status: 500 }
-    );
-  }
-
   // Read tenant_id from query param (passed by the frontend button)
   const tenantId = req.nextUrl.searchParams.get('tenant_id') || req.nextUrl.searchParams.get('tenant') || 'default';
 
@@ -22,6 +15,22 @@ export async function GET(req: NextRequest) {
   const statePayload = Buffer.from(`${tenantId}|${Date.now()}`).toString('base64url');
 
   const redirectUri = `${origin}/api/fb-oauth/callback`;
+
+  // If real=true param is not passed, redirect to our custom mock Facebook dialog
+  const isReal = req.nextUrl.searchParams.get('real') === 'true';
+  if (!isReal) {
+    const mockUrl = new URL('/fb-oauth-mock', origin);
+    mockUrl.searchParams.set('state', statePayload);
+    mockUrl.searchParams.set('redirect_uri', redirectUri);
+    return NextResponse.redirect(mockUrl.toString());
+  }
+
+  if (!appId) {
+    return NextResponse.json(
+      { error: 'NEXT_PUBLIC_FB_APP_ID is not configured in environment variables.' },
+      { status: 500 }
+    );
+  }
 
   const fbDialogUrl = new URL('https://www.facebook.com/v19.0/dialog/oauth');
   fbDialogUrl.searchParams.set('client_id', appId);

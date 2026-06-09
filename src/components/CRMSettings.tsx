@@ -94,6 +94,20 @@ export const CRMSettings: React.FC = () => {
   const isFbConnected = Boolean(settings.meta_access_token && settings.meta_access_token.trim().length > 10);
   const fbAppId = process.env.NEXT_PUBLIC_FB_APP_ID;
 
+  const getFbPages = () => {
+    if (!settings.fb_pages) return [];
+    try {
+      return typeof settings.fb_pages === 'string' 
+        ? JSON.parse(settings.fb_pages) 
+        : settings.fb_pages;
+    } catch (e) {
+      console.warn("Could not parse fb_pages", e);
+      return [];
+    }
+  };
+  const connectedPages = getFbPages();
+  const connectedAt = settings.fb_connected_at ? new Date(settings.fb_connected_at).toLocaleString() : '';
+
   // Read URL params set by OAuth callback
   useEffect(() => {
     const fbResult = searchParams.get('fb');
@@ -535,7 +549,14 @@ async function submitEduPathLead(leadData) {
                       <p className="text-xs font-bold text-slate-800 dark:text-white">Facebook Ads</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         {isFbConnected
-                          ? <><Wifi className="w-3 h-3 text-emerald-500" /><span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Connected – token active</span></>
+                          ? (
+                            <>
+                              <Wifi className="w-3 h-3 text-emerald-500" />
+                              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                Connected {connectedAt ? `on ${connectedAt}` : '– token active'}
+                              </span>
+                            </>
+                          )
                           : <><WifiOff className="w-3 h-3 text-slate-400" /><span className="text-[10px] font-semibold text-slate-400">Not connected</span></>}
                       </div>
                     </div>
@@ -544,28 +565,49 @@ async function submitEduPathLead(leadData) {
                   {isFbConnected ? (
                     <button
                       type="button"
-                      onClick={() => { setAccessToken(''); updateSettings({ meta_access_token: '' }); }}
+                      onClick={() => { 
+                        setAccessToken(''); 
+                        updateSettings({ 
+                          meta_access_token: '',
+                          fb_connected_at: undefined,
+                          fb_pages: []
+                        }); 
+                      }}
                       className="px-3 py-1.5 rounded-xl text-[10px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/40 hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-all"
                     >
                       Disconnect
                     </button>
                   ) : (
                     <a
-                      href={fbAppId ? `/api/fb-oauth?tenant_id=${tenantId}` : 'https://developers.facebook.com/apps/'}
-                      className={`px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all flex items-center gap-1.5 ${
-                        fbAppId
-                          ? 'bg-[#1877F2] hover:bg-[#166fe5] cursor-pointer'
-                          : 'bg-slate-400 cursor-not-allowed'
-                      }`}
-                      title={!fbAppId ? 'Set NEXT_PUBLIC_FB_APP_ID in .env.local to enable OAuth' : ''}
+                      href={`/api/fb-oauth?tenant_id=${tenantId}`}
+                      className="px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all flex items-center gap-1.5 bg-[#1877F2] hover:bg-[#166fe5] cursor-pointer"
                     >
                       <svg viewBox="0 0 24 24" fill="white" className="w-3.5 h-3.5">
                         <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                       </svg>
-                      {fbAppId ? 'Connect with Facebook' : 'Set App ID first'}
+                      Connect with Facebook
                     </a>
                   )}
                 </div>
+
+                {isFbConnected && connectedPages.length > 0 && (
+                  <div className="pt-3 border-t border-slate-200 dark:border-zinc-800/60 space-y-2">
+                    <p className="text-[9px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-widest">
+                      Authorized Facebook Pages ({connectedPages.length})
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {connectedPages.map((page: any) => (
+                        <div 
+                          key={page.id}
+                          className="bg-white/80 dark:bg-black/60 border border-slate-200 dark:border-zinc-900 px-3 py-2 rounded-xl flex items-center justify-between text-[11px] text-slate-800 dark:text-slate-200"
+                        >
+                          <span className="font-bold truncate">{page.name}</span>
+                          <span className="text-[8px] text-slate-400 font-mono ml-2">ID: {String(page.id).substring(0, 8)}...</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {fbStatus && (
                   <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-[10px] font-semibold">

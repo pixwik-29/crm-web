@@ -121,6 +121,8 @@ export interface CRMSettings {
   routing_budget_threshold: number;
   meta_verify_token: string;
   meta_access_token: string;
+  fb_connected_at?: string;
+  fb_pages?: any;
   whatsapp_phone_id: string;
   whatsapp_account_id: string;
   whatsapp_api_token: string;

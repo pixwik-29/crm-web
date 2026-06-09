@@ -240,6 +240,7 @@ const DEFAULT_SETTINGS: CRMSettings = {
   routing_budget_threshold: 40,
   meta_verify_token: 'edupath_crm_verify_token_xyz',
   meta_access_token: '',
+  fb_pages: [],
   whatsapp_phone_id: '109827364583920',
   whatsapp_account_id: '120938475647382',
   whatsapp_api_token: 'EAAG...whatsapp...token',
@@ -279,77 +280,113 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return key;
   };
 
-  // Initialize DB or Local Storage
+  // 1. Resolve tenantId and currentUser on mount
   useEffect(() => {
-    let leadsChannel: any = null;
+    const initSession = async () => {
+      const client = originalSupabase;
+      const isDbActive = originalIsSupabaseConfigured && client;
+      
+      const params = new URLSearchParams(window.location.search);
+      const urlTenant = params.get('tenant') || 'default';
 
-    // Read tenant from URL search params
-    const params = new URLSearchParams(window.location.search);
-    const tenant = params.get('tenant') || 'default';
-    setTenantId(tenant);
-
-    const client = originalSupabase;
-    const isDbActive = originalIsSupabaseConfigured && client;
-
-    const getLocalKey = (key: string) => {
-      if (tenant !== 'default') {
-        return `${key}_tenant_${tenant}`;
-      }
-      return key;
-    };
-
-    const initData = async () => {
-      setIsLoading(true);
       if (isDbActive && client) {
         try {
-          // Fetch active user profile
           const { data: { session } } = await client.auth.getSession();
           if (session?.user) {
+            // Fetch profile for the session user (without tenant filter first!)
             const { data: profile } = await client
               .from('profiles')
               .select('*')
               .eq('id', session.user.id)
-              .eq('tenant_id', tenant)
-              .single();
-            if (profile) setCurrentUser(profile as Profile);
-          }
+              .maybeSingle();
 
+            if (profile) {
+              const activeTenant = profile.tenant_id || urlTenant;
+              setCurrentUser(profile as Profile);
+              setTenantId(activeTenant);
+              return;
+            }
+          }
+        } catch (err) {
+          console.error("Error checking auth session:", err);
+        }
+      } else {
+        // LocalStorage fallback
+        const getLocalKey = (key: string) => {
+          return urlTenant !== 'default' ? `${key}_tenant_${urlTenant}` : key;
+        };
+        const storedUser = localStorage.getItem(getLocalKey('crm_user'));
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          setCurrentUser(parsedUser);
+          setTenantId(urlTenant);
+          return;
+        } else if (urlTenant === 'default') {
+          setCurrentUser(MOCK_PROFILES[0]); // Auto-login as admin initially for default tenant in mock mode
+          setTenantId('default');
+          return;
+        }
+      }
+      
+      // Fallback if no session/profile
+      setTenantId(urlTenant);
+    };
+
+    initSession();
+  }, []);
+
+  // 2. Load settings and data for the active tenantId
+  useEffect(() => {
+    if (!tenantId) return;
+
+    let leadsChannel: any = null;
+    const client = originalSupabase;
+    const isDbActive = originalIsSupabaseConfigured && client;
+
+    const getLocalKey = (key: string) => {
+      return tenantId !== 'default' ? `${key}_tenant_${tenantId}` : key;
+    };
+
+    const loadData = async () => {
+      setIsLoading(true);
+      if (isDbActive && client) {
+        try {
           // Load other entities
-          const { data: pList } = await client.from('profiles').select('*').eq('tenant_id', tenant);
+          const { data: pList } = await client.from('profiles').select('*').eq('tenant_id', tenantId);
           if (pList) setProfiles(pList as Profile[]);
 
-          const { data: lList } = await client.from('leads').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
+          const { data: lList } = await client.from('leads').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
           if (lList) setLeads(lList as Lead[]);
 
-          const { data: nList } = await client.from('notes').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
+          const { data: nList } = await client.from('notes').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
           if (nList) setNotes(nList as Note[]);
 
-          const { data: tList } = await client.from('tasks').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
+          const { data: tList } = await client.from('tasks').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
           if (tList) setTasks(tList as Task[]);
 
-          const { data: aList } = await client.from('activity_logs').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
+          const { data: aList } = await client.from('activity_logs').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
           if (aList) setActivityLogs(aList as ActivityLog[]);
 
-          const { data: wHist } = await client.from('whatsapp_history').select('*').eq('tenant_id', tenant).order('created_at', { ascending: false });
+          const { data: wHist } = await client.from('whatsapp_history').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
           if (wHist) setWhatsappHistory(wHist as WhatsAppMessage[]);
 
-          const { data: wTemp } = await client.from('whatsapp_templates').select('*').eq('tenant_id', tenant);
+          const { data: wTemp } = await client.from('whatsapp_templates').select('*').eq('tenant_id', tenantId);
           if (wTemp && wTemp.length > 0) setWhatsappTemplates(wTemp as WhatsAppTemplate[]);
 
-          const { data: vApps } = await client.from('visa_applications').select('*').eq('tenant_id', tenant);
+          const { data: vApps } = await client.from('visa_applications').select('*').eq('tenant_id', tenantId);
           if (vApps) setVisaApplications(vApps as VisaApplication[]);
 
-          const { data: vReqDocs } = await client.from('visa_required_docs').select('*').eq('tenant_id', tenant);
+          const { data: vReqDocs } = await client.from('visa_required_docs').select('*').eq('tenant_id', tenantId);
           if (vReqDocs) setVisaRequiredDocs(vReqDocs as VisaRequiredDoc[]);
 
-          const { data: vUpDocs } = await client.from('visa_uploaded_docs').select('*').eq('tenant_id', tenant);
+          const { data: vUpDocs } = await client.from('visa_uploaded_docs').select('*').eq('tenant_id', tenantId);
           if (vUpDocs) setVisaUploadedDocs(vUpDocs as VisaUploadedDoc[]);
 
           // Load settings
           const { data: dbSettings } = await client
             .from('settings')
             .select('*')
-            .eq('tenant_id', tenant)
+            .eq('tenant_id', tenantId)
             .maybeSingle();
 
           if (dbSettings) {
@@ -358,7 +395,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Upsert defaults for this new tenant
             const defaultWithTenant = {
               ...DEFAULT_SETTINGS,
-              tenant_id: tenant
+              tenant_id: tenantId
             };
             const { error: insertErr } = await client
               .from('settings')
@@ -366,12 +403,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (insertErr) {
               console.error("Failed to insert default settings:", insertErr);
             }
-            setSettings(DEFAULT_SETTINGS);
+            setSettings(defaultWithTenant);
           }
 
           // Set up real-time listener subscriptions
-          leadsChannel = client.channel('realtime-db-changes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+          leadsChannel = client.channel(`realtime-db-${tenantId}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setLeads(prev => [payload.new as Lead, ...prev]);
               } else if (payload.eventType === 'UPDATE') {
@@ -380,20 +417,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setLeads(prev => prev.filter(l => l.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') setNotes(prev => [payload.new as Note, ...prev]);
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setTasks(prev => [payload.new as Task, ...prev]);
               } else if (payload.eventType === 'UPDATE') {
                 setTasks(prev => prev.map(t => t.id === payload.new.id ? (payload.new as Task) : t));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_history', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_history', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') setWhatsappHistory(prev => [payload.new as WhatsAppMessage, ...prev]);
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_templates', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_templates', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setWhatsappTemplates(prev => {
                   if (prev.some(t => t.id === payload.new.id)) return prev;
@@ -405,7 +442,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setWhatsappTemplates(prev => prev.filter(t => t.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_applications', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_applications', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setVisaApplications(prev => [payload.new as VisaApplication, ...prev]);
               } else if (payload.eventType === 'UPDATE') {
@@ -414,7 +451,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setVisaApplications(prev => prev.filter(va => va.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_required_docs', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_required_docs', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setVisaRequiredDocs(prev => [...prev, payload.new as VisaRequiredDoc]);
               } else if (payload.eventType === 'UPDATE') {
@@ -423,7 +460,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setVisaRequiredDocs(prev => prev.filter(vrd => vrd.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_uploaded_docs', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'visa_uploaded_docs', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
                 setVisaUploadedDocs(prev => [payload.new as VisaUploadedDoc, ...prev]);
               } else if (payload.eventType === 'UPDATE') {
@@ -432,18 +469,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setVisaUploadedDocs(prev => prev.filter(vud => vud.id !== payload.old.id));
               }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: `tenant_id=eq.${tenant}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
                 setSettings(payload.new as CRMSettings);
               }
             })
             .subscribe();
         } catch (error) {
-          console.error("Supabase load error: ", error);
+          console.error("Supabase data load error: ", error);
         }
       } else {
         // LocalStorage fallback mock load
-        const storedUser = localStorage.getItem(getLocalKey('crm_user'));
         const storedProfiles = localStorage.getItem(getLocalKey('crm_profiles'));
         const storedLeads = localStorage.getItem(getLocalKey('crm_leads'));
         const storedNotes = localStorage.getItem(getLocalKey('crm_notes'));
@@ -453,46 +489,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const storedSettings = localStorage.getItem(getLocalKey('crm_settings'));
         const storedWTemp = localStorage.getItem(getLocalKey('crm_whatsapp_templates'));
 
-        let parsedUser = storedUser ? JSON.parse(storedUser) : null;
-        let parsedProfiles = storedProfiles ? JSON.parse(storedProfiles) : (tenant !== 'default' ? [
-          { id: `user-admin-${tenant}`, full_name: `Admin`, role: 'admin' as UserRole, created_at: new Date().toISOString() }
+        let parsedProfiles = storedProfiles ? JSON.parse(storedProfiles) : (tenantId !== 'default' ? [
+          { id: `user-admin-${tenantId}`, full_name: `Admin`, role: 'admin' as UserRole, created_at: new Date().toISOString() }
         ] : MOCK_PROFILES);
-        let parsedLeads = storedLeads ? JSON.parse(storedLeads) : (tenant !== 'default' ? [] : MOCK_LEADS);
+        let parsedLeads = storedLeads ? JSON.parse(storedLeads) : (tenantId !== 'default' ? [] : MOCK_LEADS);
         let parsedNotes = storedNotes ? JSON.parse(storedNotes) : [];
         let parsedTasks = storedTasks ? JSON.parse(storedTasks) : [];
         let parsedLogs = storedLogs ? JSON.parse(storedLogs) : [];
         let parsedWHist = storedWHist ? JSON.parse(storedWHist) : [];
-        let parsedSettings = storedSettings ? JSON.parse(storedSettings) : DEFAULT_SETTINGS;
+        let parsedSettings = storedSettings ? JSON.parse(storedSettings) : { ...DEFAULT_SETTINGS, tenant_id: tenantId };
         let parsedWTemp = storedWTemp ? JSON.parse(storedWTemp) : DEFAULT_TEMPLATES;
-
-        // Auto-migration: if local storage has stale/legacy pipeline stages, reset to the new default stages
-        const hasLegacyStages = parsedSettings.pipeline_stages?.some(
-          (s: any) => s.id === 'New Lead' || s.id === 'Qualified' || s.id === 'WhatsApp Initiated'
-        );
-
-        if (hasLegacyStages && tenant === 'default') {
-          parsedSettings = DEFAULT_SETTINGS;
-          parsedLeads = MOCK_LEADS;
-          parsedNotes = [];
-          parsedTasks = [];
-          parsedLogs = [];
-          parsedWHist = [];
-          
-          localStorage.setItem('crm_settings', JSON.stringify(DEFAULT_SETTINGS));
-          localStorage.setItem('crm_leads', JSON.stringify(MOCK_LEADS));
-          localStorage.removeItem('crm_notes');
-          localStorage.removeItem('crm_tasks');
-          localStorage.removeItem('crm_logs');
-          localStorage.removeItem('crm_whist');
-        }
-
-        if (parsedUser) {
-          setCurrentUser(parsedUser);
-        } else if (tenant === 'default') {
-          setCurrentUser(MOCK_PROFILES[0]); // Auto-login as admin initially for default tenant
-        } else {
-          setCurrentUser(null); // Force login screen for non-default tenants
-        }
 
         setProfiles(parsedProfiles);
         setLeads(parsedLeads);
@@ -502,38 +508,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setWhatsappHistory(parsedWHist);
         setWhatsappTemplates(parsedWTemp);
         setSettings(parsedSettings);
-        
-        // Populate default arrays if empty initially
-        if (!storedProfiles) localStorage.setItem(getLocalKey('crm_profiles'), JSON.stringify(parsedProfiles));
-        if (!storedLeads && !hasLegacyStages) localStorage.setItem(getLocalKey('crm_leads'), JSON.stringify(parsedLeads));
-        if (!storedSettings && !hasLegacyStages) localStorage.setItem(getLocalKey('crm_settings'), JSON.stringify(parsedSettings));
-         if (!storedWTemp) localStorage.setItem(getLocalKey('crm_whatsapp_templates'), JSON.stringify(parsedWTemp));
 
         const storedVApps = localStorage.getItem(getLocalKey('crm_visa_apps'));
         const storedVReqDocs = localStorage.getItem(getLocalKey('crm_visa_req_docs'));
         const storedVUpDocs = localStorage.getItem(getLocalKey('crm_visa_up_docs'));
 
         let parsedVApps = storedVApps ? JSON.parse(storedVApps) : [];
-        let parsedVReqDocs = storedVReqDocs ? JSON.parse(storedVReqDocs) : (tenant !== 'default' ? [] : MOCK_VISA_REQ_DOCS);
+        let parsedVReqDocs = storedVReqDocs ? JSON.parse(storedVReqDocs) : (tenantId !== 'default' ? [] : MOCK_VISA_REQ_DOCS);
         let parsedVUpDocs = storedVUpDocs ? JSON.parse(storedVUpDocs) : [];
 
         setVisaApplications(parsedVApps);
         setVisaRequiredDocs(parsedVReqDocs);
         setVisaUploadedDocs(parsedVUpDocs);
-
-        if (!storedVReqDocs) localStorage.setItem(getLocalKey('crm_visa_req_docs'), JSON.stringify(parsedVReqDocs));
       }
       setIsLoading(false);
     };
 
-    initData();
+    loadData();
 
     return () => {
       if (isDbActive && client && leadsChannel) {
         client.removeChannel(leadsChannel);
       }
     };
-  }, []);
+  }, [tenantId]);
 
   // Persistent writing for offline localStorage mode
   const saveLocal = (key: string, data: any) => {
@@ -550,46 +548,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const userId = data.user?.id;
 
-      // Try to find profile for this user + tenant_id
+      // Fetch profile for the session user (without tenant filter first!)
       let { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .eq('tenant_id', tenantId)
-        .maybeSingle();  // returns null (not 406) when no row found
+        .maybeSingle();
 
-      // If not found with tenant filter, fetch without it (profile may lack tenant_id)
       if (!profile) {
-        const { data: fallbackProfile } = await supabase
+        // Create profile if it doesn't exist
+        const meta = data.user?.user_metadata || {};
+        const newProfile = {
+          id: userId,
+          full_name: meta.full_name || email.split('@')[0],
+          role: (meta.role as UserRole) || 'counsellor',
+          phone: meta.phone || '',
+          tenant_id: tenantId, // Fall back to current URL tenantId
+        };
+        await supabase.from('profiles').insert([newProfile]);
+        profile = newProfile as Profile;
+      } else if (!profile.tenant_id) {
+        // If profile exists but has no tenant_id, patch it to current URL tenantId
+        await supabase
           .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .maybeSingle();
-
-        if (fallbackProfile) {
-          // Patch the profile's tenant_id so future queries work
-          await supabase
-            .from('profiles')
-            .update({ tenant_id: tenantId })
-            .eq('id', userId);
-          profile = { ...fallbackProfile, tenant_id: tenantId };
-        } else {
-          // Profile row doesn't exist at all — create it from auth user metadata
-          const meta = data.user?.user_metadata || {};
-          const newProfile = {
-            id: userId,
-            full_name: meta.full_name || email.split('@')[0],
-            role: (meta.role as UserRole) || 'counsellor',
-            phone: meta.phone || '',
-            tenant_id: tenantId,
-          };
-          await supabase.from('profiles').insert([newProfile]);
-          profile = newProfile as Profile;
-        }
+          .update({ tenant_id: tenantId })
+          .eq('id', userId);
+        profile.tenant_id = tenantId;
       }
 
       const prof = profile as Profile;
+      
+      // Update tenantId state to match profile tenant_id, triggering the reactive useEffect data reload
+      const resolvedTenant = prof.tenant_id || 'default';
+      setTenantId(resolvedTenant);
       setCurrentUser(prof);
+
       return prof;
     } else {
       // Find matching mock profile or create
