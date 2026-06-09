@@ -110,6 +110,24 @@ export const CRMSettings: React.FC = () => {
   }, []);
 
 
+  // Sync state values when settings updates from context
+  useEffect(() => {
+    setCompName(settings.company_name);
+    setAdmYear(settings.admission_year_prefix);
+    setAssignRule(settings.lead_assignment_rule);
+    setBudgetThreshold(settings.routing_budget_threshold.toString());
+    setVerifyToken(settings.meta_verify_token);
+    setAccessToken(settings.meta_access_token);
+    setPhoneId(settings.whatsapp_phone_id);
+    setAccountId(settings.whatsapp_account_id);
+    setWhApiToken(settings.whatsapp_api_token);
+    setAutoResponse(settings.whatsapp_auto_response_template);
+    setFormStrategy(settings.form_integration_strategy || 'fixed');
+    setFixedCourse(settings.form_integration_fixed_course || 'MBBS');
+    setDynamicField(settings.form_integration_dynamic_field || 'course');
+    setStages(settings.pipeline_stages ? [...settings.pipeline_stages].sort((a,b) => a.order - b.order) : []);
+  }, [settings]);
+
   // Dynamic origin calculation for webhook URLs
   const [origin, setOrigin] = useState('http://localhost:3000');
 
