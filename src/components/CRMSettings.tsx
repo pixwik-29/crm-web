@@ -992,8 +992,93 @@ async function submitEduPathLead(leadData) {
 
         {/* Right Column: User list & role assignments */}
         <div className="space-y-6">
-          
+
+          {/* ── Facebook Ads Connect Card ─────────────────────────── */}
+          <div className={`rounded-3xl p-6 shadow-sm border space-y-4 ${isFbConnected ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-900'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {/* Facebook logo */}
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-sm text-white font-black text-base ${isFbConnected ? 'bg-emerald-500' : 'bg-[#1877F2]'}`}>
+                  {isFbConnected ? <Check className="w-5 h-5" /> : <span>f</span>}
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800 dark:text-white">Facebook Ads</h3>
+                  <p className={`text-[10px] font-semibold uppercase tracking-widest mt-0.5 ${isFbConnected ? 'text-emerald-500' : 'text-slate-400'}`}>
+                    {isFbConnected ? '● Connected' : '○ Not Connected'}
+                  </p>
+                </div>
+              </div>
+              {isFbConnected && (
+                <span className="text-[9px] font-bold uppercase tracking-widest bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+                  Active
+                </span>
+              )}
+            </div>
+
+            {fbStatus && (
+              <div className={`rounded-xl p-3 text-xs font-semibold border ${fbStatus.startsWith('✅') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'}`}>
+                {fbStatus}
+              </div>
+            )}
+
+            {isFbConnected ? (
+              <div className="space-y-3">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Your Facebook Ads account is connected. Leads from your Meta campaigns are being automatically ingested into the CRM pipeline.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Wifi className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Receiving leads from Meta Ads Manager</span>
+                </div>
+                {isAdmin && fbAppId && (
+                  <a
+                    href={`/api/fb-oauth?tenant_id=${tenantId}`}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold transition-all border border-slate-200 dark:border-zinc-800"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Reconnect / Refresh Token
+                  </a>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Connect your Facebook Business account to automatically import leads from your Meta Ads campaigns directly into this CRM workspace.
+                </p>
+                <ul className="space-y-1.5">
+                  {['Auto-import leads from Meta Ads', 'Real-time lead sync via Webhook', 'WhatsApp follow-up on new leads'].map(feat => (
+                    <li key={feat} className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+                      <Check className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                      {feat}
+                    </li>
+                  ))}
+                </ul>
+                {isAdmin && fbAppId ? (
+                  <a
+                    href={`/api/fb-oauth?tenant_id=${tenantId}`}
+                    className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-[#1877F2] hover:bg-[#166FE5] text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 hover:scale-[1.01] active:scale-[0.99]"
+                  >
+                    <span className="font-black text-sm leading-none">f</span>
+                    Connect with Facebook
+                  </a>
+                ) : !fbAppId ? (
+                  <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                    <WifiOff className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                      NEXT_PUBLIC_FB_APP_ID not configured. Contact your system administrator.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 p-3 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
+                    <ShieldAlert className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <p className="text-[10px] text-slate-500 font-semibold">Only admins can connect Facebook Ads.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* User role panel */}
+
           <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-6">
             <div className="border-b border-slate-100 dark:border-zinc-900 pb-4">
               <div className="flex items-center gap-2.5">

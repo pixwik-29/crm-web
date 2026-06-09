@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Read tenant_id from query param (passed by the frontend button)
-  const tenantId = req.nextUrl.searchParams.get('tenant_id') || 'default';
+  const tenantId = req.nextUrl.searchParams.get('tenant_id') || req.nextUrl.searchParams.get('tenant') || 'default';
 
   // Create a short-lived CSRF state token: base64(tenantId|timestamp)
   const statePayload = Buffer.from(`${tenantId}|${Date.now()}`).toString('base64url');
