@@ -545,18 +545,49 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Auth Operations
   const login = async (email: string, role: UserRole, name: string, password?: string): Promise<Profile> => {
     if (isSupabaseConfigured && supabase) {
-      // In a real environment, we'd sign in through Supabase. For the demo dashboard, 
-      // if credentials aren't completed, we authenticate.
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: password || 'password123' });
       if (error) throw error;
-      
-      const { data: profile } = await supabase
+
+      const userId = data.user?.id;
+
+      // Try to find profile for this user + tenant_id
+      let { data: profile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', data.user?.id)
+        .eq('id', userId)
         .eq('tenant_id', tenantId)
-        .single();
-      
+        .maybeSingle();  // returns null (not 406) when no row found
+
+      // If not found with tenant filter, fetch without it (profile may lack tenant_id)
+      if (!profile) {
+        const { data: fallbackProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+
+        if (fallbackProfile) {
+          // Patch the profile's tenant_id so future queries work
+          await supabase
+            .from('profiles')
+            .update({ tenant_id: tenantId })
+            .eq('id', userId);
+          profile = { ...fallbackProfile, tenant_id: tenantId };
+        } else {
+          // Profile row doesn't exist at all — create it from auth user metadata
+          const meta = data.user?.user_metadata || {};
+          const newProfile = {
+            id: userId,
+            full_name: meta.full_name || email.split('@')[0],
+            role: (meta.role as UserRole) || 'counsellor',
+            phone: meta.phone || '',
+            tenant_id: tenantId,
+          };
+          await supabase.from('profiles').insert([newProfile]);
+          profile = newProfile as Profile;
+        }
+      }
+
       const prof = profile as Profile;
       setCurrentUser(prof);
       return prof;
