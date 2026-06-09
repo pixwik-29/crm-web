@@ -239,7 +239,7 @@ const DEFAULT_SETTINGS: CRMSettings = {
   lead_assignment_rule: 'round-robin',
   routing_budget_threshold: 40,
   meta_verify_token: 'edupath_crm_verify_token_xyz',
-  meta_access_token: 'EAAG...placeholder...token',
+  meta_access_token: '',
   whatsapp_phone_id: '109827364583920',
   whatsapp_account_id: '120938475647382',
   whatsapp_api_token: 'EAAG...whatsapp...token',

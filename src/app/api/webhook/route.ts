@@ -173,8 +173,12 @@ async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'de
 }) {
   console.log(`[processMetaLead] Starting background processing for leadgen_id=${leadgenId}, tenant=${tenantId}`);
 
-  // Resolve Meta Access Token: first check tenant's database settings, then fall back to env var
-  let metaAccessToken = process.env.META_ACCESS_TOKEN;
+  // Resolve Meta Access Token: first check tenant's database settings. Global env fallback only applies to 'default' tenant.
+  let metaAccessToken = '';
+  if (tenantId === 'default') {
+    metaAccessToken = process.env.META_ACCESS_TOKEN || '';
+  }
+
   if (supabase) {
     const { data: tenantSettings } = await supabase
       .from('settings')
@@ -185,7 +189,7 @@ async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'de
       metaAccessToken = tenantSettings.meta_access_token;
       console.log(`[processMetaLead] Using tenant-specific Meta token for tenant: ${tenantId}`);
     } else {
-      console.log(`[processMetaLead] No tenant token found for ${tenantId}, using global env token.`);
+      console.log(`[processMetaLead] No custom tenant token found for ${tenantId}.`);
     }
   }
 
