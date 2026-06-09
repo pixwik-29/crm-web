@@ -31,6 +31,27 @@ export async function POST(request: Request) {
       }
     });
 
+    // Verify phone number uniqueness in profiles table (if provided)
+    if (phone) {
+      const cleanPhone = phone.replace(/\D/g, '');
+      const last10 = cleanPhone.slice(-10);
+      const formattedPhone = cleanPhone.startsWith('+') ? cleanPhone : `+91${cleanPhone}`;
+
+      const { data: existingProfile, error: phoneCheckError } = await supabase
+        .from('profiles')
+        .select('id, phone')
+        .or(`phone.eq.${formattedPhone},phone.ilike.%${last10}%`);
+
+      if (phoneCheckError) {
+        console.error('Phone check error:', phoneCheckError);
+      } else if (existingProfile && existingProfile.length > 0) {
+        return NextResponse.json(
+          { error: 'A user account with this mobile phone number already exists.' },
+          { status: 400 }
+        );
+      }
+    }
+
     // 1. Create the user in Supabase Auth using the admin API
     const { data: userData, error: createError } = await supabase.auth.admin.createUser({
       email,
