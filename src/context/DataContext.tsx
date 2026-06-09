@@ -592,7 +592,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: `mock-user-${Date.now()}`,
           full_name: name,
           role,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          tenant_id: tenantId
         };
         const updated = [...profiles, matched];
         setProfiles(updated);
@@ -707,7 +708,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       full_name: name,
       role,
       phone: formattedPhone,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      tenant_id: tenantId
     };
     
     // Update local state and storage
@@ -736,6 +738,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Trigger asynchronous Welcome Email dispatch with credentials
     try {
+      const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
       console.log(`Dispatching welcome credentials email for user ${email}...`);
       await fetch('/api/send-email', {
         method: 'POST',
@@ -752,7 +755,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 <table style="width: 100%; font-size: 13px; color: #475569;">
                   <tr>
                     <td style="font-weight: bold; padding: 6px 0; width: 150px;">Workspace Link:</td>
-                    <td style="padding: 6px 0;"><a href="http://localhost:3000" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">Perfect Scholar CRM Web</a></td>
+                    <td style="padding: 6px 0;"><a href="${appOrigin}" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">Perfect Scholar CRM Web</a></td>
                   </tr>
                   <tr>
                     <td style="font-weight: bold; padding: 6px 0;">Username/Email:</td>

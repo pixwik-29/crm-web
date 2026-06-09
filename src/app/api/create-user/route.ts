@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (profileError || !profile) {
       console.log('Profile not created automatically by trigger, inserting manually...');
@@ -77,6 +77,22 @@ export async function POST(request: Request) {
 
       if (insertError) {
         console.error('Error inserting profile manually:', insertError);
+      }
+    } else {
+      console.log('Profile created by trigger, updating fields to ensure sync with tenant_id:', tenant_id);
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: name,
+          role,
+          phone,
+          tenant_id: tenant_id || 'default',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (updateError) {
+        console.error('Error updating profile fields:', updateError.message);
       }
     }
 

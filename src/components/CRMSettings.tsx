@@ -95,6 +95,71 @@ export const CRMSettings: React.FC = () => {
   const fbAppId = process.env.NEXT_PUBLIC_FB_APP_ID;
   const [useLiveOauth, setUseLiveOauth] = useState(false);
 
+  // Change Password states & handler
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isUpdatingPw, setIsUpdatingPw] = useState(false);
+  const [pwStatus, setPwStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwStatus(null);
+
+    if (newPassword.length < 6) {
+      setPwStatus({ type: 'error', message: 'Password must be at least 6 characters long.' });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPwStatus({ type: 'error', message: 'Passwords do not match.' });
+      return;
+    }
+
+    setIsUpdatingPw(true);
+    try {
+      const { isSupabaseConfigured, supabase } = await import('@/lib/supabase');
+      if (isSupabaseConfigured && supabase) {
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) throw error;
+        
+        if (currentUser?.id && typeof window !== 'undefined') {
+          const key = tenantId !== 'default' ? `crm_credentials_tenant_${tenantId}` : 'crm_credentials';
+          const stored = localStorage.getItem(key);
+          const creds = stored ? JSON.parse(stored) : [];
+          const index = creds.findIndex((c: any) => c.profileId === currentUser.id);
+          if (index > -1) {
+            creds[index].password = newPassword;
+            localStorage.setItem(key, JSON.stringify(creds));
+          }
+        }
+      } else {
+        if (currentUser?.id && typeof window !== 'undefined') {
+          const key = tenantId !== 'default' ? `crm_credentials_tenant_${tenantId}` : 'crm_credentials';
+          const stored = localStorage.getItem(key);
+          const creds = stored ? JSON.parse(stored) : [];
+          const index = creds.findIndex((c: any) => c.profileId === currentUser.id);
+          if (index > -1) {
+            creds[index].password = newPassword;
+            localStorage.setItem(key, JSON.stringify(creds));
+          } else {
+            throw new Error('User profile credential not found in sandbox environment.');
+          }
+        } else {
+          throw new Error('User is unauthenticated.');
+        }
+      }
+
+      setPwStatus({ type: 'success', message: 'Password successfully updated!' });
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPwStatus(null), 5000);
+    } catch (err: any) {
+      setPwStatus({ type: 'error', message: err.message || 'Failed to update password.' });
+    } finally {
+      setIsUpdatingPw(false);
+    }
+  };
+
   const getFbPages = () => {
     if (!settings.fb_pages) return [];
     try {
@@ -1102,6 +1167,61 @@ async function submitEduPathLead(leadData) {
 
         {/* Right Column: User list & role assignments */}
         <div className="space-y-6">
+
+          {/* ── Change Password Card ─────────────────────────── */}
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center border-b border-slate-100 dark:border-zinc-900 pb-3 gap-2.5">
+              <Key className="w-5 h-5 text-indigo-500" />
+              <div>
+                <h3 className="font-bold text-slate-800 dark:text-white text-xs">My Account & Password</h3>
+                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{currentUser?.full_name} ({currentUser?.role})</p>
+              </div>
+            </div>
+
+            {pwStatus && (
+              <div className={`p-2 rounded-xl text-[10px] font-semibold border ${pwStatus.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'}`}>
+                {pwStatus.message}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} className="space-y-3.5">
+              <div>
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">New Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-black border border-slate-250 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Confirm New Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-black border border-slate-250 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isUpdatingPw}
+                className="w-full py-2 bg-indigo-650 hover:bg-indigo-600 disabled:bg-slate-300 dark:disabled:bg-zinc-800 text-white rounded-xl text-xs font-bold transition-all shadow hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-1.5"
+              >
+                {isUpdatingPw ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <span>Update Password</span>
+                )}
+              </button>
+            </form>
+          </div>
 
           {/* ── Facebook Ads Connect Card ─────────────────────────── */}
           <div className={`rounded-3xl p-6 shadow-sm border space-y-4 ${isFbConnected ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-900'}`}>
