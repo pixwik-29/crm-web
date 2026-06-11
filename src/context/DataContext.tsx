@@ -6,6 +6,7 @@ import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTempla
 
 interface DataContextType {
   isConfigured: boolean;
+  isSubscriptionValid: boolean | null; // null = still checking, true = ok, false = blocked
   currentUser: Profile | null;
   setCurrentUser: (profile: Profile | null) => void;
   profiles: Profile[];
@@ -269,6 +270,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   const [isLoading, setIsLoading] = useState(true);
   const [tenantId, setTenantId] = useState<string>('default');
+  // null = still verifying, true = active subscription, false = blocked/deleted
+  const [isSubscriptionValid, setIsSubscriptionValid] = useState<boolean | null>(null);
 
   const isSupabaseConfigured = originalIsSupabaseConfigured;
   const supabase = originalSupabase;
@@ -349,6 +352,45 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const loadData = async () => {
       setIsLoading(true);
+
+      // ── SUBSCRIPTION GUARD ──────────────────────────────────────────────────
+      // For sub-tenants (non-default), always verify their subscription is active
+      if (tenantId !== 'default') {
+        if (isDbActive && client) {
+          const { data: subRow, error: subErr } = await client
+            .from('crm_subscriptions')
+            .select('id, status')
+            .eq('id', tenantId)
+            .maybeSingle();
+
+          if (subErr) {
+            console.warn('Subscription check error:', subErr.message);
+          }
+
+          if (!subRow || subRow.status !== 'active') {
+            console.warn(`Subscription for tenant ${tenantId} is missing or inactive. Blocking access.`);
+            setIsSubscriptionValid(false);
+            setIsLoading(false);
+            return; // Abort all data loading
+          }
+        } else {
+          // Mock mode: check localStorage partner_subscriptions list
+          const stored = localStorage.getItem('partner_subscriptions');
+          if (stored) {
+            const subs = JSON.parse(stored) as Array<{ id: string; status: string }>;
+            const match = subs.find(s => s.id === tenantId);
+            if (!match || match.status !== 'active') {
+              console.warn(`[Mock] Subscription for tenant ${tenantId} not found or inactive.`);
+              setIsSubscriptionValid(false);
+              setIsLoading(false);
+              return;
+            }
+          }
+        }
+      }
+      setIsSubscriptionValid(true);
+      // ── END SUBSCRIPTION GUARD ──────────────────────────────────────────────
+
       if (isDbActive && client) {
         try {
           // Load other entities
@@ -1821,7 +1863,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       triggerLeadSimulation,
       isLoading,
-      tenantId
+      tenantId,
+      isSubscriptionValid
     }}>
       {children}
     </DataContext.Provider>

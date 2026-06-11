@@ -15,7 +15,7 @@ import { VisaProcessing } from '@/components/VisaProcessing';
 import { Footer } from '@/components/Footer';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
-  HelpCircle, User, ShieldCheck, Flame, Settings, Globe, Plane
+  HelpCircle, User, ShieldCheck, Flame, Settings, Globe, Plane, ShieldAlert, Lock
 } from 'lucide-react';
 
 const DashboardContent: React.FC = () => {
@@ -28,7 +28,9 @@ const DashboardContent: React.FC = () => {
     activityLogs, 
     whatsappHistory, 
     switchUser,
-    isLoading
+    isLoading,
+    isSubscriptionValid,
+    tenantId
   } = useData();
 
   // Navigation tab
@@ -90,6 +92,52 @@ const DashboardContent: React.FC = () => {
   // Redirect to Login if no active user profile session
   if (!currentUser) {
     return <LoginScreen />;
+  }
+
+  // Block access if subscription is deleted / inactive
+  if (isSubscriptionValid === false) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white relative overflow-hidden">
+        {/* Ambient blobs */}
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-rose-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col items-center gap-6 max-w-md px-6 text-center">
+          {/* Icon badge */}
+          <div className="w-20 h-20 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shadow-lg shadow-rose-500/10">
+            <Lock className="w-10 h-10 text-rose-400" />
+          </div>
+
+          {/* Heading */}
+          <div>
+            <h1 className="text-2xl font-extrabold text-white tracking-tight mb-2">Workspace Deactivated</h1>
+            <p className="text-sm text-slate-400 leading-relaxed">
+              This CRM workspace has been deactivated or the subscription has been removed.
+              Access to this workspace has been blocked by your administrator.
+            </p>
+          </div>
+
+          {/* Details pill */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-3 w-full text-left">
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldAlert className="w-4 h-4 text-rose-400" />
+              <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">Subscription Inactive</span>
+            </div>
+            <p className="text-xs text-zinc-500">Workspace ID: <span className="font-mono text-zinc-300">{tenantId}</span></p>
+            <p className="text-xs text-zinc-500 mt-1">Contact your Perfect Scholar partner administrator to restore access.</p>
+          </div>
+
+          {/* Sign out button */}
+          <button
+            onClick={logout}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm transition-all shadow-lg shadow-rose-600/20"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out &amp; Return Home
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Render detail overlay lead (always keep sync)
