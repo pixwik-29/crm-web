@@ -5,6 +5,7 @@ export interface Profile {
   full_name: string;
   role: UserRole;
   phone?: string;
+  email?: string;
   created_at: string;
   tenant_id?: string;
 }

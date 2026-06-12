@@ -111,10 +111,10 @@ const DEFAULT_TEMPLATES: WhatsAppTemplate[] = [
 ];
 
 const MOCK_PROFILES: Profile[] = [
-  { id: 'user-admin', full_name: 'Nash Newton (Admin)', role: 'admin', created_at: new Date().toISOString(), phone: '+919876543212' },
-  { id: 'user-manager', full_name: 'Rajesh Kumar (Manager)', role: 'manager', created_at: new Date().toISOString(), phone: '+919876543213' },
-  { id: 'user-counsellor-1', full_name: 'Amit Verma', role: 'counsellor', created_at: new Date().toISOString(), phone: '+919876543210' },
-  { id: 'user-counsellor-2', full_name: 'Priya Sharma', role: 'counsellor', created_at: new Date().toISOString(), phone: '+919876543211' }
+  { id: 'user-admin', full_name: 'Nash Newton (Admin)', role: 'admin', email: 'admin@crm.com', created_at: new Date().toISOString(), phone: '+919876543212' },
+  { id: 'user-manager', full_name: 'Rajesh Kumar (Manager)', role: 'manager', email: 'manager@crm.com', created_at: new Date().toISOString(), phone: '+919876543213' },
+  { id: 'user-counsellor-1', full_name: 'Amit Verma', role: 'counsellor', email: 'amit@crm.com', created_at: new Date().toISOString(), phone: '+919876543210' },
+  { id: 'user-counsellor-2', full_name: 'Priya Sharma', role: 'counsellor', email: 'priya@crm.com', created_at: new Date().toISOString(), phone: '+919876543211' }
 ];
 
 
@@ -1098,6 +1098,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       full_name: name,
       role,
       phone: formattedPhone,
+      email,
       created_at: new Date().toISOString(),
       tenant_id: tenantId
     };
