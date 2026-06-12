@@ -11,7 +11,6 @@ import { AddLeadModal } from '@/components/AddLeadModal';
 import { LoginScreen } from '@/components/LoginScreen';
 import { CRMSettings } from '@/components/CRMSettings';
 import { WebFormBuilder } from '@/components/WebFormBuilder';
-import { VisaProcessing } from '@/components/VisaProcessing';
 import { Footer } from '@/components/Footer';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
@@ -34,7 +33,7 @@ const DashboardContent: React.FC = () => {
   } = useData();
 
   // Navigation tab
-  const [activeView, setActiveView] = useState<'board' | 'list' | 'analytics' | 'settings' | 'forms' | 'visa'>('board');
+  const [activeView, setActiveView] = useState<'board' | 'list' | 'analytics' | 'settings' | 'forms'>('board');
   
   // Theme state
   const [darkMode, setDarkMode] = useState(true);
@@ -300,16 +299,7 @@ const DashboardContent: React.FC = () => {
               <Globe className="w-3.5 h-3.5" /> Web Forms
             </button>
 
-            <button
-              onClick={() => setActiveView('visa')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
-                activeView === 'visa'
-                  ? 'bg-indigo-600 text-white shadow shadow-indigo-500/20'
-                  : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
-              }`}
-            >
-              <Plane className="w-3.5 h-3.5" /> Post-Closing (Visa)
-            </button>
+
 
             <button
               onClick={() => setActiveView('settings')}
@@ -374,9 +364,7 @@ const DashboardContent: React.FC = () => {
             </div>
           )}
 
-          {activeView === 'visa' && (
-            <VisaProcessing />
-          )}
+
 
         </div>
 

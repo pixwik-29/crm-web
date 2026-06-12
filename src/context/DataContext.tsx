@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase as originalSupabase, isSupabaseConfigured as originalIsSupabaseConfigured } from '@/lib/supabase';
-import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess } from '@/types/crm';
+import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess, Partner, PartnerStudent, PartnerUploadedDoc } from '@/types/crm';
 
 interface DataContextType {
   isConfigured: boolean;
@@ -39,6 +39,15 @@ interface DataContextType {
   deleteVisaDoc: (id: string) => Promise<void>;
   verifyVisaDoc: (id: string, status: 'verified' | 'rejected') => Promise<void>;
   sendVisaDocToStudent: (uploadedDocId: string) => Promise<void>;
+
+  // Partner Portal & Referrals Integration
+  partners: Partner[];
+  partnerStudents: PartnerStudent[];
+  partnerUploadedDocs: PartnerUploadedDoc[];
+  connectLeadToPartnerStudent: (leadId: string, studentId: string) => Promise<void>;
+  disconnectLeadFromPartnerStudent: (studentId: string) => Promise<void>;
+  verifyPartnerDoc: (docId: string, status: 'verified' | 'rejected') => Promise<void>;
+  colleges: any[];
   
   // Auth/User Operations
   login: (email: string, role: UserRole, name: string, password?: string) => Promise<Profile>;
@@ -233,6 +242,14 @@ const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
   { id: 'Closed Lost', name: 'Closed Lost', color: 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400', order: 5 }
 ];
 
+const VISA_PIPELINE_STAGES: PipelineStage[] = [
+  { id: 'Doc Collection', name: 'Document Collection', color: 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400', order: 0 },
+  { id: 'Apostille', name: 'Apostille/Verification', color: 'bg-indigo-500/10 border-indigo-500/30 text-indigo-600 dark:text-indigo-400', order: 1 },
+  { id: 'Embassy Submission', name: 'Embassy Submission', color: 'bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400', order: 2 },
+  { id: 'Visa Issued', name: 'Visa Issued', color: 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400', order: 3 },
+  { id: 'Flyer/Pre-departure', name: 'Flyer/Pre-departure', color: 'bg-teal-500/10 border-teal-500/30 text-teal-600 dark:text-teal-400', order: 4 }
+];
+
 const MOCK_VISA_REQ_DOCS: VisaRequiredDoc[] = [
   { id: 'vrd-1', country: 'Georgia', document_name: 'Passport Copy', is_required: true, created_at: new Date().toISOString() },
   { id: 'vrd-2', country: 'Georgia', document_name: '12th Marksheet', is_required: true, created_at: new Date().toISOString() },
@@ -277,6 +294,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [visaApplications, setVisaApplications] = useState<VisaApplication[]>([]);
   const [visaRequiredDocs, setVisaRequiredDocs] = useState<VisaRequiredDoc[]>([]);
   const [visaUploadedDocs, setVisaUploadedDocs] = useState<VisaUploadedDoc[]>([]);
+  
+  // Partner Portal States
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [partnerStudents, setPartnerStudents] = useState<PartnerStudent[]>([]);
+  const [partnerUploadedDocs, setPartnerUploadedDocs] = useState<PartnerUploadedDoc[]>([]);
+  const [colleges, setColleges] = useState<any[]>([]);
   
   // Pipeline States
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -439,6 +462,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const { data: vUpDocs } = await client.from('visa_uploaded_docs').select('*').eq('tenant_id', tenantId);
           if (vUpDocs) setVisaUploadedDocs(vUpDocs as VisaUploadedDoc[]);
 
+          // Load Partner Portal data
+          const { data: partList } = await client.from('partners').select('*');
+          if (partList) setPartners(partList as Partner[]);
+
+          const { data: partStudentsList } = await client.from('partner_students').select('*');
+          if (partStudentsList) setPartnerStudents(partStudentsList as PartnerStudent[]);
+ 
+          const { data: partUploadedDocsList } = await client.from('partner_uploaded_docs').select('*');
+          if (partUploadedDocsList) setPartnerUploadedDocs(partUploadedDocsList as PartnerUploadedDoc[]);
+ 
+          const { data: collegesList } = await client.from('partner_colleges').select('*');
+          if (collegesList) setColleges(collegesList);
+
           // Load settings first
           const { data: dbSettings } = await client
             .from('settings')
@@ -596,6 +632,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setPipelineAccess(prev => prev.filter(pa => pa.id !== payload.old.id));
               }
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'partners' }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setPartners(prev => [...prev, payload.new as Partner]);
+              } else if (payload.eventType === 'UPDATE') {
+                setPartners(prev => prev.map(p => p.id === payload.new.id ? (payload.new as Partner) : p));
+              } else if (payload.eventType === 'DELETE') {
+                setPartners(prev => prev.filter(p => p.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'partner_students' }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setPartnerStudents(prev => [...prev, payload.new as PartnerStudent]);
+              } else if (payload.eventType === 'UPDATE') {
+                setPartnerStudents(prev => prev.map(ps => ps.id === payload.new.id ? (payload.new as PartnerStudent) : ps));
+              } else if (payload.eventType === 'DELETE') {
+                setPartnerStudents(prev => prev.filter(ps => ps.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'partner_uploaded_docs' }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setPartnerUploadedDocs(prev => [...prev, payload.new as PartnerUploadedDoc]);
+              } else if (payload.eventType === 'UPDATE') {
+                setPartnerUploadedDocs(prev => prev.map(pud => pud.id === payload.new.id ? (payload.new as PartnerUploadedDoc) : pud));
+              } else if (payload.eventType === 'DELETE') {
+                setPartnerUploadedDocs(prev => prev.filter(pud => pud.id !== payload.old.id));
+              }
+            })
             .subscribe();
         } catch (error) {
           console.error("Supabase data load error: ", error);
@@ -643,6 +706,121 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setVisaRequiredDocs(parsedVReqDocs);
         setVisaUploadedDocs(parsedVUpDocs);
 
+        // Load mock partner portal data
+        const storedPartners = localStorage.getItem(getLocalKey('crm_partners'));
+        const storedPartnerStudents = localStorage.getItem(getLocalKey('crm_partner_students'));
+        const storedPartnerUploadedDocs = localStorage.getItem(getLocalKey('crm_partner_uploaded_docs'));
+
+        let parsedPartners = storedPartners ? JSON.parse(storedPartners) : [];
+        let parsedPartnerStudents = storedPartnerStudents ? JSON.parse(storedPartnerStudents) : [];
+        let parsedPartnerUploadedDocs = storedPartnerUploadedDocs ? JSON.parse(storedPartnerUploadedDocs) : [];
+
+        if (parsedPartners.length === 0 && tenantId === 'default') {
+          parsedPartners = [
+            { id: 'partner-1', business_name: 'Global Education Services', primary_contact_name: 'Sarah Jenkins', email: 'sarah@globaledu.com', phone: '+919876543220', status: 'active', performance_score: 92 },
+            { id: 'partner-2', business_name: 'Elite Study Abroad', primary_contact_name: 'David Lee', email: 'david@elitestudy.com', phone: '+919876543221', status: 'active', performance_score: 85 }
+          ];
+          parsedPartnerStudents = [
+            {
+              id: 'ps-student-1',
+              partner_id: 'partner-1',
+              first_name: 'Rahul',
+              last_name: 'Sharma',
+              email: 'rahul.sharma@outlook.com',
+              phone: '+919988112233',
+              whatsapp_number: '+919988112233',
+              destination_country: 'Georgia',
+              target_university: 'Tbilisi State Medical University',
+              target_program: 'MBBS',
+              academic_history: {},
+              english_proficiency: {},
+              crm_lead_id: null,
+              application_status: 'referred',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            },
+            {
+              id: 'ps-student-2',
+              partner_id: 'partner-2',
+              first_name: 'Sneha',
+              last_name: 'Patel',
+              email: 'sneha.patel@gmail.com',
+              phone: '+919321456789',
+              whatsapp_number: '+919321456789',
+              destination_country: 'Philippines',
+              target_university: 'University of Perpetual Help',
+              target_program: 'MBBS',
+              academic_history: {},
+              english_proficiency: {},
+              crm_lead_id: 'lead-4',
+              application_status: 'converted',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }
+          ];
+          parsedPartnerUploadedDocs = [
+            {
+              id: 'pud-1',
+              student_id: 'ps-student-2',
+              document_name: 'Passport Copy',
+              file_url: 'https://example.com/docs/sneha_passport.pdf',
+              file_name: 'sneha_passport.pdf',
+              verification_status: 'verified',
+              uploaded_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+              updated_at: new Date(Date.now() - 3600000 * 24).toISOString()
+            },
+            {
+              id: 'pud-2',
+              student_id: 'ps-student-2',
+              document_name: '12th Marksheet',
+              file_url: 'https://example.com/docs/sneha_12th.pdf',
+              file_name: 'sneha_12th.pdf',
+              verification_status: 'pending',
+              uploaded_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+              updated_at: new Date(Date.now() - 3600000 * 12).toISOString()
+            },
+            {
+              id: 'pud-3',
+              student_id: 'ps-student-2',
+              document_name: 'NEET Score Card',
+              file_url: 'https://example.com/docs/sneha_neet.pdf',
+              file_name: 'sneha_neet.pdf',
+              verification_status: 'rejected',
+              uploaded_at: new Date(Date.now() - 3600000 * 6).toISOString(),
+              updated_at: new Date(Date.now() - 3600000 * 6).toISOString()
+            },
+            {
+              id: 'pud-4',
+              student_id: 'ps-student-1',
+              document_name: 'Passport Copy',
+              file_url: 'https://example.com/docs/rahul_passport.pdf',
+              file_name: 'rahul_passport.pdf',
+              verification_status: 'pending',
+              uploaded_at: new Date(Date.now() - 3600000 * 48).toISOString(),
+              updated_at: new Date(Date.now() - 3600000 * 48).toISOString()
+            }
+          ];
+
+          localStorage.setItem(getLocalKey('crm_partners'), JSON.stringify(parsedPartners));
+          localStorage.setItem(getLocalKey('crm_partner_students'), JSON.stringify(parsedPartnerStudents));
+          localStorage.setItem(getLocalKey('crm_partner_uploaded_docs'), JSON.stringify(parsedPartnerUploadedDocs));
+        }
+ 
+        setPartners(parsedPartners);
+        setPartnerStudents(parsedPartnerStudents);
+        setPartnerUploadedDocs(parsedPartnerUploadedDocs);
+ 
+        const storedColleges = localStorage.getItem(getLocalKey('crm_colleges'));
+        let parsedColleges = storedColleges ? JSON.parse(storedColleges) : [];
+        if (parsedColleges.length === 0 && tenantId === 'default') {
+          parsedColleges = [
+            { id: 'univ-1', name: 'Tbilisi State Medical University', country: 'Georgia', required_docs: ['Passport Copy', '12th Marksheet', 'NEET Score Card', 'Birth Certificate', 'HIV Test Result'] },
+            { id: 'univ-2', name: 'University of Perpetual Help', country: 'Philippines', required_docs: ['Passport Copy', '12th Marksheet', 'NEET Score Card', 'Medical Certificate'] }
+          ];
+          localStorage.setItem(getLocalKey('crm_colleges'), JSON.stringify(parsedColleges));
+        }
+        setColleges(parsedColleges);
+
         // Seeding / loading mock pipelines
         const storedPipelines = localStorage.getItem(getLocalKey('crm_pipelines'));
         const storedPipelineAccess = localStorage.getItem(getLocalKey('crm_pipeline_access'));
@@ -650,7 +828,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let parsedPipelines = storedPipelines ? JSON.parse(storedPipelines) : [];
         let parsedPipelineAccess = storedPipelineAccess ? JSON.parse(storedPipelineAccess) : [];
 
-        if (parsedPipelines.length === 0) {
+        const hasSales = parsedPipelines.some((p: Pipeline) => p.name === 'Sales Pipeline');
+        const hasVisa = parsedPipelines.some((p: Pipeline) => p.name === 'Visa/Post-Closing Pipeline');
+
+        if (!hasSales) {
           const defaultPipeline: Pipeline = {
             id: 'mock-pipeline-sales',
             name: 'Sales Pipeline',
@@ -660,17 +841,43 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           };
-          parsedPipelines = [defaultPipeline];
+          parsedPipelines.push(defaultPipeline);
           
-          // Grant access to all profiles initially in mock mode
-          parsedPipelineAccess = parsedProfiles.map((p: Profile) => ({
-            id: `pa-${p.id}`,
-            pipeline_id: defaultPipeline.id,
-            profile_id: p.id,
-            tenant_id: tenantId,
-            created_at: new Date().toISOString()
-          }));
+          parsedProfiles.forEach((p: Profile) => {
+            parsedPipelineAccess.push({
+              id: `pa-${defaultPipeline.id}-${p.id}`,
+              pipeline_id: defaultPipeline.id,
+              profile_id: p.id,
+              tenant_id: tenantId,
+              created_at: new Date().toISOString()
+            });
+          });
+        }
 
+        if (!hasVisa) {
+          const visaPipeline: Pipeline = {
+            id: 'mock-pipeline-visa',
+            name: 'Visa/Post-Closing Pipeline',
+            stages: VISA_PIPELINE_STAGES,
+            tenant_id: tenantId,
+            is_default: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          parsedPipelines.push(visaPipeline);
+
+          parsedProfiles.forEach((p: Profile) => {
+            parsedPipelineAccess.push({
+              id: `pa-${visaPipeline.id}-${p.id}`,
+              pipeline_id: visaPipeline.id,
+              profile_id: p.id,
+              tenant_id: tenantId,
+              created_at: new Date().toISOString()
+            });
+          });
+        }
+
+        if (!hasSales || !hasVisa) {
           localStorage.setItem(getLocalKey('crm_pipelines'), JSON.stringify(parsedPipelines));
           localStorage.setItem(getLocalKey('crm_pipeline_access'), JSON.stringify(parsedPipelineAccess));
         }
@@ -1929,6 +2136,182 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Partner Portal & Referrals Integration
+  const connectLeadToPartnerStudent = async (leadId: string, studentId: string): Promise<void> => {
+    const visaPipe = pipelines.find(p => p.name === 'Visa/Post-Closing Pipeline');
+    const visaPipeId = visaPipe?.id || null;
+    const initialStage = visaPipe?.stages[0]?.id || 'Doc Collection';
+
+    if (isSupabaseConfigured && supabase) {
+      const { error: studentErr } = await supabase
+        .from('partner_students')
+        .update({ crm_lead_id: leadId, application_status: 'converted', updated_at: new Date().toISOString() })
+        .eq('id', studentId);
+      if (studentErr) throw studentErr;
+
+      const { error: leadErr } = await supabase
+        .from('leads')
+        .update({
+          pipeline_id: visaPipeId,
+          status: initialStage,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', leadId)
+        .eq('tenant_id', tenantId);
+      if (leadErr) throw leadErr;
+
+      const student = partnerStudents.find(ps => ps.id === studentId);
+      const partner = partners.find(p => p.id === student?.partner_id);
+      const studentName = student ? `${student.first_name} ${student.last_name}` : 'Referred Student';
+      const partnerName = partner?.business_name || 'Partner Agency';
+
+      await supabase.from('activity_logs').insert([{
+        lead_id: leadId,
+        actor_id: currentUser?.id,
+        action_type: 'assigned',
+        description: `Linked to referred student ${studentName} from ${partnerName}. Transitioned to Visa/Post-Closing Pipeline.`,
+        tenant_id: tenantId
+      }]);
+    } else {
+      const updatedStudents = partnerStudents.map(ps => {
+        if (ps.id === studentId) {
+          return { ...ps, crm_lead_id: leadId, application_status: 'converted', updated_at: new Date().toISOString() };
+        }
+        return ps;
+      });
+      setPartnerStudents(updatedStudents);
+      saveLocal('crm_partner_students', updatedStudents);
+
+      const updatedLeads = leads.map(l => {
+        if (l.id === leadId) {
+          return {
+            ...l,
+            pipeline_id: visaPipeId,
+            status: initialStage,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return l;
+      });
+      setLeads(updatedLeads);
+      saveLocal('crm_leads', updatedLeads);
+
+      const student = partnerStudents.find(ps => ps.id === studentId);
+      const partner = partners.find(p => p.id === student?.partner_id);
+      const studentName = student ? `${student.first_name} ${student.last_name}` : 'Referred Student';
+      const partnerName = partner?.business_name || 'Partner Agency';
+
+      const log: ActivityLog = {
+        id: `log-${Date.now()}`,
+        lead_id: leadId,
+        actor_id: currentUser?.id || 'system',
+        action_type: 'assigned',
+        description: `Linked to referred student ${studentName} from ${partnerName}. Transitioned to Visa/Post-Closing Pipeline.`,
+        created_at: new Date().toISOString()
+      };
+      const updatedLogs = [log, ...activityLogs];
+      setActivityLogs(updatedLogs);
+      saveLocal('crm_logs', updatedLogs);
+    }
+  };
+
+  const disconnectLeadFromPartnerStudent = async (studentId: string): Promise<void> => {
+    const student = partnerStudents.find(ps => ps.id === studentId);
+    const leadId = student?.crm_lead_id;
+
+    if (isSupabaseConfigured && supabase) {
+      const { error: studentErr } = await supabase
+        .from('partner_students')
+        .update({ crm_lead_id: null, application_status: 'referred', updated_at: new Date().toISOString() })
+        .eq('id', studentId);
+      if (studentErr) throw studentErr;
+
+      if (leadId) {
+        const studentName = student ? `${student.first_name} ${student.last_name}` : 'Referred Student';
+        await supabase.from('activity_logs').insert([{
+          lead_id: leadId,
+          actor_id: currentUser?.id,
+          action_type: 'assigned',
+          description: `Unlinked from referred student ${studentName}`,
+          tenant_id: tenantId
+        }]);
+      }
+    } else {
+      const updatedStudents = partnerStudents.map(ps => {
+        if (ps.id === studentId) {
+          return { ...ps, crm_lead_id: null, application_status: 'referred', updated_at: new Date().toISOString() };
+        }
+        return ps;
+      });
+      setPartnerStudents(updatedStudents);
+      saveLocal('crm_partner_students', updatedStudents);
+
+      if (leadId) {
+        const studentName = student ? `${student.first_name} ${student.last_name}` : 'Referred Student';
+        const log: ActivityLog = {
+          id: `log-${Date.now()}`,
+          lead_id: leadId,
+          actor_id: currentUser?.id || 'system',
+          action_type: 'assigned',
+          description: `Unlinked from referred student ${studentName}`,
+          created_at: new Date().toISOString()
+        };
+        const updatedLogs = [log, ...activityLogs];
+        setActivityLogs(updatedLogs);
+        saveLocal('crm_logs', updatedLogs);
+      }
+    }
+  };
+
+  const verifyPartnerDoc = async (docId: string, status: 'verified' | 'rejected'): Promise<void> => {
+    const doc = partnerUploadedDocs.find(d => d.id === docId);
+    if (!doc) throw new Error("Document not found");
+
+    const student = partnerStudents.find(ps => ps.id === doc.student_id);
+    const leadId = student?.crm_lead_id;
+
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('partner_uploaded_docs')
+        .update({ verification_status: status, updated_at: new Date().toISOString() })
+        .eq('id', docId);
+      if (error) throw error;
+
+      if (leadId) {
+        await supabase.from('activity_logs').insert([{
+          lead_id: leadId,
+          actor_id: currentUser?.id,
+          action_type: 'status_change',
+          description: `Partner document '${doc.document_name}' has been ${status}`,
+          tenant_id: tenantId
+        }]);
+      }
+    } else {
+      const updated = partnerUploadedDocs.map(d => {
+        if (d.id === docId) {
+          return { ...d, verification_status: status, updated_at: new Date().toISOString() };
+        }
+        return d;
+      });
+      setPartnerUploadedDocs(updated);
+      saveLocal('crm_partner_uploaded_docs', updated);
+
+      if (leadId) {
+        const log: ActivityLog = {
+          id: `log-${Date.now()}`,
+          lead_id: leadId,
+          actor_id: currentUser?.id || 'system',
+          action_type: 'status_change',
+          description: `Partner document '${doc.document_name}' has been ${status}`,
+          created_at: new Date().toISOString()
+        };
+        const updatedLogs = [log, ...activityLogs];
+        setActivityLogs(updatedLogs);
+        saveLocal('crm_logs', updatedLogs);
+      }
+    }
+  };
+
   // Pipeline CRUD Functions
   const addPipeline = async (name: string, stages: PipelineStage[]): Promise<Pipeline> => {
     const newPipeItem: Omit<Pipeline, 'id' | 'created_at' | 'updated_at'> = {
@@ -2156,6 +2539,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       deleteVisaDoc,
       verifyVisaDoc,
       sendVisaDocToStudent,
+      
+      // Partner Portal Integration
+      partners,
+      partnerStudents,
+      partnerUploadedDocs,
+      connectLeadToPartnerStudent,
+      disconnectLeadFromPartnerStudent,
+      verifyPartnerDoc,
+      colleges,
       
       triggerLeadSimulation,
       isLoading,

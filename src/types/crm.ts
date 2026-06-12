@@ -189,3 +189,50 @@ export interface PipelineAccess {
   tenant_id: string;
   created_at: string;
 }
+
+export interface Partner {
+  id: string;
+  business_name: string;
+  primary_contact_name: string;
+  email: string;
+  phone: string;
+  status?: string;
+  performance_score?: number;
+}
+
+export interface PartnerStudent {
+  id: string;
+  partner_id: string;
+  submitted_by?: string | null;
+  first_name: string;
+  last_name: string;
+  email?: string | null;
+  phone: string;
+  whatsapp_number?: string | null;
+  date_of_birth?: string | null;
+  passport_number?: string | null;
+  parent_name?: string | null;
+  parent_phone?: string | null;
+  destination_country: string;
+  target_university: string;
+  target_program: string;
+  academic_history: any;
+  english_proficiency: any;
+  crm_lead_id?: string | null;
+  application_status: string;
+  referral_type?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PartnerUploadedDoc {
+  id: string;
+  student_id: string;
+  document_name: string;
+  file_url: string;
+  file_name: string;
+  verification_status: string; // 'pending' | 'verified' | 'rejected'
+  expiry_date?: string | null;
+  uploaded_at: string;
+  updated_at: string;
+}

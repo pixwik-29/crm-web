@@ -6,7 +6,8 @@ import { useData } from '@/context/DataContext';
 
 import { 
   Users, Webhook, MessageSquare, ShieldAlert, Check, Copy, 
-  Settings, Key, Shuffle, RefreshCw, PlusCircle, Trash2, Wifi, WifiOff
+  Settings, Key, Shuffle, RefreshCw, PlusCircle, Trash2, Wifi, WifiOff,
+  Plus, FileText, Plane
 } from 'lucide-react';
 
 import { PipelineStage } from '@/types/crm';
@@ -44,7 +45,10 @@ export const CRMSettings: React.FC = () => {
     addPipeline,
     updatePipeline,
     deletePipeline,
-    updatePipelineAccess
+    updatePipelineAccess,
+    visaRequiredDocs,
+    saveVisaRequiredDoc,
+    deleteVisaRequiredDoc
   } = useData();
 
   const searchParams = useSearchParams();
@@ -73,6 +77,26 @@ export const CRMSettings: React.FC = () => {
   const [editPipelineName, setEditPipelineName] = useState('');
   const [editPipelineStages, setEditPipelineStages] = useState<PipelineStage[]>([]);
   const [newPipelineName, setNewPipelineName] = useState('');
+
+  // Checklist settings states
+  const [configCountry, setConfigCountry] = useState('Georgia');
+  const [newRequiredDocName, setNewRequiredDocName] = useState('');
+
+  const handleAddConfigDoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRequiredDocName.trim()) return;
+    try {
+      await saveVisaRequiredDoc(configCountry, newRequiredDocName.trim(), true);
+      setNewRequiredDocName('');
+    } catch (err: any) {
+      alert(err.message || 'Failed to save config.');
+    }
+  };
+
+  const handleDeleteConfigDoc = async (id: string) => {
+    if (!window.confirm('Delete this checklist requirement?')) return;
+    await deleteVisaRequiredDoc(id);
+  };
 
   useEffect(() => {
     if (pipelines.length > 0 && !selectedPipelineId) {
@@ -1452,9 +1476,102 @@ async function submitEduPathLead(leadData) {
             )}
           </div>
 
+          {/* Visa Checklist Configurator */}
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-900 pb-4">
+              <div className="flex items-center gap-2.5">
+                <Plane className="w-5 h-5 text-indigo-500" />
+                <h3 className="font-bold text-slate-800 dark:text-white">Visa Checklist Requirements</h3>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Configure default required document slots for students heading to target countries. These documents are automatically verified against the partner portal submissions.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Left Form */}
+              <div className="md:col-span-1 border border-slate-150 dark:border-zinc-900 rounded-2xl p-4 space-y-4">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Add Requirement</h4>
+                <form onSubmit={handleAddConfigDoc} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Country Target</label>
+                    <select
+                      value={configCountry}
+                      onChange={(e) => setConfigCountry(e.target.value)}
+                      disabled={!isAdmin}
+                      className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs font-bold text-slate-700 dark:text-slate-350 outline-none"
+                    >
+                      <option value="Georgia">Georgia</option>
+                      <option value="Russia">Russia</option>
+                      <option value="Armenia">Armenia</option>
+                      <option value="Uzbekistan">Uzbekistan</option>
+                      <option value="Bangladesh">Bangladesh</option>
+                      <option value="Nepal">Nepal</option>
+                      <option value="Philippines">Philippines</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Requirement Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Police Clearance Certificate"
+                      value={newRequiredDocName}
+                      onChange={(e) => setNewRequiredDocName(e.target.value)}
+                      disabled={!isAdmin}
+                      className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 disabled:opacity-60"
+                    />
+                  </div>
+
+                  {isAdmin && (
+                    <button
+                      type="submit"
+                      className="w-full bg-indigo-650 hover:bg-indigo-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" /> Save
+                    </button>
+                  )}
+                </form>
+              </div>
+
+              {/* Right List */}
+              <div className="md:col-span-2 space-y-4 max-h-[400px] overflow-y-auto pr-1">
+                {['Georgia', 'Russia', 'Armenia', 'Uzbekistan', 'Bangladesh', 'Nepal', 'Philippines'].map(c => {
+                  const countryDocs = visaRequiredDocs.filter(d => d.country.toLowerCase() === c.toLowerCase());
+                  if (countryDocs.length === 0) return null;
+                  return (
+                    <div key={c} className="border border-slate-150 dark:border-zinc-900 rounded-2xl p-4 space-y-3">
+                      <h4 className="text-xs font-extrabold text-indigo-550 dark:text-indigo-400 uppercase tracking-widest border-b border-slate-50 dark:border-zinc-900/50 pb-1.5">
+                        {c} ({countryDocs.length} required)
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {countryDocs.map(d => (
+                          <div key={d.id} className="flex justify-between items-center bg-slate-50 dark:bg-black/40 border border-slate-200/50 dark:border-zinc-900/50 px-3 py-1.5 rounded-xl">
+                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-350">{d.document_name}</span>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteConfigDoc(d.id)}
+                                className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 rounded-lg transition-all"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        {/* Right Column: User list & role assignments */}
+        {/* Right Column: User list & role assignments center */}
         <div className="space-y-6">
 
           {/* ── Change Password Card ─────────────────────────── */}

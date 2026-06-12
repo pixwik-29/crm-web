@@ -38,10 +38,18 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
     currentUser,
     settings,
     pipelines,
-    pipelineAccess
+    pipelineAccess,
+    partners,
+    partnerStudents,
+    partnerUploadedDocs,
+    connectLeadToPartnerStudent,
+    disconnectLeadFromPartnerStudent,
+    verifyPartnerDoc,
+    visaRequiredDocs,
+    colleges
   } = useData();
 
-  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist'>('notes');
   
   // Note Form
   const [newNote, setNewNote] = useState('');
@@ -132,6 +140,11 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const leadChats = whatsappHistory.filter(c => c.lead_id === lead.id).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
   const counselor = profiles.find(p => p.id === lead.assigned_counsellor_id);
+
+  // Partner portal integration helper calculations
+  const connectedStudent = partnerStudents.find(ps => ps.crm_lead_id === lead.id);
+  const connectedPartner = connectedStudent ? partners.find(p => p.id === connectedStudent.partner_id) : null;
+  const availableStudents = partnerStudents.filter(ps => !ps.crm_lead_id);
 
   // Form handlers
   const handleSaveEdit = async () => {
@@ -428,6 +441,18 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
           <MessageCircle className="w-4 h-4 text-slate-450 dark:text-slate-400" /> Send WhatsApp
         </button>
         <button
+          onClick={async () => {
+            setActiveTab('checklist');
+          }}
+          className={`flex-1 flex-shrink-0 whitespace-nowrap px-4 py-3.5 flex items-center justify-center gap-2 border-b-2 transition-all ${
+            activeTab === 'checklist'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+              : 'border-transparent text-slate-400 hover:text-slate-800 dark:hover:text-white'
+          }`}
+        >
+          <Check className="w-4 h-4 text-slate-455 dark:text-slate-400" /> Document Checklist
+        </button>
+        <button
           onClick={() => setActiveTab('timeline')}
           className={`flex-1 flex-shrink-0 whitespace-nowrap px-4 py-3.5 flex items-center justify-center gap-2 border-b-2 transition-all ${
             activeTab === 'timeline'
@@ -629,6 +654,214 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
               })
             ) : (
               <div className="text-center py-8 text-slate-400 text-xs -ml-6">No operations logged yet</div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: DOCUMENT CHECKLIST */}
+        {activeTab === 'checklist' && (
+          <div className="space-y-6">
+            {!connectedStudent ? (
+              <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-2xl p-6 shadow-sm space-y-4">
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Connect Referred Student</h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Link this lead to a student referred by a partner agency to fetch their documents and sync statuses.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Select Referred Student</label>
+                  <div className="flex gap-2">
+                    <select
+                      id="referred-student-select"
+                      className="flex-1 bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs font-semibold text-slate-700 dark:text-slate-350 outline-none"
+                    >
+                      <option value="">-- Choose Referred Student --</option>
+                      {availableStudents.map(student => {
+                        const partner = partners.find(p => p.id === student.partner_id);
+                        return (
+                          <option key={student.id} value={student.id}>
+                            {student.first_name} {student.last_name} ({partner?.business_name || 'Agency'}) - {student.destination_country}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const selectEl = document.getElementById('referred-student-select') as HTMLSelectElement;
+                        const studentId = selectEl?.value;
+                        if (!studentId) {
+                          alert('Please select a student first.');
+                          return;
+                        }
+                        try {
+                          await connectLeadToPartnerStudent(lead.id, studentId);
+                        } catch (err: any) {
+                          alert(err.message || 'Failed to connect student.');
+                        }
+                      }}
+                      className="px-5 bg-indigo-650 hover:bg-indigo-600 text-white font-bold rounded-xl text-xs transition-all shadow hover:scale-[1.01]"
+                    >
+                      Connect Student
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Connected Student Profile Card */}
+                <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[9px] font-bold uppercase text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-1.5 py-0.5">
+                        Connected Referral
+                      </span>
+                      <h4 className="text-sm font-extrabold text-slate-800 dark:text-white mt-2">
+                        {connectedStudent.first_name} {connectedStudent.last_name}
+                      </h4>
+                      <p className="text-xs text-slate-450 mt-0.5">
+                        Agency: <span className="font-bold text-slate-650 dark:text-slate-350">{connectedPartner?.business_name || 'Partner Agency'}</span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (window.confirm('Are you sure you want to disconnect this student?')) {
+                          try {
+                            await disconnectLeadFromPartnerStudent(connectedStudent.id);
+                          } catch (err: any) {
+                            alert(err.message || 'Failed to disconnect student.');
+                          }
+                        }
+                      }}
+                      className="px-3 py-1.5 border border-rose-200 dark:border-rose-900/30 text-rose-500 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 rounded-lg text-[10px] font-bold transition-all"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100 dark:border-zinc-900/60 text-xs">
+                    <div>
+                      <span className="text-slate-400">Destination:</span> {connectedStudent.destination_country}
+                    </div>
+                    <div>
+                      <span className="text-slate-400">University:</span> {connectedStudent.target_university}
+                    </div>
+                    {connectedStudent.email && (
+                      <div className="col-span-2">
+                        <span className="text-slate-400">Email:</span> {connectedStudent.email}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Country Checklist Documents */}
+                <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-2xl p-5 shadow-sm space-y-4">
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Document Checklist ({lead.preferred_destination || 'Georgia'})</h3>
+                    <p className="text-xs text-slate-400 mt-1">Verify or reject files uploaded by the student in the Partner Portal.</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {(() => {
+                      const reqDocNames = new Set<string>();
+                      const country = lead.preferred_destination || connectedStudent.destination_country || 'Georgia';
+                      if (country) {
+                        visaRequiredDocs
+                          .filter(d => d.country.toLowerCase() === country.toLowerCase() && d.is_required)
+                          .forEach(d => reqDocNames.add(d.document_name));
+                      }
+                      
+                      const targetUniv = connectedStudent.target_university;
+                      if (targetUniv) {
+                        const college = colleges?.find(c => c.name.toLowerCase() === targetUniv.toLowerCase());
+                        if (college && Array.isArray(college.required_docs)) {
+                          college.required_docs.forEach((d: string) => reqDocNames.add(d));
+                        }
+                      }
+
+                      // Fallback if empty to ensure some basic documents
+                      if (reqDocNames.size === 0) {
+                        reqDocNames.add('Passport Copy');
+                        reqDocNames.add('12th Marksheet');
+                        reqDocNames.add('NEET Score Card');
+                      }
+
+                      const docsList = Array.from(reqDocNames);
+
+                      return docsList.map(docName => {
+                        const upload = partnerUploadedDocs.find(
+                          d => d.student_id === connectedStudent.id && d.document_name.toLowerCase() === docName.toLowerCase()
+                        );
+
+                        return (
+                          <div key={docName} className="flex flex-col sm:flex-row items-start sm:items-center justify-between border border-slate-150 dark:border-zinc-900 p-3.5 rounded-xl gap-3 bg-slate-50/50 dark:bg-black/30">
+                            <div>
+                              <p className="text-xs font-bold text-slate-700 dark:text-slate-350">{docName}</p>
+                              {upload ? (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <a href={upload.file_url} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-550 dark:text-indigo-400 hover:underline font-semibold">
+                                    View File
+                                  </a>
+                                  <span className="text-slate-300 dark:text-zinc-800 text-[10px]">•</span>
+                                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                                    upload.verification_status === 'verified'
+                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-450'
+                                      : upload.verification_status === 'rejected'
+                                      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-450'
+                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-450'
+                                  }`}>
+                                    {upload.verification_status}
+                                  </span>
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-slate-400 mt-1">Awaiting submission...</p>
+                              )}
+                            </div>
+
+                            {upload && (
+                              <div className="flex gap-2 self-end sm:self-auto">
+                                {upload.verification_status !== 'verified' && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        await verifyPartnerDoc(upload.id, 'verified');
+                                      } catch (err: any) {
+                                        alert(err.message || 'Failed to verify.');
+                                      }
+                                    }}
+                                    className="px-2.5 py-1 bg-emerald-650 hover:bg-emerald-555 hover:scale-[1.01] active:scale-[0.99] text-white rounded-lg text-[10px] font-bold transition-all shadow-sm"
+                                  >
+                                    Verify
+                                  </button>
+                                )}
+                                {upload.verification_status !== 'rejected' && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        await verifyPartnerDoc(upload.id, 'rejected');
+                                      } catch (err: any) {
+                                        alert(err.message || 'Failed to reject.');
+                                      }
+                                    }}
+                                    className="px-2.5 py-1 bg-rose-650 hover:bg-rose-555 hover:scale-[1.01] active:scale-[0.99] text-white rounded-lg text-[10px] font-bold transition-all shadow-sm"
+                                  >
+                                    Reject
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}
