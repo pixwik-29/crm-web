@@ -502,14 +502,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
 
           // Load pipelines and pipeline access
-          const { data: pipeList } = await client.from('pipelines').select('*').eq('tenant_id', tenantId);
+          // IMPORTANT: Capture error separately — a null result from an RLS/auth error
+          // must NOT be treated as "no pipelines exist" (which would re-seed and duplicate).
+          const { data: pipeList, error: pipeListErr } = await client.from('pipelines').select('*').eq('tenant_id', tenantId);
           const { data: pipeAccessList } = await client.from('pipeline_access').select('*').eq('tenant_id', tenantId);
 
           let resolvedPipelines = (pipeList as Pipeline[]) || [];
           let resolvedAccess = (pipeAccessList as PipelineAccess[]) || [];
 
-          if (resolvedPipelines.length === 0) {
-            // Seed default Sales Pipeline if none exist
+          // Only seed a default pipeline if:
+          // 1. The query succeeded (no error), AND
+          // 2. The result is genuinely empty (user has never created a pipeline), AND
+          // 3. We haven't seeded before (guard flag prevents re-seeding after intentional deletion)
+          const pipelineSeededKey = `crm_pipelines_seeded_${tenantId}`;
+          const alreadySeeded = typeof window !== 'undefined' && !!localStorage.getItem(pipelineSeededKey);
+
+          if (!pipeListErr && resolvedPipelines.length === 0 && !alreadySeeded) {
+            // Seed default Sales Pipeline on first-ever load only
             const defaultPipeline = {
               name: 'Sales Pipeline',
               stages: activeSettings.pipeline_stages || DEFAULT_PIPELINE_STAGES,
@@ -521,12 +530,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .insert([defaultPipeline])
               .select()
               .single();
-            
+
             if (insertErr) {
               console.error("Failed to seed default pipeline:", insertErr.message);
             } else if (inserted) {
               resolvedPipelines = [inserted as Pipeline];
-              // Fetch user profile session user id to grant access
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(pipelineSeededKey, 'true');
+              }
+              // Grant access to session user
               const { data: { session } } = await client.auth.getSession();
               if (session?.user) {
                 const { data: accessInserted } = await client.from('pipeline_access').insert([{
@@ -534,16 +546,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   profile_id: session.user.id,
                   tenant_id: tenantId
                 }]).select().single();
-                if (accessInserted) {
-                  resolvedAccess = [accessInserted as PipelineAccess];
-                }
+                if (accessInserted) resolvedAccess = [accessInserted as PipelineAccess];
               }
             }
+          } else if (!pipeListErr && resolvedPipelines.length > 0 && !alreadySeeded) {
+            // Pipelines exist but flag not set yet — mark it now
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(pipelineSeededKey, 'true');
+            }
+          } else if (pipeListErr) {
+            console.error("Failed to load pipelines (RLS or network error):", pipeListErr.message);
           }
 
           setPipelines(resolvedPipelines);
           setPipelineAccess(resolvedAccess);
-          
+
           const defaultPipe = resolvedPipelines.find(p => p.is_default) || resolvedPipelines[0] || null;
           setActivePipeline(defaultPipe);
 
