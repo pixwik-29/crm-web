@@ -13,10 +13,16 @@ interface LeadsTableProps {
 }
 
 export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelectLead, onOpenAddModal }) => {
-  const { updateLead, deleteLead, deleteLeads, currentUser, settings, pipelines } = useData();
+  const { updateLead, deleteLead, deleteLeads, currentUser, settings, pipelines, pipelineAccess } = useData();
   
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Get pipelines this user has access to
+  const userPipelines = pipelines.filter(p => 
+    currentUser?.role === 'admin' || 
+    pipelineAccess.some(pa => pa.pipeline_id === p.id && pa.profile_id === currentUser?.id)
+  );
   
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -214,6 +220,44 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
             >
               <Trash2 className="w-4 h-4" /> Delete Selected ({selectedIds.length})
             </button>
+          )}
+
+          {selectedIds.length > 0 && userPipelines.length > 1 && (
+            <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl px-3.5 py-2.5 animate-fade-in">
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-bold whitespace-nowrap">Move Selected to:</span>
+              <select
+                onChange={async (e) => {
+                  const targetPipelineId = e.target.value;
+                  if (!targetPipelineId) return;
+                  const pObj = pipelines.find(p => p.id === targetPipelineId);
+                  const defaultStage = pObj?.stages?.[0]?.id || '1st followup';
+                  
+                  if (confirm(`Move ${selectedIds.length} selected leads to "${pObj?.name}" pipeline?`)) {
+                    try {
+                      await Promise.all(
+                        selectedIds.map(leadId => 
+                          updateLead(leadId, { 
+                            pipeline_id: targetPipelineId,
+                            status: defaultStage
+                          })
+                        )
+                      );
+                      setSelectedIds([]);
+                    } catch (err) {
+                      console.error("Failed to bulk move leads:", err);
+                      alert("Error during bulk pipeline move.");
+                    }
+                  }
+                  e.target.value = '';
+                }}
+                className="bg-transparent text-xs text-slate-700 dark:text-slate-355 outline-none font-bold cursor-pointer"
+              >
+                <option value="">-- Choose Pipeline --</option>
+                {userPipelines.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
           )}
 
           <button 
@@ -474,9 +518,40 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
 
                     {/* Pipeline */}
                     <td className="px-6 py-4">
-                      <span className="text-xs text-slate-600 dark:text-slate-400 font-medium whitespace-nowrap">
-                        {pipelines.find(p => p.id === lead.pipeline_id)?.name || 'Default Pipeline'}
-                      </span>
+                      {userPipelines.length > 1 ? (
+                        <select
+                          value={lead.pipeline_id || pipelines.find(p => p.is_default)?.id || ''}
+                          onChange={async (e) => {
+                            const newPipelineId = e.target.value;
+                            const pObj = pipelines.find(p => p.id === newPipelineId);
+                            const defaultStage = pObj?.stages?.[0]?.id || '1st followup';
+                            if (confirm(`Move lead "${lead.name}" to "${pObj?.name || 'Default'}" pipeline?`)) {
+                              try {
+                                await updateLead(lead.id, { 
+                                  pipeline_id: newPipelineId || null,
+                                  status: defaultStage
+                                });
+                              } catch (err) {
+                                console.error("Failed to update lead pipeline:", err);
+                                alert("Error updating pipeline.");
+                              }
+                            }
+                          }}
+                          className="bg-transparent text-xs text-slate-700 dark:text-slate-350 border border-slate-200 dark:border-zinc-800 rounded-lg p-1.5 focus:outline-none cursor-pointer"
+                        >
+                          {pipelines.filter(p => 
+                            currentUser?.role === 'admin' || 
+                            pipelineAccess.some(pa => pa.pipeline_id === p.id && pa.profile_id === currentUser?.id) ||
+                            p.id === lead.pipeline_id
+                          ).map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-slate-600 dark:text-slate-400 font-medium whitespace-nowrap">
+                          {pipelines.find(p => p.id === lead.pipeline_id)?.name || 'Default Pipeline'}
+                        </span>
+                      )}
                     </td>
 
                     {/* Status */}
