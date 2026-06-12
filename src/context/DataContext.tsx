@@ -2336,19 +2336,54 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const syncPartnerReferrals = async (): Promise<{ importedCount: number }> => {
+    // ── Admin-configured routing rules ─────────────────────────────────────────
+    // Admin sets these in CRM Settings > Partner Lead Auto-Routing.
+    // If a rule is disabled or unconfigured, fall back to the default pipeline/stage.
+    const routingInterested = settings.partner_routing_interested;
+    const routingConfirmed = settings.partner_routing_confirmed;
+
+    // Default fallback pipelines (used when admin hasn't configured routing rules)
+    const visaPipe = pipelines.find(p => p.name === 'Visa/Post-Closing Pipeline');
+    const salesPipe = pipelines.find(p => p.is_default) || pipelines[0];
+
+    const getRoutingForStudent = (student: any): { pipelineId: string | null; stage: string } => {
+      const isConfirmed = (student.referral_type || 'interested') === 'confirmed';
+      const rule = isConfirmed ? routingConfirmed : routingInterested;
+
+      if (rule && rule.enabled && rule.pipeline_id && rule.stage_id) {
+        // Apply country filter (if configured)
+        if (rule.filter_countries.length > 0 &&
+            !rule.filter_countries.some(c => c.toLowerCase() === (student.destination_country || '').toLowerCase())) {
+          return { pipelineId: null, stage: '' }; // skip — doesn't match filter
+        }
+        // Apply course filter (if configured)
+        if (rule.filter_courses.length > 0 &&
+            !rule.filter_courses.some(c => c.toLowerCase() === (student.target_program || '').toLowerCase())) {
+          return { pipelineId: null, stage: '' }; // skip — doesn't match filter
+        }
+        // Find the pipeline to verify stage exists
+        const targetPipeline = pipelines.find(p => p.id === rule.pipeline_id);
+        const stageExists = targetPipeline?.stages.some(s => s.id === rule.stage_id);
+        return {
+          pipelineId: rule.pipeline_id,
+          stage: stageExists ? rule.stage_id : (targetPipeline?.stages[0]?.id || rule.stage_id)
+        };
+      }
+
+      // Default behaviour (no rule configured)
+      if (isConfirmed) {
+        return { pipelineId: visaPipe?.id || salesPipe?.id || null, stage: visaPipe?.stages[0]?.id || 'Doc Collection' };
+      } else {
+        return { pipelineId: salesPipe?.id || null, stage: salesPipe?.stages[0]?.id || '1st followup' };
+      }
+    };
+    // ── End routing resolution ──────────────────────────────────────────────────
+
     // 1. Find all partner students where crm_lead_id is null
     const unconnectedStudents = partnerStudents.filter(ps => !ps.crm_lead_id);
     if (unconnectedStudents.length === 0) {
       return { importedCount: 0 };
     }
-
-    const visaPipe = pipelines.find(p => p.name === 'Visa/Post-Closing Pipeline');
-    const visaPipeId = visaPipe?.id || null;
-    const visaInitialStage = visaPipe?.stages[0]?.id || 'Doc Collection';
-
-    const salesPipe = pipelines.find(p => p.is_default) || pipelines[0];
-    const salesPipeId = salesPipe?.id || null;
-    const salesInitialStage = salesPipe?.stages[0]?.id || '1st followup';
 
     let importedCount = 0;
 
@@ -2356,11 +2391,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       for (const student of unconnectedStudents) {
         const partner = partners.find(p => p.id === student.partner_id);
         const partnerName = partner?.business_name || 'Partner Agency';
-        
-        const isConfirmed = (student.referral_type || 'interested') === 'confirmed';
-        const targetPipeId = isConfirmed ? visaPipeId : salesPipeId;
-        const targetStage = isConfirmed ? visaInitialStage : salesInitialStage;
 
+        const { pipelineId: targetPipeId, stage: targetStage } = getRoutingForStudent(student);
+        // Skip student if routing filter doesn't match
+        if (!targetPipeId || !targetStage) continue;
+
+        const isConfirmed = (student.referral_type || 'interested') === 'confirmed';
+        const targetPipeline = pipelines.find(p => p.id === targetPipeId);
         // 1. Insert new lead
         const { data: newLead, error: leadErr } = await supabase
           .from('leads')
@@ -2404,7 +2441,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             lead_id: newLead.id,
             actor_id: currentUser?.id,
             action_type: 'assigned',
-            description: `Imported automatically from Partner Portal referral by ${partnerName}. Placed in ${isConfirmed ? 'Visa/Post-Closing' : 'Sales'} Pipeline.`,
+            description: `Imported from Partner Portal referral by ${partnerName} → ${targetPipeline?.name || 'Pipeline'} / ${targetStage}.`,
             tenant_id: tenantId
           }]);
 
@@ -2429,9 +2466,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (matching) {
           const partner = partners.find(p => p.id === matching.partner_id);
           const partnerName = partner?.business_name || 'Partner Agency';
+          const { pipelineId: targetPipeId, stage: targetStage } = getRoutingForStudent(matching);
+          // Skip if routing filter doesn't match
+          if (!targetPipeId || !targetStage) return ps;
           const isConfirmed = (matching.referral_type || 'interested') === 'confirmed';
-          const targetPipeId = isConfirmed ? visaPipeId : salesPipeId;
-          const targetStage = isConfirmed ? visaInitialStage : salesInitialStage;
+          const targetPipeline = pipelines.find(p => p.id === targetPipeId);
 
           const mockLeadId = `lead-${Date.now()}-${importedCount}`;
           const newLead: Lead = {
@@ -2456,7 +2495,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             lead_id: mockLeadId,
             actor_id: currentUser?.id || 'system',
             action_type: 'assigned',
-            description: `Imported automatically from Partner Portal referral by ${partnerName}. Placed in ${isConfirmed ? 'Visa/Post-Closing' : 'Sales'} Pipeline.`,
+            description: `Imported from Partner Portal referral by ${partnerName} → ${targetPipeline?.name || 'Pipeline'} / ${targetStage}.`,
             created_at: new Date().toISOString()
           };
           activityLogs.unshift(log);

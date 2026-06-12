@@ -10,8 +10,11 @@ import {
   Plus, FileText, Plane
 } from 'lucide-react';
 
-import { PipelineStage } from '@/types/crm';
+import { PipelineStage, PartnerRoutingRule } from '@/types/crm';
 import Link from 'next/link';
+
+const KNOWN_COUNTRIES = ['Georgia', 'Russia', 'Armenia', 'Uzbekistan', 'Bangladesh', 'Nepal', 'Philippines', 'Kazakhstan', 'Kyrgyzstan', 'China'];
+const KNOWN_COURSES = ['MBBS', 'MBBS Abroad', 'BDS', 'MD', 'Nursing', 'Pharmacy', 'Computer Science Engineering', 'MBA', 'Other'];
 
 const COURSES = [
   'MBBS',
@@ -81,6 +84,56 @@ export const CRMSettings: React.FC = () => {
   // Checklist settings states
   const [configCountry, setConfigCountry] = useState('Georgia');
   const [newRequiredDocName, setNewRequiredDocName] = useState('');
+
+  // ── Partner Lead Auto-Routing States ───────────────────────────────────────
+  const defaultRule = (): PartnerRoutingRule => ({
+    enabled: false,
+    pipeline_id: '',
+    stage_id: '',
+    filter_countries: [],
+    filter_courses: []
+  });
+
+  const [routingInterested, setRoutingInterested] = useState<PartnerRoutingRule>(
+    settings.partner_routing_interested || defaultRule()
+  );
+  const [routingConfirmed, setRoutingConfirmed] = useState<PartnerRoutingRule>(
+    settings.partner_routing_confirmed || defaultRule()
+  );
+  const [routingSaveStatus, setRoutingSaveStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRoutingInterested(settings.partner_routing_interested || defaultRule());
+    setRoutingConfirmed(settings.partner_routing_confirmed || defaultRule());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.partner_routing_interested, settings.partner_routing_confirmed]);
+
+  const handleSaveRoutingRules = async () => {
+    await updateSettings({
+      partner_routing_interested: routingInterested,
+      partner_routing_confirmed: routingConfirmed
+    });
+    setRoutingSaveStatus('Routing rules saved!');
+    setTimeout(() => setRoutingSaveStatus(null), 3000);
+  };
+
+  const getStagesForPipeline = (pipelineId: string) =>
+    pipelines.find(p => p.id === pipelineId)?.stages || [];
+
+  const toggleFilterItem = (
+    rule: PartnerRoutingRule,
+    setRule: React.Dispatch<React.SetStateAction<PartnerRoutingRule>>,
+    field: 'filter_countries' | 'filter_courses',
+    value: string
+  ) => {
+    setRule(prev => ({
+      ...prev,
+      [field]: prev[field].includes(value)
+        ? prev[field].filter(v => v !== value)
+        : [...prev[field], value]
+    }));
+  };
+  // ── End Partner Routing States ─────────────────────────────────────────────
 
   const handleAddConfigDoc = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1474,6 +1527,165 @@ async function submitEduPathLead(leadData) {
 
               </div>
             )}
+          </div>
+
+
+          {/* ── Partner Lead Auto-Routing ───────────────────────────────────── */}
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-900 pb-4">
+              <div className="flex items-center gap-2.5">
+                <Shuffle className="w-5 h-5 text-indigo-500" />
+                <div>
+                  <h3 className="font-bold text-slate-800 dark:text-white">Partner Lead Auto-Routing</h3>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Define which pipeline &amp; stage partner students land in when synced to CRM</p>
+                </div>
+              </div>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleSaveRoutingRules}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" /> Save Rules
+                </button>
+              )}
+            </div>
+
+            {routingSaveStatus && (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-xl p-3 text-xs font-bold flex items-center gap-2">
+                <Check className="w-4 h-4" /> {routingSaveStatus}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Interested Students Rule */}
+              {[{ label: '🎯 Interested / Prospect Students', desc: 'Students marked as "Interested" in Partner Portal', rule: routingInterested, setRule: setRoutingInterested },
+                { label: '✅ Confirmed Admissions', desc: 'Students with confirmed admission / paid students', rule: routingConfirmed, setRule: setRoutingConfirmed }
+              ].map(({ label, desc, rule, setRule }) => (
+                <div key={label} className={`rounded-2xl border p-4 space-y-4 transition-all ${
+                  rule.enabled
+                    ? 'border-indigo-400/40 dark:border-indigo-600/40 bg-indigo-50/50 dark:bg-indigo-950/20'
+                    : 'border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/30'
+                }`}>
+                  {/* Header + toggle */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 dark:text-white">{label}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{desc}</p>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setRule(prev => ({ ...prev, enabled: !prev.enabled }))}
+                        className={`relative flex-shrink-0 w-10 h-5 rounded-full transition-all ${
+                          rule.enabled ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-zinc-700'
+                        }`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${
+                          rule.enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`} />
+                      </button>
+                    )}
+                  </div>
+
+                  {rule.enabled && (
+                    <div className="space-y-3">
+                      {/* Pipeline selector */}
+                      <div>
+                        <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Target Pipeline</label>
+                        <select
+                          value={rule.pipeline_id}
+                          onChange={e => setRule(prev => ({ ...prev, pipeline_id: e.target.value, stage_id: '' }))}
+                          disabled={!isAdmin}
+                          className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-800 rounded-xl p-2.5 text-xs font-semibold text-slate-800 dark:text-white outline-none focus:border-indigo-500 disabled:opacity-60"
+                        >
+                          <option value="">— Select Pipeline —</option>
+                          {pipelines.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}{p.is_default ? ' (Default)' : ''}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Stage selector */}
+                      <div>
+                        <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Landing Stage</label>
+                        <select
+                          value={rule.stage_id}
+                          onChange={e => setRule(prev => ({ ...prev, stage_id: e.target.value }))}
+                          disabled={!isAdmin || !rule.pipeline_id}
+                          className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-800 rounded-xl p-2.5 text-xs font-semibold text-slate-800 dark:text-white outline-none focus:border-indigo-500 disabled:opacity-60"
+                        >
+                          <option value="">— Select Stage —</option>
+                          {getStagesForPipeline(rule.pipeline_id).map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                        {!rule.pipeline_id && (
+                          <p className="text-[9px] text-slate-400 mt-1">Select a pipeline first</p>
+                        )}
+                      </div>
+
+                      {/* Country filter */}
+                      <div>
+                        <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">
+                          Country Filter <span className="font-normal normal-case">(empty = all countries)</span>
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {KNOWN_COUNTRIES.map(c => (
+                            <button
+                              key={c}
+                              type="button"
+                              disabled={!isAdmin}
+                              onClick={() => toggleFilterItem(rule, setRule, 'filter_countries', c)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all ${
+                                rule.filter_countries.includes(c)
+                                  ? 'bg-indigo-500 border-indigo-500 text-white'
+                                  : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-slate-300 hover:border-indigo-400'
+                              }`}
+                            >{c}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Course filter */}
+                      <div>
+                        <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">
+                          Course Filter <span className="font-normal normal-case">(empty = all courses)</span>
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {KNOWN_COURSES.map(c => (
+                            <button
+                              key={c}
+                              type="button"
+                              disabled={!isAdmin}
+                              onClick={() => toggleFilterItem(rule, setRule, 'filter_courses', c)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all ${
+                                rule.filter_courses.includes(c)
+                                  ? 'bg-violet-500 border-violet-500 text-white'
+                                  : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-slate-300 hover:border-violet-400'
+                              }`}
+                            >{c}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Summary pill */}
+                      {rule.pipeline_id && rule.stage_id && (
+                        <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl px-3 py-2 text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                          ✓ Routes to: <strong>{pipelines.find(p => p.id === rule.pipeline_id)?.name}</strong> → <strong>{rule.stage_id}</strong>
+                          {rule.filter_countries.length > 0 && <span className="ml-1 text-slate-400">| Countries: {rule.filter_countries.join(', ')}</span>}
+                          {rule.filter_courses.length > 0 && <span className="ml-1 text-slate-400">| Courses: {rule.filter_courses.join(', ')}</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!rule.enabled && (
+                    <p className="text-[10px] text-slate-400 italic">Disabled — falls back to default pipeline routing</p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Visa Checklist Configurator */}

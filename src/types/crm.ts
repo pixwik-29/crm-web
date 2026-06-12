@@ -115,6 +115,14 @@ export interface WebForm {
   created_at: string;
 }
 
+export interface PartnerRoutingRule {
+  enabled: boolean;
+  pipeline_id: string;   // which pipeline to place the lead in
+  stage_id: string;      // which stage within that pipeline
+  filter_countries: string[];  // empty = accept all countries
+  filter_courses: string[];    // empty = accept all courses
+}
+
 export interface CRMSettings {
   company_name: string;
   admission_year_prefix: string;
@@ -133,6 +141,9 @@ export interface CRMSettings {
   form_integration_dynamic_field?: string;
   pipeline_stages?: PipelineStage[];
   web_forms?: WebForm[];
+  // Partner Lead Auto-Routing Rules
+  partner_routing_interested?: PartnerRoutingRule;  // For "interested" students
+  partner_routing_confirmed?: PartnerRoutingRule;   // For "confirmed admission" students
 }
 
 export interface VisaApplication {
