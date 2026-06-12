@@ -47,6 +47,7 @@ interface DataContextType {
   connectLeadToPartnerStudent: (leadId: string, studentId: string) => Promise<void>;
   disconnectLeadFromPartnerStudent: (studentId: string) => Promise<void>;
   verifyPartnerDoc: (docId: string, status: 'verified' | 'rejected') => Promise<void>;
+  syncPartnerReferrals: () => Promise<{ importedCount: number }>;
   colleges: any[];
   
   // Auth/User Operations
@@ -2312,6 +2313,158 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const syncPartnerReferrals = async (): Promise<{ importedCount: number }> => {
+    // 1. Find all partner students where crm_lead_id is null
+    const unconnectedStudents = partnerStudents.filter(ps => !ps.crm_lead_id);
+    if (unconnectedStudents.length === 0) {
+      return { importedCount: 0 };
+    }
+
+    const visaPipe = pipelines.find(p => p.name === 'Visa/Post-Closing Pipeline');
+    const visaPipeId = visaPipe?.id || null;
+    const visaInitialStage = visaPipe?.stages[0]?.id || 'Doc Collection';
+
+    const salesPipe = pipelines.find(p => p.is_default) || pipelines[0];
+    const salesPipeId = salesPipe?.id || null;
+    const salesInitialStage = salesPipe?.stages[0]?.id || '1st followup';
+
+    let importedCount = 0;
+
+    if (isSupabaseConfigured && supabase) {
+      for (const student of unconnectedStudents) {
+        const partner = partners.find(p => p.id === student.partner_id);
+        const partnerName = partner?.business_name || 'Partner Agency';
+        
+        const isConfirmed = (student.referral_type || 'interested') === 'confirmed';
+        const targetPipeId = isConfirmed ? visaPipeId : salesPipeId;
+        const targetStage = isConfirmed ? visaInitialStage : salesInitialStage;
+
+        // 1. Insert new lead
+        const { data: newLead, error: leadErr } = await supabase
+          .from('leads')
+          .insert([{
+            name: `${student.first_name} ${student.last_name}`,
+            phone: student.phone,
+            email: student.email || null,
+            preferred_destination: student.destination_country,
+            course: student.target_program,
+            lead_source: `Partner: ${partnerName}`,
+            status: targetStage,
+            pipeline_id: targetPipeId,
+            tenant_id: tenantId
+          }])
+          .select()
+          .single();
+
+        if (leadErr) {
+          console.error("Error creating lead from partner student:", leadErr);
+          continue;
+        }
+
+        if (newLead) {
+          // 2. Update partner_student reference
+          const { error: studentErr } = await supabase
+            .from('partner_students')
+            .update({ 
+              crm_lead_id: newLead.id, 
+              application_status: isConfirmed ? 'converted' : 'referred', 
+              updated_at: new Date().toISOString() 
+            })
+            .eq('id', student.id);
+
+          if (studentErr) {
+            console.error("Error updating partner student reference:", studentErr);
+            continue;
+          }
+
+          // 3. Create activity log
+          await supabase.from('activity_logs').insert([{
+            lead_id: newLead.id,
+            actor_id: currentUser?.id,
+            action_type: 'assigned',
+            description: `Imported automatically from Partner Portal referral by ${partnerName}. Placed in ${isConfirmed ? 'Visa/Post-Closing' : 'Sales'} Pipeline.`,
+            tenant_id: tenantId
+          }]);
+
+          importedCount++;
+        }
+      }
+
+      // Re-fetch data if any imported to update the UI
+      if (importedCount > 0) {
+        const { data: leadsList } = await supabase.from('leads').select('*').eq('tenant_id', tenantId);
+        if (leadsList) setLeads(leadsList);
+        
+        const { data: partStudentsList } = await supabase.from('partner_students').select('*');
+        if (partStudentsList) setPartnerStudents(partStudentsList);
+      }
+
+    } else {
+      // Local Mock Mode
+      const updatedLeads = [...leads];
+      const updatedStudents = partnerStudents.map(ps => {
+        const matching = unconnectedStudents.find(us => us.id === ps.id);
+        if (matching) {
+          const partner = partners.find(p => p.id === matching.partner_id);
+          const partnerName = partner?.business_name || 'Partner Agency';
+          const isConfirmed = (matching.referral_type || 'interested') === 'confirmed';
+          const targetPipeId = isConfirmed ? visaPipeId : salesPipeId;
+          const targetStage = isConfirmed ? visaInitialStage : salesInitialStage;
+
+          const mockLeadId = `lead-${Date.now()}-${importedCount}`;
+          const newLead: Lead = {
+            id: mockLeadId,
+            name: `${matching.first_name} ${matching.last_name}`,
+            phone: matching.phone,
+            email: matching.email || undefined,
+            preferred_destination: matching.destination_country,
+            course: matching.target_program,
+            lead_source: `Partner: ${partnerName}`,
+            status: targetStage,
+            pipeline_id: targetPipeId || undefined,
+            score: 75,
+            tags: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          updatedLeads.push(newLead);
+
+          const log: ActivityLog = {
+            id: `log-${Date.now()}-${importedCount}`,
+            lead_id: mockLeadId,
+            actor_id: currentUser?.id || 'system',
+            action_type: 'assigned',
+            description: `Imported automatically from Partner Portal referral by ${partnerName}. Placed in ${isConfirmed ? 'Visa/Post-Closing' : 'Sales'} Pipeline.`,
+            created_at: new Date().toISOString()
+          };
+          activityLogs.unshift(log);
+
+          importedCount++;
+          return {
+            ...ps,
+            crm_lead_id: mockLeadId,
+            application_status: isConfirmed ? 'converted' : 'referred',
+            updated_at: new Date().toISOString()
+          };
+        }
+        return ps;
+      });
+
+      if (importedCount > 0) {
+        setLeads(updatedLeads);
+        saveLocal('crm_leads', updatedLeads);
+
+        setPartnerStudents(updatedStudents);
+        saveLocal('crm_partner_students', updatedStudents);
+
+        setActivityLogs([...activityLogs]);
+        saveLocal('crm_logs', activityLogs);
+      }
+    }
+
+    return { importedCount };
+  };
+
   // Pipeline CRUD Functions
   const addPipeline = async (name: string, stages: PipelineStage[]): Promise<Pipeline> => {
     const newPipeItem: Omit<Pipeline, 'id' | 'created_at' | 'updated_at'> = {
@@ -2547,6 +2700,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       connectLeadToPartnerStudent,
       disconnectLeadFromPartnerStudent,
       verifyPartnerDoc,
+      syncPartnerReferrals,
       colleges,
       
       triggerLeadSimulation,

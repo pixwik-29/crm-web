@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Lead, Profile, PipelineStage, Pipeline } from '@/types/crm';
 import { useData } from '@/context/DataContext';
-import { Phone, MessageSquare, Tag, Award, User, Flame, Layers } from 'lucide-react';
+import { Phone, MessageSquare, Tag, Award, User, Flame, Layers, RefreshCw } from 'lucide-react';
  
 interface KanbanBoardProps {
   leads: Lead[];
@@ -12,9 +12,22 @@ interface KanbanBoardProps {
 }
  
 export const KanbanBoard: React.FC<KanbanBoardProps> = ({ leads, profiles, onSelectLead }) => {
-  const { updateLead, currentUser, settings, pipelines, pipelineAccess, activePipeline, setActivePipeline } = useData();
+  const { updateLead, currentUser, settings, pipelines, pipelineAccess, activePipeline, setActivePipeline, syncPartnerReferrals } = useData();
   const stages = [...(activePipeline?.stages || [])].sort((a, b) => a.order - b.order);
   const [draggedOverStage, setDraggedOverStage] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = async () => {
+    try {
+      setIsSyncing(true);
+      const res = await syncPartnerReferrals();
+      alert(`Sync completed successfully! Imported ${res.importedCount} new partner referrals into CRM pipelines.`);
+    } catch (err: any) {
+      alert(err.message || 'Failed to sync partner referrals.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
  
   const handleDragStart = (e: React.DragEvent, id: string) => {
     e.dataTransfer.setData('text/plain', id);
@@ -87,7 +100,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ leads, profiles, onSel
           </div>
         </div>
         
-        <div>
+        <div className="flex flex-wrap items-center gap-3">
           {userPipelines.length > 1 ? (
             <select
               value={activePipeline?.id || ''}
@@ -108,6 +121,15 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ leads, profiles, onSel
               Current: {activePipeline?.name || 'No Pipeline'}
             </span>
           )}
+
+          <button
+            onClick={handleSync}
+            disabled={isSyncing}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white transition-all shadow-sm hover:shadow shadow-indigo-500/20 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Syncing...' : 'Sync Partner Data'}
+          </button>
         </div>
       </div>
 
