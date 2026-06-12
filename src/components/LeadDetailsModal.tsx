@@ -384,10 +384,30 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
               <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1">{lead.external_consultant || '--'}</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Pipeline</p>
-              <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1">
-                {pipelines.find(p => p.id === lead.pipeline_id)?.name || 'Default Pipeline'}
-              </p>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-505 uppercase tracking-widest">Pipeline</p>
+              <select
+                value={lead.pipeline_id || ''}
+                onChange={async (e) => {
+                  const newPipeId = e.target.value;
+                  const pObj = pipelines.find(p => p.id === newPipeId);
+                  if (pObj) {
+                    const firstStageId = pObj.stages[0]?.id || '1st followup';
+                    try {
+                      await updateLead(lead.id, {
+                        pipeline_id: newPipeId || null,
+                        status: firstStageId
+                      });
+                    } catch (err) {
+                      alert('Failed to switch pipeline.');
+                    }
+                  }
+                }}
+                className="mt-1 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-1 text-xs font-semibold text-slate-700 dark:text-slate-350 outline-none w-full cursor-pointer focus:border-indigo-500"
+              >
+                {userPipelines.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
             </div>
             <div>
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Counsellor Assigned</p>
