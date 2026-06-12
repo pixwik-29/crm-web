@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { PROTECTED_EMAILS } from '@/lib/protected';
 
 export async function POST(request: Request) {
   try {
@@ -10,6 +11,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Missing required parameters: email, password, name, role' },
         { status: 400 }
+      );
+    }
+
+    // Block re-creation or modification of protected owner accounts via this route
+    if (PROTECTED_EMAILS.has(email.toLowerCase())) {
+      return NextResponse.json(
+        { error: 'This email belongs to a protected system owner account and cannot be created or modified via this route.' },
+        { status: 403 }
       );
     }
 

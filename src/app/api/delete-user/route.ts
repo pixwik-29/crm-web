@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isProtectedUser } from '@/lib/protected';
 
 export async function POST(request: Request) {
   try {
@@ -10,6 +11,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Missing required parameter: profileId' },
         { status: 400 }
+      );
+    }
+
+    // Block deletion of protected owner accounts
+    if (isProtectedUser(profileId)) {
+      return NextResponse.json(
+        { error: 'This account is a system owner and cannot be deleted.' },
+        { status: 403 }
       );
     }
 
