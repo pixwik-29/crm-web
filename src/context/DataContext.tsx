@@ -812,13 +812,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPartnerUploadedDocs(parsedPartnerUploadedDocs);
  
         const storedColleges = localStorage.getItem(getLocalKey('crm_colleges'));
-        let parsedColleges = storedColleges ? JSON.parse(storedColleges) : [];
-        if (parsedColleges.length === 0 && tenantId === 'default') {
+        const collegesSeeded = localStorage.getItem(getLocalKey('crm_colleges_seeded'));
+        // Only seed on first ever load. After that, respect what admin has configured.
+        let parsedColleges = storedColleges ? JSON.parse(storedColleges) : null;
+        if (parsedColleges === null && !collegesSeeded && tenantId === 'default') {
           parsedColleges = [
             { id: 'univ-1', name: 'Tbilisi State Medical University', country: 'Georgia', required_docs: ['Passport Copy', '12th Marksheet', 'NEET Score Card', 'Birth Certificate', 'HIV Test Result'] },
             { id: 'univ-2', name: 'University of Perpetual Help', country: 'Philippines', required_docs: ['Passport Copy', '12th Marksheet', 'NEET Score Card', 'Medical Certificate'] }
           ];
           localStorage.setItem(getLocalKey('crm_colleges'), JSON.stringify(parsedColleges));
+          localStorage.setItem(getLocalKey('crm_colleges_seeded'), 'true');
+        } else if (parsedColleges === null) {
+          parsedColleges = [];
         }
         setColleges(parsedColleges);
 
