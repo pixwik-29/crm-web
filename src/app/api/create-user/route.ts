@@ -126,6 +126,34 @@ export async function POST(request: Request) {
       }
     }
 
+    // 3. Grant access to default pipelines of this tenant (Sales & Visa pipelines)
+    try {
+      const targetTenant = tenant_id || 'default';
+      const { data: defaultPipelines } = await supabase
+        .from('pipelines')
+        .select('id')
+        .eq('tenant_id', targetTenant)
+        .or('is_default.eq.true,name.eq.Visa/Post-Closing Pipeline');
+
+      if (defaultPipelines && defaultPipelines.length > 0) {
+        const accessToInsert = defaultPipelines.map(p => ({
+          pipeline_id: p.id,
+          profile_id: userId,
+          tenant_id: targetTenant
+        }));
+        const { error: accessError } = await supabase
+          .from('pipeline_access')
+          .upsert(accessToInsert);
+        if (accessError) {
+          console.error('Error seeding pipeline access for new user:', accessError.message);
+        } else {
+          console.log(`Successfully mapped ${defaultPipelines.length} pipelines to new user ${userId}`);
+        }
+      }
+    } catch (pipelineErr) {
+      console.error('Failed to grant pipeline access to new user:', pipelineErr);
+    }
+
     return NextResponse.json({ success: true, user: userData.user });
   } catch (error: any) {
     console.error('Error in create-user API route:', error);
