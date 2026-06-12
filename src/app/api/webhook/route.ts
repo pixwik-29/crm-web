@@ -127,6 +127,20 @@ export async function POST(req: NextRequest) {
     };
 
     if (supabase) {
+      try {
+        const { data: defaultPipe } = await supabase
+          .from('pipelines')
+          .select('id')
+          .eq('tenant_id', tenant_id)
+          .eq('is_default', true)
+          .maybeSingle();
+        if (defaultPipe) {
+          (leadPayload as any).pipeline_id = defaultPipe.id;
+        }
+      } catch (err: any) {
+        console.error('[Webhook] Error resolving default pipeline:', err.message);
+      }
+
       const { data, error } = await supabase
         .from('leads')
         .insert([leadPayload])
@@ -314,6 +328,19 @@ async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'de
 
   if (leadPayload) {
     leadPayload.tenant_id = tenantId;
+    try {
+      const { data: defaultPipe } = await supabase
+        .from('pipelines')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('is_default', true)
+        .maybeSingle();
+      if (defaultPipe) {
+        leadPayload.pipeline_id = defaultPipe.id;
+      }
+    } catch (err: any) {
+      console.error('[processMetaLead] Error resolving default pipeline:', err.message);
+    }
   }
 
   console.log('[processMetaLead] Inserting lead into Supabase:', JSON.stringify(leadPayload));

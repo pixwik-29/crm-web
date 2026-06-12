@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase as originalSupabase, isSupabaseConfigured as originalIsSupabaseConfigured } from '@/lib/supabase';
-import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc } from '@/types/crm';
+import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess } from '@/types/crm';
 
 interface DataContextType {
   isConfigured: boolean;
@@ -18,6 +18,16 @@ interface DataContextType {
   whatsappTemplates: WhatsAppTemplate[];
   settings: CRMSettings;
   
+  // Pipeline Operations
+  pipelines: Pipeline[];
+  pipelineAccess: PipelineAccess[];
+  activePipeline: Pipeline | null;
+  setActivePipeline: (pipeline: Pipeline | null) => void;
+  addPipeline: (name: string, stages: PipelineStage[]) => Promise<Pipeline>;
+  updatePipeline: (id: string, name: string, stages: PipelineStage[]) => Promise<Pipeline>;
+  deletePipeline: (id: string) => Promise<void>;
+  updatePipelineAccess: (pipelineId: string, allowedProfileIds: string[]) => Promise<void>;
+
   // Post-Closing / Visa & Travel Operations
   visaApplications: VisaApplication[];
   visaRequiredDocs: VisaRequiredDoc[];
@@ -268,6 +278,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [visaRequiredDocs, setVisaRequiredDocs] = useState<VisaRequiredDoc[]>([]);
   const [visaUploadedDocs, setVisaUploadedDocs] = useState<VisaUploadedDoc[]>([]);
   
+  // Pipeline States
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [pipelineAccess, setPipelineAccess] = useState<PipelineAccess[]>([]);
+  const [activePipeline, setActivePipeline] = useState<Pipeline | null>(null);
+  
   const [isLoading, setIsLoading] = useState(true);
   const [tenantId, setTenantId] = useState<string>('default');
   // null = still verifying, true = active subscription, false = blocked/deleted
@@ -424,13 +439,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const { data: vUpDocs } = await client.from('visa_uploaded_docs').select('*').eq('tenant_id', tenantId);
           if (vUpDocs) setVisaUploadedDocs(vUpDocs as VisaUploadedDoc[]);
 
-          // Load settings
+          // Load settings first
           const { data: dbSettings } = await client
             .from('settings')
             .select('*')
             .eq('tenant_id', tenantId)
             .maybeSingle();
 
+          const activeSettings = dbSettings || DEFAULT_SETTINGS;
           if (dbSettings) {
             setSettings(dbSettings as CRMSettings);
           } else {
@@ -447,6 +463,52 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             setSettings(defaultWithTenant);
           }
+
+          // Load pipelines and pipeline access
+          const { data: pipeList } = await client.from('pipelines').select('*').eq('tenant_id', tenantId);
+          const { data: pipeAccessList } = await client.from('pipeline_access').select('*').eq('tenant_id', tenantId);
+
+          let resolvedPipelines = (pipeList as Pipeline[]) || [];
+          let resolvedAccess = (pipeAccessList as PipelineAccess[]) || [];
+
+          if (resolvedPipelines.length === 0) {
+            // Seed default Sales Pipeline if none exist
+            const defaultPipeline = {
+              name: 'Sales Pipeline',
+              stages: activeSettings.pipeline_stages || DEFAULT_PIPELINE_STAGES,
+              tenant_id: tenantId,
+              is_default: true
+            };
+            const { data: inserted, error: insertErr } = await client
+              .from('pipelines')
+              .insert([defaultPipeline])
+              .select()
+              .single();
+            
+            if (insertErr) {
+              console.error("Failed to seed default pipeline:", insertErr.message);
+            } else if (inserted) {
+              resolvedPipelines = [inserted as Pipeline];
+              // Fetch user profile session user id to grant access
+              const { data: { session } } = await client.auth.getSession();
+              if (session?.user) {
+                const { data: accessInserted } = await client.from('pipeline_access').insert([{
+                  pipeline_id: inserted.id,
+                  profile_id: session.user.id,
+                  tenant_id: tenantId
+                }]).select().single();
+                if (accessInserted) {
+                  resolvedAccess = [accessInserted as PipelineAccess];
+                }
+              }
+            }
+          }
+
+          setPipelines(resolvedPipelines);
+          setPipelineAccess(resolvedAccess);
+          
+          const defaultPipe = resolvedPipelines.find(p => p.is_default) || resolvedPipelines[0] || null;
+          setActivePipeline(defaultPipe);
 
           // Set up real-time listener subscriptions
           leadsChannel = client.channel(`realtime-db-${tenantId}`)
@@ -516,6 +578,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setSettings(payload.new as CRMSettings);
               }
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'pipelines', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setPipelines(prev => [...prev, payload.new as Pipeline]);
+              } else if (payload.eventType === 'UPDATE') {
+                setPipelines(prev => prev.map(p => p.id === payload.new.id ? (payload.new as Pipeline) : p));
+              } else if (payload.eventType === 'DELETE') {
+                setPipelines(prev => prev.filter(p => p.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'pipeline_access', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setPipelineAccess(prev => [...prev, payload.new as PipelineAccess]);
+              } else if (payload.eventType === 'UPDATE') {
+                setPipelineAccess(prev => prev.map(pa => pa.id === payload.new.id ? (payload.new as PipelineAccess) : pa));
+              } else if (payload.eventType === 'DELETE') {
+                setPipelineAccess(prev => prev.filter(pa => pa.id !== payload.old.id));
+              }
+            })
             .subscribe();
         } catch (error) {
           console.error("Supabase data load error: ", error);
@@ -562,6 +642,44 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setVisaApplications(parsedVApps);
         setVisaRequiredDocs(parsedVReqDocs);
         setVisaUploadedDocs(parsedVUpDocs);
+
+        // Seeding / loading mock pipelines
+        const storedPipelines = localStorage.getItem(getLocalKey('crm_pipelines'));
+        const storedPipelineAccess = localStorage.getItem(getLocalKey('crm_pipeline_access'));
+
+        let parsedPipelines = storedPipelines ? JSON.parse(storedPipelines) : [];
+        let parsedPipelineAccess = storedPipelineAccess ? JSON.parse(storedPipelineAccess) : [];
+
+        if (parsedPipelines.length === 0) {
+          const defaultPipeline: Pipeline = {
+            id: 'mock-pipeline-sales',
+            name: 'Sales Pipeline',
+            stages: parsedSettings.pipeline_stages || DEFAULT_PIPELINE_STAGES,
+            tenant_id: tenantId,
+            is_default: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          parsedPipelines = [defaultPipeline];
+          
+          // Grant access to all profiles initially in mock mode
+          parsedPipelineAccess = parsedProfiles.map((p: Profile) => ({
+            id: `pa-${p.id}`,
+            pipeline_id: defaultPipeline.id,
+            profile_id: p.id,
+            tenant_id: tenantId,
+            created_at: new Date().toISOString()
+          }));
+
+          localStorage.setItem(getLocalKey('crm_pipelines'), JSON.stringify(parsedPipelines));
+          localStorage.setItem(getLocalKey('crm_pipeline_access'), JSON.stringify(parsedPipelineAccess));
+        }
+
+        setPipelines(parsedPipelines);
+        setPipelineAccess(parsedPipelineAccess);
+
+        const defaultPipe = parsedPipelines.find((p: Pipeline) => p.is_default) || parsedPipelines[0] || null;
+        setActivePipeline(defaultPipe);
       }
       setIsLoading(false);
     };
@@ -847,8 +965,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Lead Operations
   const addLead = async (leadData: Omit<Lead, 'id' | 'created_at' | 'updated_at'>): Promise<Lead> => {
+    const defaultPipelineId = leadData.pipeline_id || activePipeline?.id || pipelines.find(p => p.is_default)?.id || null;
     const newLeadItem = {
       ...leadData,
+      pipeline_id: defaultPipelineId,
       id: `lead-${Date.now()}`,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -859,6 +979,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('leads')
         .insert([{
           ...leadData,
+          pipeline_id: defaultPipelineId,
           tags: leadData.tags || [],
           score: leadData.score || 0,
           tenant_id: tenantId
@@ -1808,6 +1929,171 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Pipeline CRUD Functions
+  const addPipeline = async (name: string, stages: PipelineStage[]): Promise<Pipeline> => {
+    const newPipeItem: Omit<Pipeline, 'id' | 'created_at' | 'updated_at'> = {
+      name,
+      stages,
+      tenant_id: tenantId,
+      is_default: false
+    };
+
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('pipelines')
+        .insert([newPipeItem])
+        .select()
+        .single();
+      if (error) throw error;
+      
+      // Auto-grant access to creator/admin
+      if (currentUser?.id) {
+        await supabase.from('pipeline_access').insert([{
+          pipeline_id: data.id,
+          profile_id: currentUser.id,
+          tenant_id: tenantId
+        }]);
+      }
+      return data as Pipeline;
+    } else {
+      const mockPipe: Pipeline = {
+        ...newPipeItem,
+        id: `pipeline-${Date.now()}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      const updated = [...pipelines, mockPipe];
+      setPipelines(updated);
+      saveLocal('crm_pipelines', updated);
+
+      // Grant access to all profiles initially in mock mode
+      const mockAccess = profiles.map(p => ({
+        id: `pa-${mockPipe.id}-${p.id}`,
+        pipeline_id: mockPipe.id,
+        profile_id: p.id,
+        tenant_id: tenantId,
+        created_at: new Date().toISOString()
+      }));
+      const updatedAccess = [...pipelineAccess, ...mockAccess];
+      setPipelineAccess(updatedAccess);
+      saveLocal('crm_pipeline_access', updatedAccess);
+
+      return mockPipe;
+    }
+  };
+
+  const updatePipeline = async (id: string, name: string, stages: PipelineStage[]): Promise<Pipeline> => {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('pipelines')
+        .update({ name, stages, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as Pipeline;
+    } else {
+      const updated = pipelines.map(p => {
+        if (p.id === id) {
+          return {
+            ...p,
+            name,
+            stages,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return p;
+      });
+      setPipelines(updated);
+      saveLocal('crm_pipelines', updated);
+
+      const updatedPipe = updated.find(p => p.id === id);
+      if (!updatedPipe) throw new Error("Pipeline not found");
+      return updatedPipe;
+    }
+  };
+
+  const deletePipeline = async (id: string): Promise<void> => {
+    // Check if there are any leads using this pipeline
+    const leadsInPipeline = leads.filter(l => l.pipeline_id === id);
+    if (leadsInPipeline.length > 0) {
+      throw new Error(`Cannot delete pipeline: there are ${leadsInPipeline.length} active leads associated with it.`);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('pipelines')
+        .delete()
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
+      if (error) throw error;
+      setPipelines(prev => prev.filter(p => p.id !== id));
+      setPipelineAccess(prev => prev.filter(pa => pa.pipeline_id !== id));
+    } else {
+      const updated = pipelines.filter(p => p.id !== id);
+      setPipelines(updated);
+      saveLocal('crm_pipelines', updated);
+
+      const updatedAccess = pipelineAccess.filter(pa => pa.pipeline_id !== id);
+      setPipelineAccess(updatedAccess);
+      saveLocal('crm_pipeline_access', updatedAccess);
+    }
+
+    if (activePipeline?.id === id) {
+      const remaining = pipelines.filter(p => p.id !== id);
+      const fallback = remaining.find(p => p.is_default) || remaining[0] || null;
+      setActivePipeline(fallback);
+    }
+  };
+
+  const updatePipelineAccess = async (pipelineId: string, allowedProfileIds: string[]): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      // Delete existing access records for this pipeline
+      const { error: deleteError } = await supabase
+        .from('pipeline_access')
+        .delete()
+        .eq('pipeline_id', pipelineId)
+        .eq('tenant_id', tenantId);
+      if (deleteError) throw deleteError;
+
+      // Insert new access records
+      if (allowedProfileIds.length > 0) {
+        const rows = allowedProfileIds.map(profileId => ({
+          pipeline_id: pipelineId,
+          profile_id: profileId,
+          tenant_id: tenantId
+        }));
+        const { error: insertError } = await supabase
+          .from('pipeline_access')
+          .insert(rows);
+        if (insertError) throw insertError;
+      }
+      
+      // Fetch fresh access list from DB to synchronize local state
+      const { data: freshList } = await supabase
+        .from('pipeline_access')
+        .select('*')
+        .eq('tenant_id', tenantId);
+      if (freshList) {
+        setPipelineAccess(freshList as PipelineAccess[]);
+      }
+    } else {
+      // Local fallback
+      const filteredAccess = pipelineAccess.filter(pa => pa.pipeline_id !== pipelineId);
+      const newAccessRows = allowedProfileIds.map(profileId => ({
+        id: `pa-${pipelineId}-${profileId}-${Date.now()}`,
+        pipeline_id: pipelineId,
+        profile_id: profileId,
+        tenant_id: tenantId,
+        created_at: new Date().toISOString()
+      }));
+      const updated = [...filteredAccess, ...newAccessRows];
+      setPipelineAccess(updated);
+      saveLocal('crm_pipeline_access', updated);
+    }
+  };
+
   // Periodically request notification permissions
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
@@ -1849,6 +2135,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       deleteWhatsAppTemplate,
       uploadAttachment,
       
+      // Pipelines Operations
+      pipelines,
+      pipelineAccess,
+      activePipeline,
+      setActivePipeline,
+      addPipeline,
+      updatePipeline,
+      deletePipeline,
+      updatePipelineAccess,
+
       // Visa Operations
       visaApplications,
       visaRequiredDocs,

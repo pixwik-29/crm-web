@@ -36,7 +36,9 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
     sendWhatsAppTemplate, 
     sendCustomWhatsApp,
     currentUser,
-    settings
+    settings,
+    pipelines,
+    pipelineAccess
   } = useData();
 
   const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline'>('notes');
@@ -67,6 +69,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const [editMother, setEditMother] = useState('');
   const [editCounsellor, setEditCounsellor] = useState('');
   const [editExternalConsultant, setEditExternalConsultant] = useState('');
+  const [editPipelineId, setEditPipelineId] = useState('');
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -86,9 +89,32 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
       setEditMother(lead.mother_number || '');
       setEditCounsellor(lead.assigned_counsellor_id || '');
       setEditExternalConsultant(lead.external_consultant || '');
+      setEditPipelineId(lead.pipeline_id || pipelines.find(p => p.is_default)?.id || '');
       setIsEditing(false);
     }
-  }, [lead]);
+  }, [lead, pipelines]);
+
+  const handleEditPipelineChange = (newPipelineId: string) => {
+    setEditPipelineId(newPipelineId);
+    const pObj = pipelines.find(p => p.id === newPipelineId);
+    if (pObj && pObj.stages.length > 0) {
+      const hasStage = pObj.stages.some(s => s.id === editStatus);
+      if (!hasStage) {
+        setEditStatus(pObj.stages[0].id);
+      }
+    } else {
+      setEditStatus('');
+    }
+  };
+
+  const userPipelines = pipelines.filter(p => 
+    currentUser?.role === 'admin' || 
+    pipelineAccess.some(pa => pa.pipeline_id === p.id && pa.profile_id === currentUser?.id) ||
+    p.id === lead?.pipeline_id
+  );
+
+  const editPipelineObj = pipelines.find(p => p.id === editPipelineId) || pipelines.find(p => p.is_default);
+  const editStages = editPipelineObj?.stages || [];
 
   // Auto-scroll chat history to bottom
   useEffect(() => {
@@ -118,6 +144,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
         preferred_destination: editDest,
         course: editCourse,
         status: editStatus,
+        pipeline_id: editPipelineId || null,
         parent_contact: editParent,
         whatsapp_number: editWhatsapp || undefined,
         father_number: editFather || undefined,
@@ -228,9 +255,17 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
               </select>
             </div>
             <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pipeline</label>
+              <select value={editPipelineId} onChange={(e) => handleEditPipelineChange(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white">
+                {userPipelines.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pipeline Status</label>
               <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white">
-                {(settings.pipeline_stages || []).map(stage => (
+                {editStages.map(stage => (
                   <option key={stage.id} value={stage.id}>{stage.name}</option>
                 ))}
               </select>
@@ -334,6 +369,12 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
             <div>
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">External Consultant</p>
               <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1">{lead.external_consultant || '--'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Pipeline</p>
+              <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1">
+                {pipelines.find(p => p.id === lead.pipeline_id)?.name || 'Default Pipeline'}
+              </p>
             </div>
             <div>
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Counsellor Assigned</p>

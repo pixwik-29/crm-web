@@ -38,7 +38,13 @@ export const CRMSettings: React.FC = () => {
     updateWhatsAppTemplate,
     deleteWhatsAppTemplate,
     uploadAttachment,
-    tenantId
+    tenantId,
+    pipelines,
+    pipelineAccess,
+    addPipeline,
+    updatePipeline,
+    deletePipeline,
+    updatePipelineAccess
   } = useData();
 
   const searchParams = useSearchParams();
@@ -61,6 +67,28 @@ export const CRMSettings: React.FC = () => {
     settings.pipeline_stages ? [...settings.pipeline_stages].sort((a,b) => a.order - b.order) : []
   );
   const [newStageName, setNewStageName] = useState('');
+
+  // Pipeline management states
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>('');
+  const [editPipelineName, setEditPipelineName] = useState('');
+  const [editPipelineStages, setEditPipelineStages] = useState<PipelineStage[]>([]);
+  const [newPipelineName, setNewPipelineName] = useState('');
+
+  useEffect(() => {
+    if (pipelines.length > 0 && !selectedPipelineId) {
+      const defaultPipe = pipelines.find(p => p.is_default) || pipelines[0];
+      setSelectedPipelineId(defaultPipe.id);
+    }
+  }, [pipelines, selectedPipelineId]);
+
+  const currentPipeline = pipelines.find(p => p.id === selectedPipelineId);
+
+  useEffect(() => {
+    if (currentPipeline) {
+      setEditPipelineName(currentPipeline.name);
+      setEditPipelineStages([...currentPipeline.stages].sort((a, b) => a.order - b.order));
+    }
+  }, [selectedPipelineId, currentPipeline]);
 
   // WhatsApp Template States
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -415,6 +443,168 @@ export const CRMSettings: React.FC = () => {
     updated[index] = { ...updated[index], name: newName };
     setStages(updated);
   };
+
+  const handleCreatePipeline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPipelineName.trim()) return;
+    try {
+      const initialStages: PipelineStage[] = [
+        { id: '1st followup', name: '1st followup', color: 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400', order: 0 },
+        { id: 'Discussion stage', name: 'Discussion stage', color: 'bg-indigo-500/10 border-indigo-500/30 text-indigo-600 dark:text-indigo-400', order: 1 },
+        { id: 'Connected to manager', name: 'Connected to manager', color: 'bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400', order: 2 },
+        { id: 'Closed Won', name: 'Closed Won', color: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400', order: 3 },
+        { id: 'Closed Lost', name: 'Closed Lost', color: 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-450', order: 4 }
+      ];
+      const result = await addPipeline(newPipelineName.trim(), initialStages);
+      setNewPipelineName('');
+      if (result && result.id) {
+        setSelectedPipelineId(result.id);
+      }
+      setSaveStatus('New pipeline created successfully!');
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to create pipeline');
+    }
+  };
+
+  const handleRenamePipeline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPipelineId || !editPipelineName.trim()) return;
+    try {
+      await updatePipeline(selectedPipelineId, editPipelineName.trim(), editPipelineStages);
+      setSaveStatus('Pipeline name updated!');
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to rename pipeline');
+    }
+  };
+
+  const handleDeletePipeline = async (id: string) => {
+    const pipe = pipelines.find(p => p.id === id);
+    if (!pipe) return;
+    if (pipe.is_default) {
+      alert("Cannot delete default pipeline.");
+      return;
+    }
+    const leadCount = leads.filter(l => l.pipeline_id === id).length;
+    if (leadCount > 0) {
+      alert(`Cannot delete pipeline "${pipe.name}": there are ${leadCount} active leads currently assigned to it.`);
+      return;
+    }
+    if (confirm(`Are you sure you want to delete pipeline "${pipe.name}"?`)) {
+      try {
+        await deletePipeline(id);
+        const defaultPipe = pipelines.find(p => p.is_default);
+        if (defaultPipe) {
+          setSelectedPipelineId(defaultPipe.id);
+        }
+        setSaveStatus('Pipeline deleted successfully.');
+        setTimeout(() => setSaveStatus(null), 3000);
+      } catch (err: any) {
+        alert(err.message || 'Failed to delete pipeline');
+      }
+    }
+  };
+
+  const handleAddPipelineStage = async () => {
+    if (!newStageName.trim() || !selectedPipelineId) return;
+    const colors = [
+      'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400',
+      'bg-indigo-500/10 border-indigo-500/30 text-indigo-600 dark:text-indigo-400',
+      'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400',
+      'bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400',
+      'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+    ];
+    const newStage: PipelineStage = {
+      id: newStageName.trim(),
+      name: newStageName.trim(),
+      color: colors[editPipelineStages.length % colors.length],
+      order: editPipelineStages.length
+    };
+    const updatedStages = [...editPipelineStages, newStage];
+    setEditPipelineStages(updatedStages);
+    setNewStageName('');
+    try {
+      await updatePipeline(selectedPipelineId, editPipelineName, updatedStages);
+    } catch (err: any) {
+      alert(err.message || 'Failed to add stage');
+    }
+  };
+
+  const handleDeletePipelineStage = async (stageId: string) => {
+    if (!selectedPipelineId) return;
+    const count = leads.filter(l => l.pipeline_id === selectedPipelineId && l.status === stageId).length;
+    if (count > 0) {
+      alert(`Cannot delete stage "${stageId}": there are ${count} active leads currently in this stage.`);
+      return;
+    }
+    const updatedStages = editPipelineStages
+      .filter(s => s.id !== stageId)
+      .map((s, index) => ({ ...s, order: index }));
+    setEditPipelineStages(updatedStages);
+    try {
+      await updatePipeline(selectedPipelineId, editPipelineName, updatedStages);
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete stage');
+    }
+  };
+
+  const handleMovePipelineStage = async (index: number, direction: 'up' | 'down') => {
+    if (!selectedPipelineId) return;
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= editPipelineStages.length) return;
+    
+    const updated = [...editPipelineStages];
+    const temp = updated[index];
+    updated[index] = updated[targetIndex];
+    updated[targetIndex] = temp;
+    
+    const finalStages = updated.map((s, idx) => ({ ...s, order: idx }));
+    setEditPipelineStages(finalStages);
+    try {
+      await updatePipeline(selectedPipelineId, editPipelineName, finalStages);
+    } catch (err: any) {
+      alert(err.message || 'Failed to reorder stage');
+    }
+  };
+
+  const handleRenamePipelineStage = async (index: number, newName: string) => {
+    if (!selectedPipelineId) return;
+    const updated = [...editPipelineStages];
+    updated[index] = { ...updated[index], name: newName };
+    setEditPipelineStages(updated);
+    try {
+      await updatePipeline(selectedPipelineId, editPipelineName, updated);
+    } catch (err: any) {
+      console.error("Failed to auto-save renamed stage:", err);
+    }
+  };
+
+  const getPipelineUserAccess = (profileId: string) => {
+    return pipelineAccess.some(pa => pa.pipeline_id === selectedPipelineId && pa.profile_id === profileId);
+  };
+
+  const handleToggleUserAccess = async (profileId: string) => {
+    if (!selectedPipelineId) return;
+    const hasAccess = getPipelineUserAccess(profileId);
+    const currentAccessList = pipelineAccess
+      .filter(pa => pa.pipeline_id === selectedPipelineId)
+      .map(pa => pa.profile_id);
+
+    let newAccessList: string[];
+    if (hasAccess) {
+      newAccessList = currentAccessList.filter(id => id !== profileId);
+    } else {
+      newAccessList = [...currentAccessList, profileId];
+    }
+    try {
+      await updatePipelineAccess(selectedPipelineId, newAccessList);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update access control');
+    }
+  };
+
+  const counsellorsAndManagers = profiles.filter(p => p.role === 'counsellor' || p.role === 'manager');
 
   const getSampleFormScript = () => {
     const coursePayload = formStrategy === 'fixed'
@@ -1058,107 +1248,206 @@ async function submitEduPathLead(leadData) {
             </div>
           </div>
 
-          {/* Pipeline Levels Manager */}
+          {/* Multiple Pipelines Manager */}
           <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-6">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-900 pb-4">
               <div className="flex items-center gap-2.5">
                 <Shuffle className="w-5 h-5 text-indigo-500 animate-pulse" />
-                <h3 className="font-bold text-slate-800 dark:text-white">Pipeline Stages & Level Customization</h3>
+                <h3 className="font-bold text-slate-800 dark:text-white">CRM Pipelines & Access Control</h3>
               </div>
             </div>
 
             <p className="text-xs text-slate-500">
-              Customize lead stages, rename status tags, and rearrange column sequence on the Kanban Pipeline Board.
+              Create separate pipelines (e.g. Sales, Visa, Travel) and decide which counsellors or managers have access to each.
             </p>
 
             {!isAdmin && (
               <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-xl p-3.5 flex gap-2 text-xs font-semibold items-center">
                 <ShieldAlert className="w-4 h-4 flex-shrink-0" />
-                <span>Only administrators can configure pipeline stages.</span>
+                <span>Only administrators can configure pipelines and access controls.</span>
               </div>
             )}
 
-            <div className="space-y-3">
-              {stages.map((stage, index) => {
-                const leadCount = leads.filter(l => l.status === stage.id).length;
-                return (
-                  <div 
-                    key={stage.id} 
-                    className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-slate-50 dark:bg-black/40 border border-slate-100 dark:border-zinc-900 p-3 rounded-2xl transition-all"
-                  >
-                    {/* Position Label & Colors */}
-                    <div className="flex items-center gap-2 flex-1">
-                      <span className="text-xs text-slate-400 font-extrabold w-6 text-center">
-                        #{index + 1}
-                      </span>
-                      <input
-                        type="text"
-                        value={stage.name}
-                        disabled={!isAdmin}
-                        onChange={(e) => handleRenameStage(index, e.target.value)}
-                        className="flex-1 bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 disabled:opacity-60 font-semibold"
-                      />
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${stage.color || 'bg-slate-100 text-slate-700'}`}>
-                        {leadCount} leads
-                      </span>
-                    </div>
+            {isAdmin && (
+              <div className="space-y-6 animate-fade-in">
+                {/* Pipelines List Tabs */}
+                <div className="flex flex-wrap gap-2 border-b border-slate-100 dark:border-zinc-900 pb-3">
+                  {pipelines.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setSelectedPipelineId(p.id)}
+                      className={`px-3.5 py-2 rounded-2xl text-xs font-bold border transition-all ${
+                        selectedPipelineId === p.id
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-500/10'
+                          : 'bg-slate-50 border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 text-slate-600 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-zinc-800/80'
+                      }`}
+                    >
+                      {p.name} {p.is_default && '(Default)'}
+                    </button>
+                  ))}
+                </div>
 
-                    {/* Sorting & Deletion Controls */}
-                    {isAdmin && (
-                      <div className="flex items-center justify-end gap-2.5">
-                        <div className="flex rounded-lg border border-slate-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-950">
-                          <button
-                            type="button"
-                            disabled={index === 0}
-                            onClick={() => handleMoveStage(index, 'up')}
-                            className="p-2 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-500 disabled:opacity-30 border-r border-slate-250 dark:border-zinc-800 transition-all font-bold text-xs"
-                            title="Move Stage Up"
-                          >
-                            ▲
-                          </button>
-                          <button
-                            type="button"
-                            disabled={index === stages.length - 1}
-                            onClick={() => handleMoveStage(index, 'down')}
-                            className="p-2 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-500 disabled:opacity-30 transition-all font-bold text-xs"
-                            title="Move Stage Down"
-                          >
-                            ▼
-                          </button>
-                        </div>
-
+                {currentPipeline && (
+                  <div className="space-y-5 p-5 bg-slate-50/50 dark:bg-black/20 rounded-2xl border border-slate-100 dark:border-zinc-900/50">
+                    
+                    {/* Pipeline Info & Rename */}
+                    <form onSubmit={handleRenamePipeline} className="flex gap-2 items-end">
+                      <div className="flex-1">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Pipeline Name</label>
+                        <input
+                          type="text"
+                          value={editPipelineName}
+                          onChange={(e) => setEditPipelineName(e.target.value)}
+                          className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 font-semibold"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow"
+                      >
+                        Rename
+                      </button>
+                      {!currentPipeline.is_default && (
                         <button
                           type="button"
-                          onClick={() => handleDeleteStage(stage.id)}
-                          className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 rounded-xl transition-all"
-                          title="Delete Stage"
+                          onClick={() => handleDeletePipeline(currentPipeline.id)}
+                          className="p-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/20 dark:hover:bg-rose-950/40 dark:text-rose-400 rounded-xl transition-all"
+                          title="Delete Pipeline"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                      )}
+                    </form>
 
-            {/* Create New Stage Form */}
-            {isAdmin && (
-              <div className="pt-4 border-t border-slate-100 dark:border-zinc-900 flex gap-2">
-                <input
-                  type="text"
-                  placeholder="e.g. Visa In-Process"
-                  value={newStageName}
-                  onChange={(e) => setNewStageName(e.target.value)}
-                  className="flex-1 bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddStage}
-                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow flex items-center gap-1"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" /> Add Stage
-                </button>
+                    {/* Stages Customizer */}
+                    <div className="space-y-3">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Stages</label>
+                      <div className="space-y-2">
+                        {editPipelineStages.map((stage, index) => {
+                          const leadCount = leads.filter(l => l.pipeline_id === currentPipeline.id && l.status === stage.id).length;
+                          return (
+                            <div 
+                              key={stage.id} 
+                              className="flex items-center gap-3 bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900/50 p-2.5 rounded-xl shadow-sm"
+                            >
+                              <span className="text-[10px] text-slate-400 font-extrabold w-5 text-center">
+                                #{index + 1}
+                              </span>
+                              <input
+                                type="text"
+                                value={stage.name}
+                                onChange={(e) => handleRenamePipelineStage(index, e.target.value)}
+                                className="flex-1 bg-transparent border-0 rounded-none p-0 text-xs text-slate-800 dark:text-white outline-none focus:ring-0 font-semibold"
+                              />
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                {leadCount} leads
+                              </span>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={index === 0}
+                                  onClick={() => handleMovePipelineStage(index, 'up')}
+                                  className="p-1 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-500 disabled:opacity-30 transition-all font-bold text-xs"
+                                  title="Move Up"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={index === editPipelineStages.length - 1}
+                                  onClick={() => handleMovePipelineStage(index, 'down')}
+                                  className="p-1 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-500 disabled:opacity-30 transition-all font-bold text-xs"
+                                  title="Move Down"
+                                >
+                                  ▼
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePipelineStage(stage.id)}
+                                  className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 rounded-lg transition-all"
+                                  title="Delete Stage"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Add stage input */}
+                      <div className="flex gap-2 pt-1">
+                        <input
+                          type="text"
+                          placeholder="Add stage name..."
+                          value={newStageName}
+                          onChange={(e) => setNewStageName(e.target.value)}
+                          className="flex-1 bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddPipelineStage}
+                          className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/45 dark:text-indigo-400 text-indigo-655 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" /> Add
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Access Matrix */}
+                    <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-zinc-800">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Counsellor & Manager Access Controls</label>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500">Select which team members have access permissions to view and edit leads in this pipeline.</p>
+                      
+                      <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-2xl p-4 space-y-2 max-h-48 overflow-y-auto shadow-inner">
+                        {counsellorsAndManagers.length > 0 ? (
+                          counsellorsAndManagers.map(profile => {
+                            const hasAccess = getPipelineUserAccess(profile.id);
+                            return (
+                              <label key={profile.id} className="flex items-center justify-between p-1.5 hover:bg-slate-50 dark:hover:bg-zinc-900/50 rounded-xl cursor-pointer">
+                                <span className="text-xs text-slate-700 dark:text-slate-350 font-medium">
+                                  {profile.full_name} <span className="text-[10px] text-slate-400 font-semibold">({profile.role})</span>
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={hasAccess}
+                                  onChange={() => handleToggleUserAccess(profile.id)}
+                                  className="w-4 h-4 text-indigo-650 border-slate-300 dark:border-zinc-800 rounded focus:ring-indigo-500 cursor-pointer"
+                                />
+                              </label>
+                            );
+                          })
+                        ) : (
+                          <div className="text-center py-4 text-slate-400 text-xs font-medium">No managers or counsellors registered yet.</div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+                )}
+
+                {/* Create Pipeline Form */}
+                <form onSubmit={handleCreatePipeline} className="pt-4 border-t border-slate-200 dark:border-zinc-900">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Create Custom Pipeline</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. Travel Pipeline, Visa Pipeline..."
+                      value={newPipelineName}
+                      onChange={(e) => setNewPipelineName(e.target.value)}
+                      className="flex-1 bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow flex items-center gap-1.5"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" /> Create Pipeline
+                    </button>
+                  </div>
+                </form>
+
               </div>
             )}
           </div>

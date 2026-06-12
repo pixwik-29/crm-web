@@ -13,7 +13,7 @@ interface LeadsTableProps {
 }
 
 export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelectLead, onOpenAddModal }) => {
-  const { updateLead, deleteLead, deleteLeads, currentUser, settings } = useData();
+  const { updateLead, deleteLead, deleteLeads, currentUser, settings, pipelines } = useData();
   
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -24,6 +24,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedCounsellor, setSelectedCounsellor] = useState('All');
   const [selectedCourse, setSelectedCourse] = useState('All');
+  const [selectedPipelineFilter, setSelectedPipelineFilter] = useState('All');
   const [minNeet, setMinNeet] = useState('');
   const [maxBudget, setMaxBudget] = useState('');
   
@@ -36,6 +37,8 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
     if (currentUser?.role === 'admin' || currentUser?.role === 'manager') return true;
     return l.assigned_counsellor_id === currentUser?.id;
   });
+
+  const defaultPipeline = pipelines.find(p => p.is_default);
 
   // Extract unique sources/statuses/courses for filters
   const sources = ['All', ...Array.from(new Set(accessibleLeads.map(l => l.lead_source)))];
@@ -73,8 +76,13 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
       const matchNeet = !minNeet || (lead.neet_marks && lead.neet_marks >= parseInt(minNeet));
       const matchBudget = !maxBudget || (lead.budget && lead.budget <= parseFloat(maxBudget) * 100000);
       const matchCourse = selectedCourse === 'All' || lead.course === selectedCourse;
+      
+      const matchPipeline = selectedPipelineFilter === 'All' ||
+        (selectedPipelineFilter === 'unassigned' && !lead.pipeline_id) ||
+        lead.pipeline_id === selectedPipelineFilter ||
+        (defaultPipeline && selectedPipelineFilter === defaultPipeline.id && !lead.pipeline_id);
 
-      return matchSearch && matchSource && matchStatus && matchCounsellor && matchNeet && matchBudget && matchCourse;
+      return matchSearch && matchSource && matchStatus && matchCounsellor && matchNeet && matchBudget && matchCourse && matchPipeline;
     })
     .sort((a, b) => {
       let aVal = a[sortField];
@@ -106,21 +114,25 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
 
   // Export to CSV
   const handleExportCSV = () => {
-    const headers = ['Name', 'Phone', 'Email', 'Parent Contact', 'NEET Marks', 'Budget', 'Destination', 'Course', 'Source', 'Campaign', 'Status', 'Date Captured'];
-    const rows = processedLeads.map(l => [
-      l.name,
-      l.phone,
-      l.email || '',
-      l.parent_contact || '',
-      l.neet_marks || '',
-      l.budget || '',
-      l.preferred_destination || '',
-      l.course || '',
-      l.lead_source,
-      l.campaign_name || '',
-      l.status,
-      new Date(l.created_at).toLocaleDateString()
-    ]);
+    const headers = ['Name', 'Phone', 'Email', 'Parent Contact', 'NEET Marks', 'Budget', 'Destination', 'Course', 'Source', 'Campaign', 'Status', 'Pipeline', 'Date Captured'];
+    const rows = processedLeads.map(l => {
+      const p = pipelines.find(pipe => pipe.id === l.pipeline_id) || defaultPipeline;
+      return [
+        l.name,
+        l.phone,
+        l.email || '',
+        l.parent_contact || '',
+        l.neet_marks || '',
+        l.budget || '',
+        l.preferred_destination || '',
+        l.course || '',
+        l.lead_source,
+        l.campaign_name || '',
+        l.status,
+        p ? p.name : '',
+        new Date(l.created_at).toLocaleDateString()
+      ];
+    });
 
     const csvContent = [headers.join(','), ...rows.map(r => r.map(val => `"${val}"`).join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -146,11 +158,11 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
     }
   };
 
-  const getStatusBadgeStyle = (status: string) => {
-    // Try to find the stage style from settings pipeline stages
-    const matchedStage = (settings.pipeline_stages || []).find(s => s.id === status);
+  const getStatusBadgeStyle = (status: string, pipelineId?: string | null) => {
+    // Find matching pipeline
+    const p = pipelines.find(pipe => pipe.id === pipelineId) || defaultPipeline;
+    const matchedStage = p ? p.stages.find(s => s.id === status) : null;
     if (matchedStage && matchedStage.color) {
-      // In LeadsTable, dynamic stage colors are already fully formatted classes
       return matchedStage.color;
     }
     
@@ -222,7 +234,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
       </div>
 
       {/* Advanced Filters Bar */}
-      <div className="bg-slate-50/50 dark:bg-black/30 border border-slate-100 dark:border-zinc-900/50 rounded-2xl p-4 mb-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
+      <div className="bg-slate-50/50 dark:bg-black/30 border border-slate-100 dark:border-zinc-900/50 rounded-2xl p-4 mb-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         
         {/* Source Filter */}
         <div>
@@ -274,6 +286,22 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
           </div>
         )}
 
+        {/* Pipeline Filter */}
+        <div>
+          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Pipeline</label>
+          <select 
+            value={selectedPipelineFilter} 
+            onChange={(e) => setSelectedPipelineFilter(e.target.value)}
+            className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-xs rounded-xl p-2 outline-none dark:text-slate-300"
+          >
+            <option value="All">All Pipelines</option>
+            <option value="unassigned">No Pipeline</option>
+            {pipelines.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+
         {/* Min NEET marks */}
         <div>
           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Min NEET Score</label>
@@ -319,6 +347,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
               setSelectedStatus('All');
               setSelectedCounsellor('All');
               setSelectedCourse('All');
+              setSelectedPipelineFilter('All');
               setMinNeet('');
               setMaxBudget('');
             }}
@@ -365,6 +394,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
                 <span className="flex items-center gap-1.5">Course <ArrowUpDown className="w-3.5 h-3.5" /></span>
               </th>
               <th className="px-6 py-4 whitespace-nowrap">Lead Source</th>
+              <th className="px-6 py-4 whitespace-nowrap">Pipeline</th>
               <th className="px-6 py-4 whitespace-nowrap">Status</th>
               {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && <th className="px-6 py-4">Counsellor</th>}
               <th className="px-6 py-4 text-right">Actions</th>
@@ -442,9 +472,16 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
                       </span>
                     </td>
 
+                    {/* Pipeline */}
+                    <td className="px-6 py-4">
+                      <span className="text-xs text-slate-600 dark:text-slate-400 font-medium whitespace-nowrap">
+                        {pipelines.find(p => p.id === lead.pipeline_id)?.name || 'Default Pipeline'}
+                      </span>
+                    </td>
+
                     {/* Status */}
                     <td className="px-6 py-4">
-                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-full border whitespace-nowrap ${getStatusBadgeStyle(lead.status)}`}>
+                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-full border whitespace-nowrap ${getStatusBadgeStyle(lead.status, lead.pipeline_id)}`}>
                         {lead.status}
                       </span>
                     </td>
@@ -496,7 +533,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
               })
             ) : (
               <tr>
-                <td colSpan={(currentUser?.role === 'admin' || currentUser?.role === 'manager') ? 10 : 8} className="px-6 py-8 text-center text-slate-400 text-xs">
+                <td colSpan={(currentUser?.role === 'admin' || currentUser?.role === 'manager') ? 11 : 9} className="px-6 py-8 text-center text-slate-400 text-xs">
                   No matching leads found
                 </td>
               </tr>

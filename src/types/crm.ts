@@ -35,6 +35,7 @@ export interface Lead {
   landing_page_url?: string;
   status: string; // 1st followup, Discussion stage, Connected to manager, Documents collected, Closed Won, Closed Lost
   assigned_counsellor_id?: string | null;
+  pipeline_id?: string | null;
   tags: string[];
   score: number;
   created_at: string;
@@ -169,4 +170,22 @@ export interface VisaUploadedDoc {
   is_issuance: boolean;
   uploaded_at: string;
   updated_at: string;
+}
+
+export interface Pipeline {
+  id: string;
+  name: string;
+  stages: PipelineStage[];
+  tenant_id: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PipelineAccess {
+  id: string;
+  pipeline_id: string;
+  profile_id: string;
+  tenant_id: string;
+  created_at: string;
 }

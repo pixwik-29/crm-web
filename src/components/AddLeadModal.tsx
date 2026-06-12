@@ -28,7 +28,13 @@ const COURSES = [
 ];
 
 export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, profiles }) => {
-  const { addLead, currentUser } = useData();
+  const { addLead, currentUser, pipelines, pipelineAccess, activePipeline } = useData();
+
+  // Get pipelines this user has access to
+  const userPipelines = pipelines.filter(p => 
+    currentUser?.role === 'admin' || 
+    pipelineAccess.some(pa => pa.pipeline_id === p.id && pa.profile_id === currentUser?.id)
+  );
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -47,8 +53,38 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
   const [tagsInput, setTagsInput] = useState('');
   const [externalConsultant, setExternalConsultant] = useState('');
   
+  const [pipelineId, setPipelineId] = useState('');
+  const [status, setStatus] = useState('');
+
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync initial pipeline and status when modal opens
+  React.useEffect(() => {
+    if (isOpen) {
+      const initialPipeId = activePipeline?.id || userPipelines[0]?.id || '';
+      setPipelineId(initialPipeId);
+      const pObj = pipelines.find(p => p.id === initialPipeId);
+      if (pObj && pObj.stages.length > 0) {
+        setStatus(pObj.stages[0].id);
+      } else {
+        setStatus('');
+      }
+    }
+  }, [isOpen, activePipeline, pipelines, pipelineAccess]);
+
+  const handlePipelineChange = (newPipelineId: string) => {
+    setPipelineId(newPipelineId);
+    const pObj = pipelines.find(p => p.id === newPipelineId);
+    if (pObj && pObj.stages.length > 0) {
+      setStatus(pObj.stages[0].id);
+    } else {
+      setStatus('');
+    }
+  };
+
+  const selectedPipelineObj = pipelines.find(p => p.id === pipelineId);
+  const stages = selectedPipelineObj?.stages || [];
 
   if (!isOpen) return null;
 
@@ -87,7 +123,8 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
         course,
         lead_source: source,
         campaign_name: campaign || undefined,
-        status: '1st followup',
+        status: status || '1st followup',
+        pipeline_id: pipelineId || null,
         assigned_counsellor_id: counsellorId || (currentUser?.role === 'counsellor' ? currentUser.id : null),
         tags: formattedTags,
         score,
@@ -305,6 +342,32 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, pro
               className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-300 outline-none"
             >
               {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Pipeline</label>
+            <select
+              value={pipelineId}
+              onChange={(e) => handlePipelineChange(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-300 outline-none"
+            >
+              {userPipelines.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Initial Status / Stage</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-300 outline-none"
+            >
+              {stages.map(st => (
+                <option key={st.id} value={st.id}>{st.name}</option>
+              ))}
             </select>
           </div>
 
