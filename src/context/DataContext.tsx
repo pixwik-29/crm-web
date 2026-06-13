@@ -308,7 +308,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activePipeline, setActivePipeline] = useState<Pipeline | null>(null);
   
   const [isLoading, setIsLoading] = useState(true);
-  const [tenantId, setTenantId] = useState<string>('default');
+  const [tenantId, setTenantId] = useState<string>('');
   // null = still verifying, true = active subscription, false = blocked/deleted
   const [isSubscriptionValid, setIsSubscriptionValid] = useState<boolean | null>(null);
 
