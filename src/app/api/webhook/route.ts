@@ -56,12 +56,38 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ received: true }, { status: 200 });
         }
 
-        // ✅ CRITICAL: Return 200 OK to Meta IMMEDIATELY before any async processing.
-        // Meta has a ~5 second timeout. If we don't respond in time, it marks as "Pending".
-        // waitUntil runs the processing in the background AFTER the response is sent.
-        // Also pass the tenant_id from the webhook payload if present (for multi-tenant Meta setups)
-        const tenantIdFromPayload = body.tenant_id || 'default';
-        waitUntil(processMetaLead({ leadgenId, formId, pageId, adId, tenantId: tenantIdFromPayload }));
+        // Resolve the tenant_id by matching the incoming pageId to the fb_pages connected in settings
+        let tenantId = body.tenant_id || 'default';
+        if (supabase && pageId && tenantId === 'default') {
+          try {
+            const { data: allSettings } = await supabase
+              .from('settings')
+              .select('tenant_id, fb_pages');
+            
+            if (allSettings) {
+              for (const setting of allSettings) {
+                let pagesList = [];
+                if (setting.fb_pages) {
+                  pagesList = typeof setting.fb_pages === 'string'
+                    ? JSON.parse(setting.fb_pages)
+                    : setting.fb_pages;
+                }
+                if (Array.isArray(pagesList)) {
+                  const hasPage = pagesList.some((p: any) => String(p.id) === String(pageId));
+                  if (hasPage) {
+                    tenantId = setting.tenant_id;
+                    console.log(`[Webhook] Resolved tenant: ${tenantId} via fb_pages lookup for pageId=${pageId}`);
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (err: any) {
+            console.error('[Webhook] Error finding tenant for page:', err.message);
+          }
+        }
+
+        waitUntil(processMetaLead({ leadgenId, formId, pageId, adId, tenantId }));
 
         return NextResponse.json({ received: true }, { status: 200 });
       }
@@ -401,7 +427,7 @@ async function sendNewLeadNotifications(lead: any) {
     // 1. Fetch all admins, managers, and assigned counselors belonging to the same tenant
     const { data: recipients, error } = await supabase
       .from('profiles')
-      .select('id, full_name, phone, push_token, role')
+      .select('*')
       .eq('tenant_id', lead.tenant_id || 'default')
       .or(`role.eq.admin,role.eq.manager${lead.assigned_counsellor_id ? `,id.eq.${lead.assigned_counsellor_id}` : ''}`);
 
