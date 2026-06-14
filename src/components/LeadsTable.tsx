@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { Lead, Profile } from '@/types/crm';
 import { useData } from '@/context/DataContext';
-import { Search, Filter, Trash2, ArrowUpDown, ChevronDown, Check, Plus, FileSpreadsheet, Eye, UserPlus } from 'lucide-react';
+import { Search, Filter, Trash2, ArrowUpDown, ChevronDown, Check, Plus, FileSpreadsheet, Eye, UserPlus, Upload } from 'lucide-react';
+import { CSVImportModal } from './CSVImportModal';
 
 interface LeadsTableProps {
   leads: Lead[];
@@ -17,6 +18,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
   
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Get pipelines this user has access to
   const userPipelines = pipelines.filter(p => 
@@ -259,6 +261,13 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
               </select>
             </div>
           )}
+
+          <button 
+            onClick={() => setIsImportModalOpen(true)}
+            className="px-4 py-3 border border-slate-200 dark:border-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-900/50 text-slate-600 dark:text-slate-300 rounded-2xl text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
+          >
+            <Upload className="w-4 h-4 text-indigo-500" /> CSV Import
+          </button>
 
           <button 
             onClick={handleExportCSV}
@@ -617,6 +626,10 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
         </table>
       </div>
 
+      <CSVImportModal 
+        isOpen={isImportModalOpen} 
+        onClose={() => setIsImportModalOpen(false)} 
+      />
     </div>
   );
 };

@@ -65,6 +65,7 @@ interface DataContextType {
   updateLead: (id: string, updates: Partial<Lead>) => Promise<Lead>;
   deleteLead: (id: string) => Promise<void>;
   deleteLeads: (ids: string[]) => Promise<void>;
+  bulkAddLeads: (leads: Omit<Lead, 'id' | 'created_at' | 'updated_at'>[]) => Promise<Lead[]>;
   
   // Notes Operations
   addNote: (leadId: string, content: string) => Promise<Note>;
@@ -1375,6 +1376,73 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updated = leads.filter(l => !ids.includes(l.id));
       setLeads(updated);
       saveLocal('crm_leads', updated);
+    }
+  };
+
+  const bulkAddLeads = async (leadsData: Omit<Lead, 'id' | 'created_at' | 'updated_at'>[]): Promise<Lead[]> => {
+    if (leadsData.length === 0) return [];
+    const defaultPipelineId = activePipeline?.id || pipelines.find(p => p.is_default)?.id || null;
+    const nowStr = new Date().toISOString();
+
+    if (isSupabaseConfigured && supabase) {
+      const dbLeads = leadsData.map((leadData) => ({
+        ...leadData,
+        pipeline_id: leadData.pipeline_id || defaultPipelineId,
+        tags: leadData.tags || [],
+        score: leadData.score || 0,
+        tenant_id: tenantId
+      }));
+
+      const { data, error } = await supabase
+        .from('leads')
+        .insert(dbLeads)
+        .select();
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const logs = data.map(lead => ({
+          lead_id: lead.id,
+          actor_id: currentUser?.id,
+          action_type: 'lead_created',
+          description: `Lead imported from CSV file`,
+          tenant_id: tenantId
+        }));
+        await supabase.from('activity_logs').insert(logs);
+
+        setLeads(prev => {
+          const newLeads = (data as Lead[]).filter(nl => !prev.some(pl => pl.id === nl.id));
+          return [...newLeads, ...prev];
+        });
+      }
+
+      return data as Lead[];
+    } else {
+      const newLeads = leadsData.map((leadData, index) => ({
+        ...leadData,
+        pipeline_id: leadData.pipeline_id || defaultPipelineId,
+        id: `lead-import-${Date.now()}-${index}`,
+        created_at: nowStr,
+        updated_at: nowStr
+      })) as Lead[];
+
+      const updated = [...newLeads, ...leads];
+      setLeads(updated);
+      saveLocal('crm_leads', updated);
+
+      const logs: ActivityLog[] = newLeads.map((nl, index) => ({
+        id: `log-import-${Date.now()}-${index}`,
+        lead_id: nl.id,
+        actor_id: currentUser?.id || 'system',
+        action_type: 'lead_created',
+        description: `Lead imported from CSV file`,
+        created_at: nowStr
+      }));
+      const updatedLogs = [...logs, ...activityLogs];
+      setActivityLogs(updatedLogs);
+      saveLocal('crm_logs', updatedLogs);
+
+      return newLeads;
     }
   };
 
@@ -2723,6 +2791,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateLead,
       deleteLead,
       deleteLeads,
+      bulkAddLeads,
       addNote,
       addTask,
       toggleTask,
