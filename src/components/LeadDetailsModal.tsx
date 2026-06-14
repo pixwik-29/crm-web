@@ -9,6 +9,7 @@ interface LeadDetailsModalProps {
   lead: Lead | null;
   onClose: () => void;
   profiles: Profile[];
+  initialTab?: 'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist';
 }
 
 const COURSES = [
@@ -22,7 +23,7 @@ const COURSES = [
   'Other'
 ];
 
-export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClose, profiles }) => {
+export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClose, profiles, initialTab }) => {
   const { 
     updateLead, 
     notes, 
@@ -49,7 +50,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
     colleges
   } = useData();
 
-  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist'>(initialTab || 'notes');
   
   // Note Form
   const [newNote, setNewNote] = useState('');
@@ -80,6 +81,13 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const [editPipelineId, setEditPipelineId] = useState('');
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // Synchronize activeTab when lead or initialTab changes
+  useEffect(() => {
+    if (lead) {
+      setActiveTab(initialTab || 'notes');
+    }
+  }, [lead, initialTab]);
 
   // Initialize edit fields when lead changes
   useEffect(() => {

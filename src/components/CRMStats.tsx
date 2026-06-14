@@ -8,9 +8,10 @@ import { Users, UserCheck, Award, Clock } from 'lucide-react';
 interface CRMStatsProps {
   leads: Lead[];
   tasks: Task[];
+  onPendingTasksClick?: () => void;
 }
 
-export const CRMStats: React.FC<CRMStatsProps> = ({ leads, tasks }) => {
+export const CRMStats: React.FC<CRMStatsProps> = ({ leads, tasks, onPendingTasksClick }) => {
   const { settings } = useData();
   const totalLeads = leads.length;
   
@@ -65,7 +66,8 @@ export const CRMStats: React.FC<CRMStatsProps> = ({ leads, tasks }) => {
       color: 'from-rose-500 to-pink-500 shadow-rose-500/10',
       textColor: 'text-rose-500',
       bgColor: 'bg-rose-500/10',
-      percentage: 'Requires attention today'
+      percentage: 'Requires attention today',
+      onClick: onPendingTasksClick
     }
   ];
 
@@ -73,10 +75,15 @@ export const CRMStats: React.FC<CRMStatsProps> = ({ leads, tasks }) => {
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       {stats.map((stat, idx) => {
         const Icon = stat.icon;
+        const isClickable = !!stat.onClick;
+        const CardElement = isClickable ? 'button' : 'div';
+        
         return (
-          <div 
+          <CardElement 
             key={idx} 
-            className="relative overflow-hidden bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 transition-all duration-300 hover:shadow-xl dark:hover:shadow-slate-950/20 hover:scale-[1.01] hover:-translate-y-0.5 group"
+            onClick={stat.onClick}
+            type={isClickable ? 'button' : undefined}
+            className={`relative overflow-hidden bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 transition-all duration-300 hover:shadow-xl dark:hover:shadow-slate-950/20 hover:scale-[1.01] hover:-translate-y-0.5 group text-left w-full focus:outline-none ${isClickable ? 'cursor-pointer hover:border-rose-350 dark:hover:border-rose-800' : ''}`}
           >
             {/* Hover visual accent */}
             <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${stat.color} opacity-0 group-hover:opacity-[0.03] rounded-bl-full transition-opacity duration-300`}></div>
@@ -97,7 +104,7 @@ export const CRMStats: React.FC<CRMStatsProps> = ({ leads, tasks }) => {
               </span>
               <span>{stat.percentage}</span>
             </div>
-          </div>
+          </CardElement>
         );
       })}
     </div>

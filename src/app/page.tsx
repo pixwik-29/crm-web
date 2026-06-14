@@ -9,6 +9,7 @@ import { LeadsTable } from '@/components/LeadsTable';
 import { LeadDetailsModal } from '@/components/LeadDetailsModal';
 import { AddLeadModal } from '@/components/AddLeadModal';
 import { LoginScreen } from '@/components/LoginScreen';
+import { PendingTasksModal } from '@/components/PendingTasksModal';
 import { CRMSettings } from '@/components/CRMSettings';
 import { WebFormBuilder } from '@/components/WebFormBuilder';
 import { Footer } from '@/components/Footer';
@@ -42,6 +43,13 @@ const DashboardContent: React.FC = () => {
   // Lead Modals state
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isPendingTasksOpen, setIsPendingTasksOpen] = useState(false);
+  const [leadDetailsTab, setLeadDetailsTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist'>('notes');
+
+  const handleSelectLead = (lead: any, tab: 'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist' = 'notes') => {
+    setLeadDetailsTab(tab);
+    setSelectedLead(lead);
+  };
 
   // Global lead source filter
   const [activeSourceFilter, setActiveSourceFilter] = useState<string>('All');
@@ -214,7 +222,11 @@ const DashboardContent: React.FC = () => {
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
         
         {/* Row 1: KPI Stats widgets */}
-        <CRMStats leads={filteredLeads} tasks={tasks} />
+        <CRMStats 
+          leads={filteredLeads} 
+          tasks={tasks} 
+          onPendingTasksClick={() => setIsPendingTasksOpen(true)} 
+        />
 
         {/* Row 1.5: Lead Source Filter Pills */}
         <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2 shadow-sm">
@@ -321,7 +333,15 @@ const DashboardContent: React.FC = () => {
                 {' '}• <span className="text-indigo-400">{activeSourceFilter}</span>
               </span>
             ) : (
-              <span>{leads.length} Leads captured • {tasks.filter(t => !t.is_completed).length} Pending Tasks</span>
+              <span>
+                {leads.length} Leads captured •{' '}
+                <button 
+                  onClick={() => setIsPendingTasksOpen(true)}
+                  className="text-indigo-600 hover:text-indigo-500 hover:underline font-bold focus:outline-none"
+                >
+                  {tasks.filter(t => !t.is_completed).length} Pending Tasks
+                </button>
+              </span>
             )}
           </div>
 
@@ -334,7 +354,7 @@ const DashboardContent: React.FC = () => {
             <KanbanBoard 
               leads={filteredLeads} 
               profiles={profiles} 
-              onSelectLead={setSelectedLead} 
+              onSelectLead={handleSelectLead} 
             />
           )}
 
@@ -342,7 +362,7 @@ const DashboardContent: React.FC = () => {
             <LeadsTable
               leads={filteredLeads}
               profiles={profiles}
-              onSelectLead={setSelectedLead}
+              onSelectLead={handleSelectLead}
               onOpenAddModal={() => setIsAddOpen(true)}
             />
           )}
@@ -365,8 +385,6 @@ const DashboardContent: React.FC = () => {
             </div>
           )}
 
-
-
         </div>
 
       </main>
@@ -379,6 +397,7 @@ const DashboardContent: React.FC = () => {
           lead={currentSelectedLeadDetails}
           onClose={() => setSelectedLead(null)}
           profiles={profiles}
+          initialTab={leadDetailsTab}
         />
       )}
 
@@ -387,6 +406,13 @@ const DashboardContent: React.FC = () => {
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
         profiles={profiles}
+      />
+
+      {/* Modal: Pending Tasks */}
+      <PendingTasksModal
+        isOpen={isPendingTasksOpen}
+        onClose={() => setIsPendingTasksOpen(false)}
+        onSelectLead={handleSelectLead}
       />
 
     </div>
