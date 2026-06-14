@@ -518,9 +518,11 @@ export const LoginScreen: React.FC = () => {
             alt="CRM Logo" 
             className="h-16 w-16 object-contain mb-4" 
           />
-          <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">
-            {settings?.company_name || 'Perfect Scholar Lead Management'}
-          </h1>
+          {settings?.company_name && settings.company_name !== 'Perfect Scholar Lead Management' && (
+            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">
+              {settings.company_name}
+            </h1>
+          )}
           <p className="text-xs text-slate-400 mt-2">
             Multi-User CRM & Lead Management System
           </p>
