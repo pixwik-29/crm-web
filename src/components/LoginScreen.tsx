@@ -24,7 +24,7 @@ const DEFAULT_CREDENTIALS: Credential[] = [
 
 
 export const LoginScreen: React.FC = () => {
-  const { login, profiles, switchUser, isConfigured, tenantId } = useData();
+  const { login, profiles, switchUser, isConfigured, tenantId, settings } = useData();
 
   // Screen modes: 'login' | 'register' | 'forgot' | 'otp' | 'reset-pass'
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'otp' | 'reset-pass'>('login');
@@ -514,12 +514,12 @@ export const LoginScreen: React.FC = () => {
         {/* Brand Header */}
         <div className="text-center mb-8 flex flex-col items-center">
           <img 
-            src="/logo.png" 
-            alt="Perfect Scholar Logo" 
-            className="h-16 w-auto object-contain mb-4" 
+            src="/favicon.png" 
+            alt="CRM Logo" 
+            className="h-16 w-16 object-contain mb-4" 
           />
           <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">
-            Perfect Scholar Lead Management
+            {settings?.company_name || 'Perfect Scholar Lead Management'}
           </h1>
           <p className="text-xs text-slate-400 mt-2">
             Multi-User CRM & Lead Management System

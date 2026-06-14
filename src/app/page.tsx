@@ -29,7 +29,8 @@ const DashboardContent: React.FC = () => {
     switchUser,
     isLoading,
     isSubscriptionValid,
-    tenantId
+    tenantId,
+    settings
   } = useData();
 
   // Navigation tab
@@ -153,13 +154,13 @@ const DashboardContent: React.FC = () => {
         {/* Brand */}
         <div className="flex items-center gap-3">
           <img 
-            src={darkMode ? "/logo.png" : "/light.png"} 
-            alt="Perfect Scholar Logo" 
-            className="h-10 w-auto object-contain" 
+            src="/favicon.png" 
+            alt="CRM Logo" 
+            className="h-8 w-8 object-contain" 
           />
           <div>
             <h1 className="font-extrabold text-sm tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-indigo-950 dark:from-white dark:to-slate-350">
-              Perfect Scholar Lead Management
+              {settings?.company_name || 'Perfect Scholar Lead Management'}
             </h1>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Workspace CRM</p>
           </div>

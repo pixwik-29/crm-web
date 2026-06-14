@@ -122,6 +122,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Unconditionally force lead syncs from the Partner Portal to route to Nash's primary tenancy
+    let resolvedTenantId = tenant_id;
+    if (lead_source === 'Partner Portal' || body.lead_source === 'Partner Portal') {
+      resolvedTenantId = 'nash-pixwik-admin';
+    }
+
     const marks = neetMarksValue(neet_marks);
     let score = 30;
     if (marks > 450) score = 90;
@@ -149,7 +155,7 @@ export async function POST(req: NextRequest) {
       score,
       tags: ['Webhook Ingestion'],
       external_consultant: external_consultant || null,
-      tenant_id
+      tenant_id: resolvedTenantId
     };
 
     if (supabase) {
@@ -157,7 +163,7 @@ export async function POST(req: NextRequest) {
         const { data: defaultPipe } = await supabase
           .from('pipelines')
           .select('id')
-          .eq('tenant_id', tenant_id)
+          .eq('tenant_id', resolvedTenantId)
           .eq('is_default', true)
           .maybeSingle();
         if (defaultPipe) {
