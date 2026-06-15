@@ -57,6 +57,7 @@ interface DataContextType {
   updateProfileRole: (profileId: string, role: UserRole) => Promise<void>;
   createUserProfile: (email: string, role: UserRole, name: string, phone?: string, password?: string) => Promise<Profile>;
   deleteUserProfile: (profileId: string) => Promise<void>;
+  resetUserProfilePassword: (profileId: string, newPassword: string) => Promise<void>;
   updateSettings: (newSettings: Partial<CRMSettings>) => Promise<void>;
 
 
@@ -1025,6 +1026,37 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('profiles')
         .update({ role })
         .eq('id', profileId);
+    }
+  };
+
+  const resetUserProfilePassword = async (profileId: string, newPassword: string) => {
+    // 1. In Supabase mode, update it via backend API route
+    if (isSupabaseConfigured && supabase) {
+      const res = await fetch('/api/reset-user-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, newPassword })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to reset user password.');
+      }
+    }
+
+    // 2. In Sandbox mode / LocalStorage mode, update credentials list
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(getStorageKey('crm_credentials'));
+      if (stored) {
+        const creds = JSON.parse(stored);
+        const updatedCreds = creds.map((c: any) => {
+          if (c.profileId === profileId) {
+            return { ...c, password: newPassword };
+          }
+          return c;
+        });
+        localStorage.setItem(getStorageKey('crm_credentials'), JSON.stringify(updatedCreds));
+      }
     }
   };
 
@@ -2786,6 +2818,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateProfileRole,
       createUserProfile,
       deleteUserProfile,
+      resetUserProfilePassword,
       updateSettings,
       addLead,
       updateLead,

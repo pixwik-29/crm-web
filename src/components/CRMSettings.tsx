@@ -37,6 +37,7 @@ export const CRMSettings: React.FC = () => {
     updateProfileRole,
     createUserProfile,
     deleteUserProfile,
+    resetUserProfilePassword,
     whatsappTemplates,
     addWhatsAppTemplate,
     updateWhatsAppTemplate,
@@ -197,6 +198,20 @@ export const CRMSettings: React.FC = () => {
   const [userCreateStatus, setUserCreateStatus] = useState<string | null>(null);
   const [userCreateError, setUserCreateError] = useState<string | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+  // Reset Password for other users
+  const [isResetPassModalOpen, setIsResetPassModalOpen] = useState(false);
+  const [profileToReset, setProfileToReset] = useState<any>(null);
+  const [newPasswordForReset, setNewPasswordForReset] = useState('');
+  const [resetPasswordError, setResetPasswordError] = useState('');
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+
+  // Delete user profile states
+  const [isDeleteUserModalOpen, setIsDeleteUserModalOpen] = useState(false);
+  const [profileToDelete, setProfileToDelete] = useState<any>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [deleteUserError, setDeleteUserError] = useState('');
 
   // Facebook Ads connection state
   const [fbStatus, setFbStatus] = useState<string | null>(null);
@@ -365,6 +380,62 @@ export const CRMSettings: React.FC = () => {
       await updateProfileRole(profileId, role);
     } catch (err: any) {
       console.error('Failed to change user role:', err);
+    }
+  };
+
+  // Reset Password for other user
+  const handleResetPasswordClick = (profile: any) => {
+    setProfileToReset(profile);
+    setNewPasswordForReset('');
+    setResetPasswordError('');
+    setResetPasswordSuccess('');
+    setIsResetPassModalOpen(true);
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPasswordForReset || newPasswordForReset.length < 6) {
+      setResetPasswordError('Password must be at least 6 characters long.');
+      return;
+    }
+    setResetPasswordError('');
+    setResetPasswordSuccess('');
+    setIsResettingPassword(true);
+
+    try {
+      await resetUserProfilePassword(profileToReset.id, newPasswordForReset);
+      setResetPasswordSuccess('Password reset successfully!');
+      setTimeout(() => {
+        setIsResetPassModalOpen(false);
+        setProfileToReset(null);
+      }, 2000);
+    } catch (err: any) {
+      setResetPasswordError(err.message || 'Failed to reset password.');
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  // Delete User profile
+  const handleDeleteUserClick = (profile: any) => {
+    setProfileToDelete(profile);
+    setDeleteUserError('');
+    setIsDeleteUserModalOpen(true);
+  };
+
+  const handleDeleteUserConfirm = async () => {
+    if (!profileToDelete) return;
+    setDeleteUserError('');
+    setIsDeletingUser(true);
+
+    try {
+      await deleteUserProfile(profileToDelete.id);
+      setIsDeleteUserModalOpen(false);
+      setProfileToDelete(null);
+    } catch (err: any) {
+      setDeleteUserError(err.message || 'Failed to delete user.');
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -1408,16 +1479,39 @@ async function submitEduPathLead(leadData) {
                     <p className="text-[10px] text-slate-400">{profile.email}</p>
                   </div>
                 </div>
-                <select
-                  value={profile.role}
-                  onChange={(e) => handleRoleChange(profile.id, e.target.value as any)}
-                  disabled={!isAdmin || profile.id === currentUser?.id}
-                  className="bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <option value="admin">Admin</option>
-                  <option value="manager">Manager</option>
-                  <option value="counsellor">Counsellor</option>
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={profile.role}
+                    onChange={(e) => handleRoleChange(profile.id, e.target.value as any)}
+                    disabled={!isAdmin || profile.id === currentUser?.id}
+                    className="bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="manager">Manager</option>
+                    <option value="counsellor">Counsellor</option>
+                  </select>
+
+                  {isAdmin && profile.id !== currentUser?.id && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleResetPasswordClick(profile)}
+                        className="p-2 bg-slate-50 dark:bg-zinc-900 hover:bg-indigo-500/10 hover:text-indigo-500 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-zinc-800 rounded-xl transition-all shadow-sm cursor-pointer"
+                        title="Reset Password"
+                      >
+                        <Key className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteUserClick(profile)}
+                        className="p-2 bg-slate-50 dark:bg-zinc-900 hover:bg-rose-500/10 hover:text-rose-500 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-zinc-800 rounded-xl transition-all shadow-sm cursor-pointer"
+                        title="Delete User"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -1530,6 +1624,106 @@ async function submitEduPathLead(leadData) {
               <Link href="/data-deletion" className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-500 hover:text-rose-650 hover:underline">
                 Data Deletion Instructions & Request Form →
               </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {isResetPassModalOpen && profileToReset && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-md shadow-lg space-y-4 relative overflow-y-auto max-h-[90vh]">
+            <button 
+              onClick={() => {
+                setIsResetPassModalOpen(false);
+                setProfileToReset(null);
+              }} 
+              className="absolute top-4 right-4 p-1 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-455 cursor-pointer border-none bg-transparent"
+            >
+              <Plus className="w-4 h-4 rotate-45" />
+            </button>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase flex items-center gap-1.5">
+              <Key className="w-5 h-5 text-indigo-500 animate-pulse" /> Reset User Password
+            </h3>
+            <p className="text-xs text-slate-500">
+              Set a new secure password for <strong className="text-slate-700 dark:text-white">{profileToReset.full_name}</strong> ({profileToReset.email}).
+            </p>
+
+            {resetPasswordError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-semibold">
+                ⚠️ {resetPasswordError}
+              </div>
+            )}
+            {resetPasswordSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">
+                ✓ {resetPasswordSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleResetPasswordSubmit} className="space-y-4 pt-2">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">New Password *</label>
+                <input 
+                  type="password"
+                  required
+                  value={newPasswordForReset}
+                  onChange={(e) => setNewPasswordForReset(e.target.value)}
+                  placeholder="Minimum 6 characters"
+                  className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white outline-none font-medium"
+                />
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={isResettingPassword}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-[10px] uppercase transition-all shadow disabled:opacity-50"
+              >
+                {isResettingPassword ? 'Resetting password...' : 'Confirm Reset Password'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete User Modal */}
+      {isDeleteUserModalOpen && profileToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-md shadow-lg space-y-4 relative">
+            <h3 className="text-sm font-bold text-rose-600 uppercase flex items-center gap-1.5">
+              <ShieldAlert className="w-5 h-5 text-rose-500" /> Delete User Account
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Are you sure you want to permanently delete the account for <strong className="text-slate-700 dark:text-white">{profileToDelete.full_name}</strong> ({profileToDelete.email})?
+            </p>
+            <p className="text-[11px] text-rose-500 bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 font-medium">
+              ⚠️ This action is irreversible. Deleting the user will remove their credentials, profile details, and revoke all active permissions.
+            </p>
+
+            {deleteUserError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-semibold">
+                ⚠️ {deleteUserError}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <button 
+                type="button" 
+                onClick={() => {
+                  setIsDeleteUserModalOpen(false);
+                  setProfileToDelete(null);
+                }} 
+                className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-slate-650 dark:text-slate-300 font-bold py-2.5 rounded-xl text-[10px] uppercase transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button" 
+                disabled={isDeletingUser}
+                onClick={handleDeleteUserConfirm}
+                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold py-2.5 rounded-xl text-[10px] uppercase transition-all shadow disabled:opacity-50"
+              >
+                {isDeletingUser ? 'Deleting...' : 'Delete User'}
+              </button>
             </div>
           </div>
         </div>
