@@ -830,8 +830,12 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                               <p className="text-xs font-bold text-slate-700 dark:text-slate-350">{docName}</p>
                               {upload ? (
                                 <div className="flex items-center gap-2 mt-1">
-                                  <a href={upload.file_url} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-550 dark:text-indigo-400 hover:underline font-semibold">
-                                    View File
+                                  <a href={upload.file_url} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-550 dark:text-indigo-400 hover:underline font-semibold" title="View file in browser">
+                                    View
+                                  </a>
+                                  <span className="text-slate-300 dark:text-zinc-800 text-[10px]">•</span>
+                                  <a href={`${upload.file_url}${upload.file_url.includes('?') ? '&' : '?'}download`} download={upload.file_name || 'document'} className="text-[10px] text-indigo-550 dark:text-indigo-400 hover:underline font-semibold" title="Download file directly">
+                                    Download
                                   </a>
                                   <span className="text-slate-300 dark:text-zinc-800 text-[10px]">•</span>
                                   <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
