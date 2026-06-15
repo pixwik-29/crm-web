@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { isProtectedUser } from '@/lib/protected';
 
 export async function POST(request: Request) {
   try {
@@ -14,10 +13,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // Block password reset of protected owner accounts
-    if (isProtectedUser(profileId)) {
+    // Block password reset of the primary super admin account
+    const SUPER_ADMIN_ID = 'c19202d7-9967-468d-bf87-0f90815024b1';
+    if (profileId === SUPER_ADMIN_ID) {
       return NextResponse.json(
-        { error: 'This account is a system owner and its password cannot be reset via this route.' },
+        { error: 'This account is the primary super admin / system owner and its password cannot be reset via this route.' },
         { status: 403 }
       );
     }
