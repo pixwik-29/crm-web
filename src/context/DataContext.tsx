@@ -2546,6 +2546,58 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             tenant_id: tenantId
           }]);
 
+          // Send email notification to admin about the manually synced student referral
+          try {
+            const emailHtml = `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #1a202c;">
+                <div style="text-align: center; margin-bottom: 25px;">
+                  <h2 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800;">Perfect Scholar CRM</h2>
+                  <span style="font-size: 11px; text-transform: uppercase; font-weight: bold; color: #a0aec0; letter-spacing: 1.5px; display: block; margin-top: 5px;">New Referral Synced</span>
+                </div>
+                <p style="font-size: 15px; line-height: 1.6; color: #4a5568;">Hello Admin, a new referred candidate has been synced to the CRM pipelines:</p>
+                <div style="background-color: #f7fafc; padding: 20px; border-radius: 12px; margin: 25px 0; border: 1px dashed #e2e8f0;">
+                  <table style="width: 100%; font-size: 14px; line-height: 1.5;">
+                    <tr>
+                      <td style="font-weight: bold; color: #718096; padding: 8px 0; width: 150px;">Candidate Name</td>
+                      <td style="color: #2d3748; padding: 8px 0; font-weight: bold;">${student.first_name} ${student.last_name}</td>
+                    </tr>
+                    <tr>
+                      <td style="font-weight: bold; color: #718096; padding: 8px 0;">Contact Phone</td>
+                      <td style="color: #2d3748; padding: 8px 0;">${student.phone}</td>
+                    </tr>
+                    <tr>
+                      <td style="font-weight: bold; color: #718096; padding: 8px 0;">Destination</td>
+                      <td style="color: #2d3748; padding: 8px 0;">${student.destination_country || 'N/A'}</td>
+                    </tr>
+                    <tr>
+                      <td style="font-weight: bold; color: #718096; padding: 8px 0;">University</td>
+                      <td style="color: #2d3748; padding: 8px 0;">${student.target_university || 'N/A'}</td>
+                    </tr>
+                    <tr>
+                      <td style="font-weight: bold; color: #718096; padding: 8px 0;">Lead Source</td>
+                      <td style="color: #4f46e5; padding: 8px 0; font-weight: bold;">Partner: ${partnerName}</td>
+                    </tr>
+                  </table>
+                </div>
+              </div>
+            `;
+
+            const adminEmails = ['nash@pixwik.com', 'crm@perfectscholar.com'];
+            for (const adminEmail of adminEmails) {
+              fetch('/api/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: adminEmail,
+                  subject: `🔥 New Partner Referral Synced: ${student.first_name} ${student.last_name}`,
+                  html: emailHtml
+                })
+              }).catch(e => console.error("Error triggering sync email:", e));
+            }
+          } catch (syncMailErr) {
+            console.error("Error formatting sync email:", syncMailErr);
+          }
+
           importedCount++;
         }
       }

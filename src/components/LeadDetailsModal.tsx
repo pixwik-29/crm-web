@@ -794,30 +794,28 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
 
                   <div className="space-y-3">
                     {(() => {
-                      const reqDocNames = new Set<string>();
-                      const country = lead.preferred_destination || connectedStudent.destination_country || 'Georgia';
-                      if (country) {
-                        visaRequiredDocs
-                          .filter(d => d.country.toLowerCase() === country.toLowerCase() && d.is_required)
-                          .forEach(d => reqDocNames.add(d.document_name));
-                      }
-                      
+                      // 1. College required_docs are the primary source of truth.
+                      //    Do NOT merge country visa docs — that causes duplicates and inflation.
                       const targetUniv = connectedStudent.target_university;
-                      if (targetUniv) {
-                        const college = colleges?.find(c => c.name.toLowerCase() === targetUniv.toLowerCase());
-                        if (college && Array.isArray(college.required_docs)) {
-                          college.required_docs.forEach((d: string) => reqDocNames.add(d));
-                        }
-                      }
+                      const college = targetUniv
+                        ? colleges?.find(c => c.name.toLowerCase() === targetUniv.toLowerCase())
+                        : null;
 
-                      // Fallback if empty to ensure some basic documents
-                      if (reqDocNames.size === 0) {
-                        reqDocNames.add('Passport Copy');
-                        reqDocNames.add('12th Marksheet');
-                        reqDocNames.add('NEET Score Card');
-                      }
+                      let docsList: string[] = [];
 
-                      const docsList = Array.from(reqDocNames);
+                      if (college && Array.isArray(college.required_docs) && college.required_docs.length > 0) {
+                        // Use the college's own required docs list
+                        docsList = college.required_docs as string[];
+                      } else {
+                        // 2. Fallback: country-level visa docs when college has none defined
+                        const country = lead.preferred_destination || connectedStudent.destination_country || 'Georgia';
+                        const countryDocs = visaRequiredDocs
+                          .filter(d => d.country.toLowerCase() === country.toLowerCase() && d.is_required)
+                          .map(d => d.document_name);
+                        docsList = countryDocs.length > 0
+                          ? countryDocs
+                          : ['Passport Copy', '12th Marksheet', 'NEET Score Card'];
+                      }
 
                       return docsList.map(docName => {
                         const upload = partnerUploadedDocs.find(
