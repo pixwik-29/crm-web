@@ -112,6 +112,12 @@ const DEFAULT_TEMPLATES: WhatsAppTemplate[] = [
   }
 ];
 
+const isValidUuid = (id: any): boolean => {
+  if (typeof id !== 'string') return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id);
+};
+
 const MOCK_PROFILES: Profile[] = [
   { id: 'user-admin', full_name: 'Nash Newton (Admin)', role: 'admin', email: 'admin@crm.com', created_at: new Date().toISOString(), phone: '+919876543212' },
   { id: 'user-manager', full_name: 'Rajesh Kumar (Manager)', role: 'manager', email: 'manager@crm.com', created_at: new Date().toISOString(), phone: '+919876543213' },
@@ -1255,7 +1261,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Log Action
       await supabase.from('activity_logs').insert([{
         lead_id: data.id,
-        actor_id: currentUser?.id,
+        actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
         action_type: 'lead_created',
         description: `Lead created from source: ${leadData.lead_source}`,
         tenant_id: tenantId
@@ -1308,7 +1314,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (updates.status) {
         await supabase.from('activity_logs').insert([{
           lead_id: id,
-          actor_id: currentUser?.id,
+          actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
           action_type: 'status_change',
           description: `Status changed to: ${updates.status}`,
           tenant_id: tenantId
@@ -1435,7 +1441,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data && data.length > 0) {
         const logs = data.map(lead => ({
           lead_id: lead.id,
-          actor_id: currentUser?.id,
+          actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
           action_type: 'lead_created',
           description: `Lead imported from CSV file`,
           tenant_id: tenantId
@@ -1491,14 +1497,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('notes')
-        .insert([{ lead_id: leadId, author_id: currentUser?.id, content, tenant_id: tenantId }])
+        .insert([{ lead_id: leadId, author_id: isValidUuid(currentUser?.id) ? currentUser?.id : null, content, tenant_id: tenantId }])
         .select()
         .single();
       if (error) throw error;
       
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
-        actor_id: currentUser?.id,
+        actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
         action_type: 'note_added',
         description: `Added internal team note: "${content.substring(0, 40)}${content.length > 40 ? '...' : ''}"`,
         tenant_id: tenantId
@@ -1542,14 +1548,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('tasks')
-        .insert([{ lead_id: leadId, assignee_id: currentUser?.id, title, due_date: finalDueDate, tenant_id: tenantId }])
+        .insert([{ lead_id: leadId, assignee_id: isValidUuid(currentUser?.id) ? currentUser?.id : null, title, due_date: finalDueDate, tenant_id: tenantId }])
         .select()
         .single();
       if (error) throw error;
 
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
-        actor_id: currentUser?.id,
+        actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
         action_type: 'task_created',
         description: `Created task: "${title}"`,
         tenant_id: tenantId
@@ -1594,7 +1600,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       await supabase.from('activity_logs').insert([{
         lead_id: taskToToggle.lead_id,
-        actor_id: currentUser?.id,
+        actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
         action_type: 'task_completed',
         description: `Marked task "${taskToToggle.title}" as ${nextCompleted ? 'completed' : 'incomplete'}`,
         tenant_id: tenantId
@@ -1692,7 +1698,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await supabase.from('whatsapp_history').insert([{ ...newMessage, tenant_id: tenantId }]);
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
-        actor_id: currentUser?.id,
+        actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
         action_type: 'whatsapp_sent',
         description: `Sent WhatsApp template: "${template.name}"`,
         tenant_id: tenantId
@@ -1751,7 +1757,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await supabase.from('whatsapp_history').insert([{ ...newMessage, tenant_id: tenantId }]);
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
-        actor_id: currentUser?.id,
+        actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
         action_type: 'whatsapp_sent',
         description: `Sent manual WhatsApp: "${message.substring(0, 30)}..."`,
         tenant_id: tenantId
@@ -2240,7 +2246,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured && supabase) {
       await supabase.from('activity_logs').insert([{
         lead_id: lead.id,
-        actor_id: currentUser?.id,
+        actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
         action_type: 'whatsapp_sent',
         description: `Sent official document (${doc.document_name}) link to student via WhatsApp`,
         tenant_id: tenantId
@@ -2291,7 +2297,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
-        actor_id: currentUser?.id,
+        actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
         action_type: 'assigned',
         description: `Linked to referred student ${studentName} from ${partnerName}. Transitioned to Visa/Post-Closing Pipeline.`,
         tenant_id: tenantId
@@ -2354,7 +2360,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const studentName = student ? `${student.first_name} ${student.last_name}` : 'Referred Student';
         await supabase.from('activity_logs').insert([{
           lead_id: leadId,
-          actor_id: currentUser?.id,
+          actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
           action_type: 'assigned',
           description: `Unlinked from referred student ${studentName}`,
           tenant_id: tenantId
@@ -2404,7 +2410,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (leadId) {
         await supabase.from('activity_logs').insert([{
           lead_id: leadId,
-          actor_id: currentUser?.id,
+          actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
           action_type: 'status_change',
           description: `Partner document '${doc.document_name}' has been ${status}`,
           tenant_id: tenantId
@@ -2540,7 +2546,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // 3. Create activity log
           await supabase.from('activity_logs').insert([{
             lead_id: newLead.id,
-            actor_id: currentUser?.id,
+            actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
             action_type: 'assigned',
             description: `Imported from Partner Portal referral by ${partnerName} → ${targetPipeline?.name || 'Pipeline'} / ${targetStage}.`,
             tenant_id: tenantId
@@ -2697,7 +2703,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
       
       // Auto-grant access to creator/admin
-      if (currentUser?.id) {
+      if (currentUser?.id && isValidUuid(currentUser.id)) {
         await supabase.from('pipeline_access').insert([{
           pipeline_id: data.id,
           profile_id: currentUser.id,
