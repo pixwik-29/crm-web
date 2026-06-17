@@ -2205,6 +2205,80 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', id)
         .eq('tenant_id', tenantId);
       if (error) throw error;
+
+      // Update state so the UI updates immediately
+      setVisaUploadedDocs(prev => prev.map(vud => {
+        if (vud.id === id) {
+          return {
+            ...vud,
+            status,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return vud;
+      }));
+
+      // Trigger background push notification to consultant
+      (async () => {
+        try {
+          const { data: vDocData } = await supabase
+            .from('visa_uploaded_docs')
+            .select('document_name, visa_application_id')
+            .eq('id', id)
+            .single();
+
+          if (vDocData?.visa_application_id) {
+            const { data: vAppData } = await supabase
+              .from('visa_applications')
+              .select('lead_id')
+              .eq('id', vDocData.visa_application_id)
+              .single();
+
+            if (vAppData?.lead_id) {
+              const { data: studentData } = await supabase
+                .from('partner_students')
+                .select('id, first_name, last_name, submitted_by')
+                .eq('crm_lead_id', vAppData.lead_id)
+                .single();
+
+              if (studentData?.submitted_by) {
+                const { data: userData } = await supabase
+                  .from('partner_users')
+                  .select('push_token')
+                  .eq('id', studentData.submitted_by)
+                  .single();
+
+                if (userData?.push_token && (userData.push_token.startsWith('ExponentPushToken') || userData.push_token.startsWith('ExpoPushToken'))) {
+                  const studentName = `${studentData.first_name} ${studentData.last_name}`;
+                  const title = status === 'verified' ? 'Visa Document Approved' : 'Visa Document Rejected';
+                  const body = status === 'verified'
+                    ? `Great news! The visa document "${vDocData.document_name}" for ${studentName} has been approved.`
+                    : `Attention: The visa document "${vDocData.document_name}" for ${studentName} was rejected. Please review and re-upload.`;
+
+                  await fetch('https://exp.host/--/api/v2/push/send', {
+                    method: 'POST',
+                    headers: {
+                      'Accept': 'application/json',
+                      'Accept-encoding': 'gzip, deflate',
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      to: userData.push_token,
+                      title,
+                      body,
+                      sound: 'default',
+                      data: { studentId: studentData.id, documentName: vDocData.document_name }
+                    })
+                  });
+                  console.log(`[Push Notification] Dispatched successfully to consultant ${studentData.submitted_by} for student ${studentName}`);
+                }
+              }
+            }
+          }
+        } catch (pushErr: any) {
+          console.error("Error triggering push notification for visa document verification:", pushErr);
+        }
+      })();
     } else {
       const updated = visaUploadedDocs.map(vud => {
         if (vud.id === id) {
@@ -2407,6 +2481,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', docId);
       if (error) throw error;
 
+      // Update state so the UI updates immediately
+      setPartnerUploadedDocs(prev => prev.map(d => {
+        if (d.id === docId) {
+          return { ...d, verification_status: status, updated_at: new Date().toISOString() };
+        }
+        return d;
+      }));
+
       if (leadId) {
         await supabase.from('activity_logs').insert([{
           lead_id: leadId,
@@ -2416,6 +2498,60 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenant_id: tenantId
         }]);
       }
+
+      // Trigger background push notification to consultant
+      (async () => {
+        try {
+          const { data: docData } = await supabase
+            .from('partner_uploaded_docs')
+            .select('document_name, student_id')
+            .eq('id', docId)
+            .single();
+
+          if (docData?.student_id) {
+            const { data: studentData } = await supabase
+              .from('partner_students')
+              .select('first_name, last_name, submitted_by')
+              .eq('id', docData.student_id)
+              .single();
+
+            if (studentData?.submitted_by) {
+              const { data: userData } = await supabase
+                .from('partner_users')
+                .select('push_token')
+                .eq('id', studentData.submitted_by)
+                .single();
+
+              if (userData?.push_token && (userData.push_token.startsWith('ExponentPushToken') || userData.push_token.startsWith('ExpoPushToken'))) {
+                const studentName = `${studentData.first_name} ${studentData.last_name}`;
+                const title = status === 'verified' ? 'Document Approved' : 'Document Rejected';
+                const body = status === 'verified'
+                  ? `Great news! The document "${docData.document_name}" for ${studentName} has been approved.`
+                  : `Attention: The document "${docData.document_name}" for ${studentName} was rejected. Please review and re-upload.`;
+
+                await fetch('https://exp.host/--/api/v2/push/send', {
+                  method: 'POST',
+                  headers: {
+                    'Accept': 'application/json',
+                    'Accept-encoding': 'gzip, deflate',
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    to: userData.push_token,
+                    title,
+                    body,
+                    sound: 'default',
+                    data: { studentId: docData.student_id, documentName: docData.document_name }
+                  })
+                });
+                console.log(`[Push Notification] Dispatched successfully to consultant ${studentData.submitted_by} for student ${studentName}`);
+              }
+            }
+          }
+        } catch (pushErr: any) {
+          console.error("Error triggering push notification for document verification:", pushErr);
+        }
+      })();
     } else {
       const updated = partnerUploadedDocs.map(d => {
         if (d.id === docId) {
