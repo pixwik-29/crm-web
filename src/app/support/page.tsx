@@ -105,7 +105,7 @@ export default function SupportPage() {
               <Phone className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
               <div>
                 <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-1">Partner Hotlines</h4>
-                <p className="text-xs text-slate-650 dark:text-zinc-400 font-semibold">+91 (800) SCHOLAR</p>
+                <p className="text-xs text-slate-650 dark:text-zinc-400 font-semibold">+91 8807134560</p>
                 <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-1">Mon - Fri • 9:00 AM - 6:00 PM IST</p>
               </div>
             </div>
