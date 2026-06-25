@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { ShieldCheck, HelpCircle, FileText } from 'lucide-react';
+import { ShieldCheck, HelpCircle, FileText, LifeBuoy } from 'lucide-react';
 
 interface FooterProps {
   isLoginScreen?: boolean;
@@ -33,6 +33,13 @@ export const Footer: React.FC<FooterProps> = ({ isLoginScreen = false }) => {
             >
               <FileText className="w-3.5 h-3.5" />
               Terms of Service
+            </Link>
+            <Link 
+              href="/support" 
+              className="hover:text-blue-400 transition-colors flex items-center gap-1.5"
+            >
+              <LifeBuoy className="w-3.5 h-3.5" />
+              Support Center
             </Link>
             <Link 
               href="/data-deletion" 
@@ -73,6 +80,13 @@ export const Footer: React.FC<FooterProps> = ({ isLoginScreen = false }) => {
           >
             <FileText className="w-3.5 h-3.5" />
             Terms of Service
+          </Link>
+          <Link 
+            href="/support" 
+            className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-1.5"
+          >
+            <LifeBuoy className="w-3.5 h-3.5" />
+            Support Center
           </Link>
           <Link 
             href="/data-deletion" 
