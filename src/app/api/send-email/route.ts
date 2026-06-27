@@ -35,11 +35,30 @@ export async function POST(request: Request) {
       },
     });
 
+    let updatedHtml = html;
+    updatedHtml = updatedHtml.replace(
+      /<h2 style="color:\s*#0176d3;\s*font-size:\s*20px;\s*font-weight:\s*bold;\s*margin-bottom:\s*20px;">Welcome to Perfect Scholar Partner Portal!<\/h2>/gi,
+      '<img src="cid:logo" alt="Perfect Scholar Logo" style="height: 35px; width: auto; display: block; margin: 0 auto 20px auto;" />'
+    );
+    updatedHtml = updatedHtml.replace(
+      /<h2 style="color:\s*#[0-9a-fA-F]+;\s*margin:\s*0;\s*font-size:\s*24px;\s*font-weight:\s*800;">Perfect Scholar CRM<\/h2>/gi,
+      '<img src="cid:logo" alt="Perfect Scholar Logo" style="height: 35px; width: auto; display: block; margin: 0 auto 20px auto;" />'
+    );
+    updatedHtml = updatedHtml.replace(
+      /<h2 style="color:\s*#[0-9a-fA-F]+;\s*margin:\s*0;\s*font-size:\s*24px;\s*font-weight:\s*800;">Perfect Scholar Partner Portal<\/h2>/gi,
+      '<img src="cid:logo" alt="Perfect Scholar Logo" style="height: 35px; width: auto; display: block; margin: 0 auto 20px auto;" />'
+    );
+
     const info = await transporter.sendMail({
       from: `"Perfect Scholar" <${user}>`,
       to,
       subject,
-      html,
+      html: updatedHtml,
+      attachments: [{
+        filename: 'logo.png',
+        path: require('path').join(process.cwd(), 'public/logo.png'),
+        cid: 'logo'
+      }]
     });
 
     return NextResponse.json({ success: true, messageId: info.messageId });
