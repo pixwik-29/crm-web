@@ -302,7 +302,10 @@ ${fieldComponents}
 
 export const WebFormBuilder: React.FC = () => {
   const { settings, updateSettings, currentUser } = useData();
-  const webhookUrl = 'https://crm.perfectscholar.com/api/webhook';
+  // Use the CORS-enabled proxy so external websites (e.g. pltci.org) can
+  // submit forms without hitting a browser CORS block.  The proxy forwards
+  // the payload server-side to /api/webhook.
+  const webhookUrl = 'https://crm.perfectscholar.com/api/lead-proxy';
   
   const forms: WebForm[] = settings.web_forms || [];
 
