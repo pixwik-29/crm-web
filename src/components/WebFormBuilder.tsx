@@ -26,7 +26,7 @@ const PRESET_COLORS = [
   '#D97706', '#059669', '#0891B2', '#1D4ED8', '#374151',
 ];
 
-function generateEmbedCode(form: WebForm, webhookUrl: string): string {
+function generateEmbedCode(form: WebForm, webhookUrl: string, tenantId: string): string {
   const enabledFields = form.fields.filter(f => f.enabled);
   const fieldsJson = JSON.stringify(enabledFields);
   const color = form.primary_color;
@@ -40,6 +40,7 @@ function generateEmbedCode(form: WebForm, webhookUrl: string): string {
     formName: ${JSON.stringify(form.name)},
     webhookUrl: "${webhookUrl}",
     leadSource: ${JSON.stringify(form.lead_source)},
+    tenantId: "${tenantId}",
     buttonText: ${JSON.stringify(form.button_text)},
     successMsg: ${JSON.stringify(form.success_message)},
     color: "${color}",
@@ -107,7 +108,7 @@ function generateEmbedCode(form: WebForm, webhookUrl: string): string {
     e.preventDefault();
     btn.disabled = true;
     btn.textContent = 'Submitting...';
-    var data = { lead_source: cfg.leadSource, landing_page_url: window.location.href };
+    var data = { lead_source: cfg.leadSource, tenant_id: cfg.tenantId, landing_page_url: window.location.href };
     var params = new URLSearchParams(window.location.search);
     ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(function(k) {
       if (params.get(k)) data[k] = params.get(k);
@@ -138,7 +139,7 @@ function generateEmbedCode(form: WebForm, webhookUrl: string): string {
 <\/script>`;
 }
 
-function generatePlainCode(form: WebForm, webhookUrl: string): string {
+function generatePlainCode(form: WebForm, webhookUrl: string, tenantId: string): string {
   const enabledFields = form.fields.filter(f => f.enabled);
 
   const inputsHtml = enabledFields.map(f => {
@@ -166,6 +167,7 @@ document.getElementById('ps-plain-${form.id}').addEventListener('submit', functi
   btn.disabled = true;
   var data = {
     lead_source: ${JSON.stringify(form.lead_source)},
+    tenant_id: '${tenantId}',
     landing_page_url: window.location.href
   };
   var params = new URLSearchParams(window.location.search);
@@ -188,7 +190,7 @@ document.getElementById('ps-plain-${form.id}').addEventListener('submit', functi
 <\/script>`;
 }
 
-function generateReactCode(form: WebForm, webhookUrl: string): string {
+function generateReactCode(form: WebForm, webhookUrl: string, tenantId: string): string {
   const enabledFields = form.fields.filter(f => f.enabled);
 
   const stateLines = enabledFields
@@ -249,6 +251,7 @@ ${stateLines}
 
     const payload: Record<string, string> = {
       lead_source: ${JSON.stringify(form.lead_source)},
+      tenant_id: '${tenantId}',
       landing_page_url: typeof window !== 'undefined' ? window.location.href : '',
     };
 
@@ -366,11 +369,13 @@ export const WebFormBuilder: React.FC = () => {
     setFields(prev => prev.map(f => f.key === key ? { ...f, required: !f.required } : f));
   };
 
+  const tenantId = currentUser?.tenant_id || 'default';
+
   const handleCopyCode = () => {
     if (!selectedForm) return;
     const code = embedMode === 'styled'
-      ? generateEmbedCode(selectedForm, webhookUrl)
-      : generatePlainCode(selectedForm, webhookUrl);
+      ? generateEmbedCode(selectedForm, webhookUrl, tenantId)
+      : generatePlainCode(selectedForm, webhookUrl, tenantId);
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2500);
@@ -378,7 +383,7 @@ export const WebFormBuilder: React.FC = () => {
 
   // ─── EMBED CODE VIEW ───────────────────────────────────────
   if (view === 'embed' && selectedForm) {
-    const embedCode = generateEmbedCode(selectedForm, webhookUrl);
+    const embedCode = generateEmbedCode(selectedForm, webhookUrl, tenantId);
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
@@ -491,10 +496,10 @@ export const WebFormBuilder: React.FC = () => {
           </div>
           <pre className="p-4 text-xs text-indigo-300 overflow-x-auto max-h-96 leading-relaxed font-mono whitespace-pre-wrap break-all">
             {embedMode === 'react'
-              ? generateReactCode(selectedForm, webhookUrl)
+              ? generateReactCode(selectedForm, webhookUrl, tenantId)
               : embedMode === 'plain'
-                ? generatePlainCode(selectedForm, webhookUrl)
-                : generateEmbedCode(selectedForm, webhookUrl)
+                ? generatePlainCode(selectedForm, webhookUrl, tenantId)
+                : generateEmbedCode(selectedForm, webhookUrl, tenantId)
             }
           </pre>
         </div>
