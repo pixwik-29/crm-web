@@ -23,23 +23,36 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const configId = process.env.NEXT_PUBLIC_FB_CONFIG_ID || process.env.FB_CONFIG_ID;
+
   const fbDialogUrl = new URL('https://www.facebook.com/v19.0/dialog/oauth');
   fbDialogUrl.searchParams.set('client_id', appId);
   fbDialogUrl.searchParams.set('redirect_uri', redirectUri);
   fbDialogUrl.searchParams.set('state', statePayload);
-  fbDialogUrl.searchParams.set(
-    'scope',
-    [
-      'public_profile',
-      'email',
-      'pages_show_list',
-      'pages_read_engagement',
-      'leads_retrieval',
-      'business_management',
-    ].join(',')
-  );
   fbDialogUrl.searchParams.set('response_type', 'code');
+
+  if (configId) {
+    // If using Facebook Login for Business, pass the config_id
+    fbDialogUrl.searchParams.set('config_id', configId);
+    fbDialogUrl.searchParams.set('override_default_response_type', 'true');
+    console.log(`[fb-oauth] Directing to Facebook Login for Business using config_id: ${configId}`);
+  } else {
+    // Fallback to standard Facebook Login scopes
+    fbDialogUrl.searchParams.set(
+      'scope',
+      [
+        'public_profile',
+        'email',
+        'pages_show_list',
+        'pages_read_engagement',
+        'leads_retrieval',
+        'business_management',
+      ].join(',')
+    );
+    console.log('[fb-oauth] Directing to standard Facebook Login using scopes');
+  }
 
   // Redirect the browser to Facebook
   return NextResponse.redirect(fbDialogUrl.toString());
+}
 }
