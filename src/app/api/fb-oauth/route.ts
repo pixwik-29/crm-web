@@ -55,4 +55,3 @@ export async function GET(req: NextRequest) {
   // Redirect the browser to Facebook
   return NextResponse.redirect(fbDialogUrl.toString());
 }
-}
