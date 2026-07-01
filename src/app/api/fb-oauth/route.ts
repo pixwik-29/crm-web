@@ -30,6 +30,8 @@ export async function GET(req: NextRequest) {
   fbDialogUrl.searchParams.set(
     'scope',
     [
+      'public_profile',
+      'email',
       'pages_show_list',
       'pages_read_engagement',
       'leads_retrieval',
