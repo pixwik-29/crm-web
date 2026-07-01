@@ -33,95 +33,76 @@ export async function GET(req: NextRequest) {
   const appSecret = process.env.FB_APP_SECRET;
   const redirectUri = `${origin}/api/fb-oauth/callback`;
 
-  const isMock = code.startsWith('mock_code_');
-
   let longLivedToken = '';
   let pages: Array<{ id: string; name: string; access_token: string }> = [];
 
-  if (isMock) {
-    longLivedToken = `mock_long_lived_token_${tenantId}_${Math.random().toString(36).slice(2, 15)}`;
-    if (mockPagesJson) {
-      try {
-        pages = JSON.parse(mockPagesJson);
-      } catch {
-        pages = [{ id: `mock-page-id-${tenantId}-1`, name: `${tenantId.toUpperCase()} Leads Page`, access_token: `mock_page_token_1_${Date.now()}` }];
-      }
-    } else {
-      pages = [
-        { id: `mock-page-id-${tenantId}-1`, name: `${tenantId.toUpperCase()} Leads Page`, access_token: `mock_page_token_1_${Date.now()}` },
-        { id: `mock-page-id-${tenantId}-2`, name: `${tenantId.toUpperCase()} Ads Page`, access_token: `mock_page_token_2_${Date.now()}` }
-      ];
-    }
-    console.log(`[fb-oauth/callback] Simulated OAuth flow activated. Linked ${pages.length} page(s).`);
-  } else {
-    if (!appId || !appSecret) {
-      console.error('[fb-oauth/callback] FB_APP_ID or FB_APP_SECRET not configured');
-      const redirectUrl = new URL('/settings', origin);
-      redirectUrl.searchParams.set('fb_error', 'Server configuration error');
-      return NextResponse.redirect(redirectUrl.toString());
-    }
+  if (!appId || !appSecret) {
+    console.error('[fb-oauth/callback] FB_APP_ID or FB_APP_SECRET not configured');
+    const redirectUrl = new URL('/settings', origin);
+    redirectUrl.searchParams.set('fb_error', 'Server configuration error');
+    return NextResponse.redirect(redirectUrl.toString());
+  }
 
-    // ── 3. Exchange code → short-lived user access token ─────────────────────
-    let shortLivedToken = '';
-    try {
-      const tokenRes = await fetch(
-        `https://graph.facebook.com/v19.0/oauth/access_token?` +
-          new URLSearchParams({
-            client_id: appId,
-            client_secret: appSecret,
-            redirect_uri: redirectUri,
-            code,
-          }).toString()
-      );
-      const tokenData = await tokenRes.json();
-      if (tokenData.error) {
-        throw new Error(tokenData.error.message);
-      }
-      shortLivedToken = tokenData.access_token;
-      console.log('[fb-oauth/callback] Short-lived token obtained successfully');
-    } catch (err: any) {
-      console.error('[fb-oauth/callback] Token exchange failed:', err.message);
-      const redirectUrl = new URL('/settings', origin);
-      redirectUrl.searchParams.set('fb_error', 'Token exchange failed: ' + err.message);
-      return NextResponse.redirect(redirectUrl.toString());
+  // ── 3. Exchange code → short-lived user access token ─────────────────────
+  let shortLivedToken = '';
+  try {
+    const tokenRes = await fetch(
+      `https://graph.facebook.com/v19.0/oauth/access_token?` +
+        new URLSearchParams({
+          client_id: appId,
+          client_secret: appSecret,
+          redirect_uri: redirectUri,
+          code,
+        }).toString()
+    );
+    const tokenData = await tokenRes.json();
+    if (tokenData.error) {
+      throw new Error(tokenData.error.message);
     }
+    shortLivedToken = tokenData.access_token;
+    console.log('[fb-oauth/callback] Short-lived token obtained successfully');
+  } catch (err: any) {
+    console.error('[fb-oauth/callback] Token exchange failed:', err.message);
+    const redirectUrl = new URL('/settings', origin);
+    redirectUrl.searchParams.set('fb_error', 'Token exchange failed: ' + err.message);
+    return NextResponse.redirect(redirectUrl.toString());
+  }
 
-    // ── 4. Exchange short-lived → long-lived token (60 days) ─────────────────
-    let expiresIn = 0;
-    try {
-      const llRes = await fetch(
-        `https://graph.facebook.com/v19.0/oauth/access_token?` +
-          new URLSearchParams({
-            grant_type: 'fb_exchange_token',
-            client_id: appId,
-            client_secret: appSecret,
-            fb_exchange_token: shortLivedToken,
-          }).toString()
-      );
-      const llData = await llRes.json();
-      if (llData.error) {
-        throw new Error(llData.error.message);
-      }
-      longLivedToken = llData.access_token;
-      expiresIn = llData.expires_in ?? 0;
-      console.log(`[fb-oauth/callback] Long-lived token obtained. Expires in ${expiresIn}s`);
-    } catch (err: any) {
-      console.error('[fb-oauth/callback] Long-lived token exchange failed:', err.message);
-      // Fall back to short-lived token rather than failing completely
-      longLivedToken = shortLivedToken;
+  // ── 4. Exchange short-lived → long-lived token (60 days) ─────────────────
+  let expiresIn = 0;
+  try {
+    const llRes = await fetch(
+      `https://graph.facebook.com/v19.0/oauth/access_token?` +
+        new URLSearchParams({
+          grant_type: 'fb_exchange_token',
+          client_id: appId,
+          client_secret: appSecret,
+          fb_exchange_token: shortLivedToken,
+        }).toString()
+    );
+    const llData = await llRes.json();
+    if (llData.error) {
+      throw new Error(llData.error.message);
     }
+    longLivedToken = llData.access_token;
+    expiresIn = llData.expires_in ?? 0;
+    console.log(`[fb-oauth/callback] Long-lived token obtained. Expires in ${expiresIn}s`);
+  } catch (err: any) {
+    console.error('[fb-oauth/callback] Long-lived token exchange failed:', err.message);
+    // Fall back to short-lived token rather than failing completely
+    longLivedToken = shortLivedToken;
+  }
 
-    // ── 5. Fetch the user's Pages so we can pick the right one ───────────────
-    try {
-      const pagesRes = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&access_token=${longLivedToken}`
-      );
-      const pagesData = await pagesRes.json();
-      pages = pagesData.data || [];
-      console.log(`[fb-oauth/callback] Found ${pages.length} page(s) for this user`);
-    } catch (err: any) {
-      console.warn('[fb-oauth/callback] Could not fetch pages:', err.message);
-    }
+  // ── 5. Fetch the user's Pages so we can pick the right one ───────────────
+  try {
+    const pagesRes = await fetch(
+      `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&access_token=${longLivedToken}`
+    );
+    const pagesData = await pagesRes.json();
+    pages = pagesData.data || [];
+    console.log(`[fb-oauth/callback] Found ${pages.length} page(s) for this user`);
+  } catch (err: any) {
+    console.warn('[fb-oauth/callback] Could not fetch pages:', err.message);
   }
 
   // ── 6. Persist token (and page list) to settings table ───────────────────

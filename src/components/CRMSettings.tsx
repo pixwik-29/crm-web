@@ -966,34 +966,21 @@ async function submitEduPathLead(leadData) {
                     Disconnect
                   </button>
                 ) : (
-                  <a href={`/api/fb-oauth?tenant_id=${tenantId}${useLiveOauth ? '&real=true' : ''}`} className="px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all flex items-center gap-1.5 bg-[#1877F2] hover:bg-[#166fe5] cursor-pointer hover:scale-[1.02] active:scale-[0.98]">
+                  <a href={`/api/fb-oauth?tenant_id=${tenantId}`} className="px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all flex items-center gap-1.5 bg-[#1877F2] hover:bg-[#166fe5] cursor-pointer hover:scale-[1.02] active:scale-[0.98]">
                     <svg viewBox="0 0 24 24" fill="white" className="w-3.5 h-3.5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                    {useLiveOauth ? 'Connect Live Meta App' : 'Connect with Facebook'}
+                    Connect with Facebook
                   </a>
                 )}
               </div>
 
               {!isFbConnected && (
-                <div className="flex items-center justify-between bg-slate-100/60 dark:bg-zinc-900/60 p-3 border border-slate-200 dark:border-zinc-800/40 rounded-xl text-xs gap-3">
-                  <div className="flex-1">
-                    <p className="font-bold text-slate-800 dark:text-slate-200">OAuth Connection Mode</p>
-                    <p className="text-[10px] text-slate-400 leading-normal mt-0.5">Choose simulated sandbox connection or a live Meta App integration.</p>
-                  </div>
-                  <div className="flex bg-slate-200/60 dark:bg-zinc-800/60 p-0.5 rounded-lg border border-slate-200 dark:border-zinc-800">
-                    <button type="button" onClick={() => setUseLiveOauth(false)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${!useLiveOauth ? 'bg-[#1877F2] text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-200'}`}>Simulated</button>
-                    <button type="button" onClick={() => setUseLiveOauth(true)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${useLiveOauth ? 'bg-[#1877F2] text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-200'}`}>Live Meta App</button>
-                  </div>
-                </div>
-              )}
-
-              {!isFbConnected && useLiveOauth && (
                 <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3.5 space-y-2 text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed animate-fade-in">
                   <p className="font-bold text-[11px] text-slate-800 dark:text-white flex items-center gap-1.5">⚠️ Live Meta App Configuration Requirements:</p>
                   <p>To prevent the <strong>&quot;Facebook login is currently unavailable for this app&quot;</strong> error, you must ensure the following are configured in your App in the <a href="https://developers.facebook.com/" target="_blank" rel="noreferrer" className="underline font-bold text-[#1877F2] hover:text-[#166fe5]">Meta Developer Console</a>:</p>
                   <ul className="list-decimal pl-4 space-y-1.5 font-medium">
                     <li>Go to <strong>App Settings → Basic</strong> and verify your <strong>Privacy Policy URL</strong> and <strong>User Data Deletion Instructions URL</strong> are saved.</li>
                     <li>Go to <strong>Use Cases → Customize → Facebook Login → Settings</strong> and add the exact <strong>Valid OAuth Redirect URI</strong>: <code className="bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-1 py-0.5 rounded font-mono text-slate-800 dark:text-slate-200">{origin}/api/fb-oauth/callback</code></li>
-                    <li>If your Meta App status is <strong>Development Mode</strong>, only developer/tester accounts can log in. Switch to <strong>Live Mode</strong> and ensure <code>public_profile</code> has Advanced Access.</li>
+                    <li>Ensure your Meta App status is switched to <strong>Live Mode</strong> and that <code>public_profile</code>, <code>pages_show_list</code>, <code>pages_read_engagement</code>, and <code>leads_retrieval</code> are approved with Advanced Access.</li>
                   </ul>
                 </div>
               )}

@@ -16,15 +16,6 @@ export async function GET(req: NextRequest) {
 
   const redirectUri = `${origin}/api/fb-oauth/callback`;
 
-  // If real=true param is not passed, redirect to our custom mock Facebook dialog
-  const isReal = req.nextUrl.searchParams.get('real') === 'true';
-  if (!isReal) {
-    const mockUrl = new URL('/fb-oauth-mock', origin);
-    mockUrl.searchParams.set('state', statePayload);
-    mockUrl.searchParams.set('redirect_uri', redirectUri);
-    return NextResponse.redirect(mockUrl.toString());
-  }
-
   if (!appId) {
     return NextResponse.json(
       { error: 'NEXT_PUBLIC_FB_APP_ID is not configured in environment variables.' },
