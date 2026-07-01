@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       'pages_show_list',
       'pages_read_engagement',
       'leads_retrieval',
-      'pages_manage_metadata',
+      'business_management',
     ].join(',')
   );
   fbDialogUrl.searchParams.set('response_type', 'code');
