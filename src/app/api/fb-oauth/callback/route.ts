@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
   // ── 1. Handle user-denied / errors from Facebook ──────────────────────────
   if (error || !code) {
     console.error('[fb-oauth/callback] Facebook returned error:', error, errorDesc);
-    const redirectUrl = new URL('/settings', origin);
+    const redirectUrl = new URL('/', origin);
+    redirectUrl.searchParams.set('view', 'settings');
     redirectUrl.searchParams.set('fb_error', errorDesc || error || 'Access denied');
     return NextResponse.redirect(redirectUrl.toString());
   }
@@ -38,7 +39,8 @@ export async function GET(req: NextRequest) {
 
   if (!appId || !appSecret) {
     console.error('[fb-oauth/callback] FB_APP_ID or FB_APP_SECRET not configured');
-    const redirectUrl = new URL('/settings', origin);
+    const redirectUrl = new URL('/', origin);
+    redirectUrl.searchParams.set('view', 'settings');
     redirectUrl.searchParams.set('fb_error', 'Server configuration error');
     return NextResponse.redirect(redirectUrl.toString());
   }
@@ -63,7 +65,8 @@ export async function GET(req: NextRequest) {
     console.log('[fb-oauth/callback] Short-lived token obtained successfully');
   } catch (err: any) {
     console.error('[fb-oauth/callback] Token exchange failed:', err.message);
-    const redirectUrl = new URL('/settings', origin);
+    const redirectUrl = new URL('/', origin);
+    redirectUrl.searchParams.set('view', 'settings');
     redirectUrl.searchParams.set('fb_error', 'Token exchange failed: ' + err.message);
     return NextResponse.redirect(redirectUrl.toString());
   }
@@ -130,7 +133,8 @@ export async function GET(req: NextRequest) {
   }
 
   // ── 7. Redirect back to settings page with success flag ──────────────────
-  const redirectUrl = new URL('/settings', origin);
+  const redirectUrl = new URL('/', origin);
+  redirectUrl.searchParams.set('view', 'settings');
   redirectUrl.searchParams.set('fb', 'connected');
   redirectUrl.searchParams.set('pages', String(pages.length));
   return NextResponse.redirect(redirectUrl.toString());

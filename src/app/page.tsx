@@ -37,6 +37,17 @@ const DashboardContent: React.FC = () => {
   // Navigation tab
   const [activeView, setActiveView] = useState<'board' | 'list' | 'analytics' | 'settings' | 'forms'>('board');
   
+  // Handle redirect view search param (e.g. from fb oauth callback)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get('view');
+      if (view && ['board', 'list', 'analytics', 'settings', 'forms'].includes(view)) {
+        setActiveView(view as any);
+      }
+    }
+  }, []);
+
   // Theme state
   const [darkMode, setDarkMode] = useState(true);
   
