@@ -219,6 +219,10 @@ export const CRMSettings: React.FC = () => {
   const fbAppId = process.env.NEXT_PUBLIC_FB_APP_ID;
   const [useLiveOauth, setUseLiveOauth] = useState(false);
 
+  // WhatsApp connection state
+  const [waStatus, setWaStatus] = useState<string | null>(null);
+  const isWhatsAppConnected = Boolean(settings.whatsapp_api_token && settings.whatsapp_api_token.trim().length > 10);
+
   // Change Password states & handler
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -352,6 +356,18 @@ export const CRMSettings: React.FC = () => {
     } else if (fbError) {
       setFbStatus(`⚠️ Facebook error: ${fbError}`);
       setTimeout(() => setFbStatus(null), 8000);
+    }
+
+    const waResult = searchParams.get('wa');
+    const waError = searchParams.get('wa_error');
+    const waWaba = searchParams.get('waba_id');
+    const waPhone = searchParams.get('phone_id');
+    if (waResult === 'connected') {
+      setWaStatus(`✅ WhatsApp connected! Account: ${waWaba || 'N/A'}, Phone ID: ${waPhone || 'N/A'}. Credentials saved.`);
+      setTimeout(() => setWaStatus(null), 8000);
+    } else if (waError) {
+      setWaStatus(`⚠️ WhatsApp error: ${waError}`);
+      setTimeout(() => setWaStatus(null), 8000);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1127,15 +1143,66 @@ async function submitEduPathLead(leadData) {
                 <MessageSquare className="w-5 h-5 text-emerald-500" />
                 <div>
                   <h3 className="font-bold text-slate-800 dark:text-white">WhatsApp Business API</h3>
-                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Credentials for sending messages to leads</p>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Credentials and settings for sending automated/template messages to leads</p>
                 </div>
               </div>
-              {isAdmin && (
-                <button type="button" onClick={handleSaveWhatsAppSettings} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow hover:scale-[1.02] active:scale-[0.98]">
-                  Save WhatsApp
-                </button>
+              <div className="flex items-center gap-2">
+                {isWhatsAppConnected && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setWhApiToken('');
+                      setPhoneId('');
+                      setAccountId('');
+                      await updateSettings({
+                        whatsapp_api_token: '',
+                        whatsapp_phone_id: '',
+                        whatsapp_account_id: ''
+                      });
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-[10px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/40 hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-all cursor-pointer"
+                  >
+                    Disconnect
+                  </button>
+                )}
+                {isAdmin && (
+                  <button type="button" onClick={handleSaveWhatsAppSettings} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow hover:scale-[1.02] active:scale-[0.98]">
+                    Save WhatsApp
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* WA Connect card */}
+            <div className={`rounded-2xl border p-4 space-y-4 ${isWhatsAppConnected ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/40' : 'bg-slate-50 dark:bg-zinc-900/40 border-slate-200 dark:border-zinc-800'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isWhatsAppConnected ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-zinc-700'}`}>
+                    <MessageSquare className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-white">WhatsApp Business Account</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {isWhatsAppConnected ? (
+                        <><Wifi className="w-3 h-3 text-emerald-500" /><span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Connected – API active</span></>
+                      ) : <><WifiOff className="w-3 h-3 text-slate-400" /><span className="text-[10px] font-semibold text-slate-400">Not connected</span></>}
+                    </div>
+                  </div>
+                </div>
+                {!isWhatsAppConnected && (
+                  <a href={`/api/wa-oauth?tenant_id=${tenantId}`} className="px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 cursor-pointer hover:scale-[1.02] active:scale-[0.98]">
+                    Connect WhatsApp
+                  </a>
+                )}
+              </div>
+
+              {waStatus && (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">
+                  {waStatus}
+                </div>
               )}
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">WhatsApp Phone ID</label>

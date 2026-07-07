@@ -39,7 +39,220 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     console.log('[Webhook] Received payload:', JSON.stringify(body));
     
-    // 1. Detect if this is a Meta/Facebook Lead Gen webhook payload
+    // 1. Detect if this is a WhatsApp Webhook payload
+    if (body.object === 'whatsapp_business_account' && body.entry && body.entry.length > 0) {
+      console.log('[Webhook] WhatsApp webhook event received.');
+      const entry = body.entry[0];
+      const change = entry.changes?.[0];
+      
+      if (change) {
+        const field = change.field;
+        const val = change.value;
+
+        // A. Handle message events (incoming messages or status changes)
+        if (field === 'messages') {
+          const metadata = val.metadata;
+          const phoneId = metadata?.phone_number_id;
+
+          // Resolve tenant_id from settings using whatsapp_phone_id
+          let resolvedTenantId = 'default';
+          let whatsappApiToken = '';
+          let autoResponseTemplate = '';
+          if (supabase && phoneId) {
+            try {
+              const { data: tenantSettings } = await supabase
+                .from('settings')
+                .select('tenant_id, whatsapp_api_token, whatsapp_auto_response_template')
+                .eq('whatsapp_phone_id', phoneId)
+                .maybeSingle();
+              if (tenantSettings) {
+                resolvedTenantId = tenantSettings.tenant_id;
+                whatsappApiToken = tenantSettings.whatsapp_api_token || '';
+                autoResponseTemplate = tenantSettings.whatsapp_auto_response_template || '';
+                console.log(`[Webhook] Resolved WhatsApp tenant: ${resolvedTenantId}`);
+              }
+            } catch (err: any) {
+              console.error('[Webhook] Error finding tenant for WhatsApp phone ID:', err.message);
+            }
+          }
+
+          // Case A.1: Incoming messages
+          if (val.messages && val.messages.length > 0) {
+            const message = val.messages[0];
+            const senderPhone = message.from; // e.g. "919988776655"
+            const messageId = message.id;
+            const messageType = message.type;
+            let messageText = '';
+
+            if (messageType === 'text') {
+              messageText = message.text?.body || '';
+            } else {
+              messageText = `[Received WhatsApp ${messageType} message]`;
+            }
+
+            const senderName = val.contacts?.[0]?.profile?.name || 'WhatsApp Contact';
+
+            console.log(`[Webhook] WhatsApp incoming message from ${senderPhone}: "${messageText}"`);
+
+            if (supabase) {
+              // Try to find the lead in this tenant matching the phone number
+              // Strip leading country code/special chars for safe matching
+              const cleanPhone = senderPhone.replace(/\D/g, '');
+              const last10 = cleanPhone.slice(-10);
+
+              const { data: leads } = await supabase
+                .from('leads')
+                .select('id, name')
+                .eq('tenant_id', resolvedTenantId)
+                .or(`phone.ilike.%${last10}%,whatsapp_number.ilike.%${last10}%`);
+
+              let leadId = '';
+              if (leads && leads.length > 0) {
+                leadId = leads[0].id;
+                console.log(`[Webhook] Found existing WhatsApp lead: ${leads[0].name} (ID: ${leadId})`);
+              } else {
+                // Auto-create new lead if it doesn't exist
+                const { data: defaultPipe } = await supabase
+                  .from('pipelines')
+                  .select('id')
+                  .eq('tenant_id', resolvedTenantId)
+                  .eq('is_default', true)
+                  .maybeSingle();
+
+                const { data: newLead, error: insertLeadErr } = await supabase
+                  .from('leads')
+                  .insert({
+                    name: senderName,
+                    phone: `+${cleanPhone}`,
+                    whatsapp_number: `+${cleanPhone}`,
+                    lead_source: 'WhatsApp',
+                    status: '1st followup',
+                    score: 30,
+                    tags: ['WhatsApp Ingestion'],
+                    tenant_id: resolvedTenantId,
+                    pipeline_id: defaultPipe?.id || null
+                  })
+                  .select()
+                  .single();
+
+                if (newLead) {
+                  leadId = newLead.id;
+                  console.log(`[Webhook] Auto-created new WhatsApp lead: ${senderName} (ID: ${leadId})`);
+
+                  await supabase.from('activity_logs').insert({
+                    lead_id: leadId,
+                    action_type: 'lead_created',
+                    description: `Lead auto-captured from incoming WhatsApp chat. Sender display name: ${senderName}`,
+                    tenant_id: resolvedTenantId
+                  });
+                } else if (insertLeadErr) {
+                  console.error('[Webhook] Failed to auto-create WhatsApp lead:', insertLeadErr.message);
+                }
+              }
+
+              if (leadId) {
+                // Insert message history row
+                await supabase.from('whatsapp_history').insert({
+                  lead_id: leadId,
+                  direction: 'incoming',
+                  message_text: messageText,
+                  status: 'read',
+                  tenant_id: resolvedTenantId
+                });
+
+                // Add activity log
+                await supabase.from('activity_logs').insert({
+                  lead_id: leadId,
+                  action_type: 'whatsapp_received',
+                  description: `WhatsApp Message Received: "${messageText.substring(0, 100)}${messageText.length > 100 ? '...' : ''}"`,
+                  tenant_id: resolvedTenantId
+                });
+
+                // Trigger auto-response template if configured
+                if (whatsappApiToken && phoneId && autoResponseTemplate) {
+                  waitUntil(sendWhatsAppAutoResponse({
+                    phoneId,
+                    apiToken: whatsappApiToken,
+                    to: senderPhone,
+                    templateName: autoResponseTemplate
+                  }));
+                }
+              }
+            }
+          }
+
+          // Case A.2: Outgoing message status updates
+          if (val.statuses && val.statuses.length > 0) {
+            const statusUpdate = val.statuses[0];
+            const recipientPhone = statusUpdate.recipient_id;
+            const messageStatus = statusUpdate.status; // sent, delivered, read, failed
+
+            console.log(`[Webhook] WhatsApp status update to ${recipientPhone}: ${messageStatus}`);
+
+            if (supabase) {
+              const cleanPhone = recipientPhone.replace(/\D/g, '');
+              const last10 = cleanPhone.slice(-10);
+
+              const { data: leads } = await supabase
+                .from('leads')
+                .select('id, name')
+                .eq('tenant_id', resolvedTenantId)
+                .or(`phone.ilike.%${last10}%,whatsapp_number.ilike.%${last10}%`);
+
+              if (leads && leads.length > 0) {
+                const leadId = leads[0].id;
+                // Find the latest outgoing message for this lead and update its status
+                const { data: latestOutgoing } = await supabase
+                  .from('whatsapp_history')
+                  .select('id')
+                  .eq('lead_id', leadId)
+                  .eq('direction', 'outgoing')
+                  .order('created_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+
+                if (latestOutgoing) {
+                  await supabase
+                    .from('whatsapp_history')
+                    .update({ status: messageStatus })
+                    .eq('id', latestOutgoing.id);
+                  
+                  console.log(`[Webhook] Updated status of latest outgoing message for lead ${leadId} to ${messageStatus}`);
+                }
+              }
+            }
+          }
+        }
+
+        // B. Handle template status updates (APPROVED, REJECTED)
+        if (field === 'message_template_status_update') {
+          const templateName = val.message_template_name;
+          const eventStatus = val.event; // e.g. APPROVED, REJECTED, DISABLE
+          console.log(`[Webhook] WhatsApp template "${templateName}" status changed to ${eventStatus}`);
+
+          if (supabase) {
+            try {
+              const { data: templates } = await supabase
+                .from('whatsapp_templates')
+                .select('id, tenant_id')
+                .eq('name', templateName);
+
+              if (templates && templates.length > 0) {
+                for (const temp of templates) {
+                  console.log(`[Webhook] Template matched for tenant ${temp.tenant_id}. Template ID: ${temp.id}`);
+                }
+              }
+            } catch (err: any) {
+              console.error('[Webhook] Template status update processing failed:', err.message);
+            }
+          }
+        }
+      }
+
+      return NextResponse.json({ received: true }, { status: 200 });
+    }
+
+    // 2. Detect if this is a Meta/Facebook Lead Gen webhook payload
     if (body.object === 'page' && body.entry && body.entry.length > 0) {
       const change = body.entry[0].changes?.[0];
       
@@ -588,5 +801,47 @@ async function sendNewLeadNotifications(lead: any) {
 
   } catch (err: any) {
     console.error('[Notifications] General error in sendNewLeadNotifications:', err.message);
+  }
+}
+
+// Background helper to dispatch automated WhatsApp templates using WhatsApp Cloud API
+async function sendWhatsAppAutoResponse({ phoneId, apiToken, to, templateName }: {
+  phoneId: string;
+  apiToken: string;
+  to: string;
+  templateName: string;
+}) {
+  try {
+    console.log(`[WhatsApp Auto-Response] Sending template "${templateName}" to ${to} via Phone ID ${phoneId}...`);
+    const apiUrl = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "template",
+        template: {
+          name: templateName,
+          language: {
+            code: "en_US"
+          }
+        }
+      })
+    });
+
+    const resData = await response.json();
+    if (!response.ok) {
+      throw new Error(resData.error?.message || 'Failed to dispatch auto-response template');
+    }
+
+    console.log(`[WhatsApp Auto-Response] Send success:`, JSON.stringify(resData));
+  } catch (err: any) {
+    console.error(`[WhatsApp Auto-Response] Error:`, err.message);
   }
 }
