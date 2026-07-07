@@ -66,7 +66,7 @@ export const CRMSettings: React.FC = () => {
   const [accessToken, setAccessToken] = useState(settings.meta_access_token);
   const [phoneId, setPhoneId] = useState(settings.whatsapp_phone_id);
   const [accountId, setAccountId] = useState(settings.whatsapp_account_id);
-  const [whApiToken, setWhApiToken] = useState(settings.whatsapp_api_token);
+  const [whApiToken, setWhApiToken] = useState(settings.whatsapp_api_token ? '••••••••••••••••••••' : '');
   const [autoResponse, setAutoResponse] = useState(settings.whatsapp_auto_response_template);
   const [formStrategy, setFormStrategy] = useState<'fixed' | 'dynamic'>(settings.form_integration_strategy || 'fixed');
   const [fixedCourse, setFixedCourse] = useState(settings.form_integration_fixed_course || 'MBBS');
@@ -383,7 +383,7 @@ export const CRMSettings: React.FC = () => {
     setAccessToken(settings.meta_access_token);
     setPhoneId(settings.whatsapp_phone_id);
     setAccountId(settings.whatsapp_account_id);
-    setWhApiToken(settings.whatsapp_api_token);
+    setWhApiToken(settings.whatsapp_api_token ? '••••••••••••••••••••' : '');
     setAutoResponse(settings.whatsapp_auto_response_template);
     setFormStrategy(settings.form_integration_strategy || 'fixed');
     setFixedCourse(settings.form_integration_fixed_course || 'MBBS');
@@ -532,14 +532,48 @@ export const CRMSettings: React.FC = () => {
   };
 
   const handleSaveWhatsAppSettings = async () => {
-    await updateSettings({
-      whatsapp_phone_id: phoneId,
-      whatsapp_account_id: accountId,
-      whatsapp_api_token: whApiToken,
-      whatsapp_auto_response_template: autoResponse,
-    });
-    setSaveStatus('WhatsApp settings saved!');
-    setTimeout(() => setSaveStatus(null), 3000);
+    try {
+      const response = await fetch('/api/whatsapp/save-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneId,
+          accountId,
+          apiToken: whApiToken,
+          autoResponse,
+          tenantId
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save settings');
+
+      await updateSettings({
+        whatsapp_phone_id: phoneId,
+        whatsapp_account_id: accountId,
+        whatsapp_api_token: whApiToken && !whApiToken.startsWith('••••') ? '••••••••••••••••••••' : whApiToken,
+        whatsapp_auto_response_template: autoResponse,
+      });
+      setSaveStatus('WhatsApp settings saved successfully!');
+    } catch (err: any) {
+      setSaveStatus(`⚠️ Save failed: ${err.message}`);
+    }
+    setTimeout(() => setSaveStatus(null), 4000);
+  };
+
+  const handleSyncTemplates = async () => {
+    setTemplateError(null);
+    setTemplateStatus('Syncing templates from Meta Cloud...');
+    try {
+      const response = await fetch(`/api/whatsapp/templates?tenant_id=${tenantId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Sync failed');
+
+      setTemplateStatus(`Templates synced successfully! Resolved ${data.templates?.length || 0} template(s).`);
+      setTimeout(() => setTemplateStatus(null), 4000);
+    } catch (err: any) {
+      setTemplateError(`Sync failed: ${err.message}`);
+      setTemplateStatus(null);
+    }
   };
 
   const handleSaveTemplate = async (e: React.FormEvent) => {
@@ -549,7 +583,7 @@ export const CRMSettings: React.FC = () => {
       return;
     }
     setTemplateError(null);
-    setTemplateStatus(editingTemplateId ? 'Saving template updates...' : 'Creating new template...');
+    setTemplateStatus(editingTemplateId ? 'Saving template updates...' : 'Submitting template approval request to Meta...');
 
     try {
       if (editingTemplateId) {
@@ -561,13 +595,25 @@ export const CRMSettings: React.FC = () => {
         });
         setTemplateStatus('Template updated successfully!');
       } else {
+        const response = await fetch('/api/whatsapp/templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: tempName.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''),
+            bodyText: tempBody.trim(),
+            tenantId
+          })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to submit template to Meta');
+
         await addWhatsAppTemplate({
-          name: tempName.trim(),
-          body: tempBody.trim(),
+          name: data.template.name,
+          body: data.template.body,
           attachment_url: tempAttachUrl.trim() || undefined,
           attachment_name: tempAttachName.trim() || undefined
         });
-        setTemplateStatus('Template created successfully!');
+        setTemplateStatus('Template submitted to Meta and created successfully!');
       }
       // Reset form
       setEditingTemplateId(null);
@@ -593,6 +639,17 @@ export const CRMSettings: React.FC = () => {
   const handleDeleteTemplate = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this template?')) return;
     try {
+      const template = whatsappTemplates.find(t => t.id === id);
+      if (template) {
+        const response = await fetch(`/api/whatsapp/templates?name=${template.name}&tenant_id=${tenantId}`, {
+          method: 'DELETE'
+        });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to delete template from Meta');
+        }
+      }
+
       await deleteWhatsAppTemplate(id);
       setTemplateStatus('Template deleted successfully!');
       setTimeout(() => setTemplateStatus(null), 3000);
@@ -1230,6 +1287,15 @@ async function submitEduPathLead(leadData) {
                 <MessageSquare className="w-5 h-5 text-indigo-500" />
                 <h3 className="font-bold text-slate-800 dark:text-white">WhatsApp Message Templates & Attachments</h3>
               </div>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleSyncTemplates}
+                  className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Sync from Meta
+                </button>
+              )}
             </div>
             <p className="text-xs text-slate-500">Configure message templates and dynamic attachments (PDF/Images) that consultants can select when messaging leads.</p>
             {templateError && <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-semibold">⚠️ {templateError}</div>}

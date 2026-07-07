@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { encryptToken } from '@/lib/messaging/crypto';
 
 // GET /api/wa-oauth/callback — Meta redirects here after successful WhatsApp Embedded Signup authorization
 export async function GET(req: NextRequest) {
@@ -106,12 +107,15 @@ export async function GET(req: NextRequest) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (supabaseUrl && serviceKey) {
+    // Encrypt access token before storing
+    const { encryptedText, iv } = encryptToken(accessToken);
     const supabase = createClient(supabaseUrl, serviceKey);
     const { error: dbError } = await supabase
       .from('settings')
       .upsert({
         tenant_id: tenantId,
-        whatsapp_api_token: accessToken,
+        whatsapp_api_token: encryptedText,
+        whatsapp_encryption_iv: iv,
         whatsapp_account_id: wabaId || null,
         whatsapp_phone_id: phoneId || null,
       });

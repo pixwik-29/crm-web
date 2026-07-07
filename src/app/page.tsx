@@ -12,10 +12,13 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { PendingTasksModal } from '@/components/PendingTasksModal';
 import { CRMSettings } from '@/components/CRMSettings';
 import { WebFormBuilder } from '@/components/WebFormBuilder';
+import { SharedInbox } from '@/components/SharedInbox';
+import { CampaignManager } from '@/components/CampaignManager';
 import { Footer } from '@/components/Footer';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
-  HelpCircle, User, ShieldCheck, Flame, Settings, Globe, Plane, ShieldAlert, Lock
+  HelpCircle, User, ShieldCheck, Flame, Settings, Globe, Plane, ShieldAlert, Lock,
+  MessageSquare, Send
 } from 'lucide-react';
 
 const DashboardContent: React.FC = () => {
@@ -35,14 +38,14 @@ const DashboardContent: React.FC = () => {
   } = useData();
 
   // Navigation tab
-  const [activeView, setActiveView] = useState<'board' | 'list' | 'analytics' | 'settings' | 'forms'>('board');
+  const [activeView, setActiveView] = useState<'board' | 'list' | 'analytics' | 'settings' | 'forms' | 'inbox' | 'campaigns'>('board');
   
   // Handle redirect view search param (e.g. from fb oauth callback)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const view = params.get('view');
-      if (view && ['board', 'list', 'analytics', 'settings', 'forms'].includes(view)) {
+      if (view && ['board', 'list', 'analytics', 'settings', 'forms', 'inbox', 'campaigns'].includes(view)) {
         setActiveView(view as any);
       }
     }
@@ -323,7 +326,27 @@ const DashboardContent: React.FC = () => {
               <Globe className="w-3.5 h-3.5" /> Web Forms
             </button>
 
+            <button
+              onClick={() => setActiveView('inbox')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                activeView === 'inbox'
+                  ? 'bg-emerald-600 text-white shadow shadow-emerald-500/20'
+                  : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" /> Shared Inbox
+            </button>
 
+            <button
+              onClick={() => setActiveView('campaigns')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                activeView === 'campaigns'
+                  ? 'bg-emerald-600 text-white shadow shadow-emerald-500/20'
+                  : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
+              }`}
+            >
+              <Send className="w-3.5 h-3.5" /> Broadcasts
+            </button>
 
             <button
               onClick={() => setActiveView('settings')}
@@ -394,6 +417,14 @@ const DashboardContent: React.FC = () => {
             <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm">
               <WebFormBuilder />
             </div>
+          )}
+
+          {activeView === 'inbox' && (
+            <SharedInbox />
+          )}
+
+          {activeView === 'campaigns' && (
+            <CampaignManager />
           )}
 
         </div>

@@ -1,0 +1,192 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { waitUntil } from '@vercel/functions';
+import { MessagingService } from '@/lib/messaging/service';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+// POST /api/campaigns — creates and dispatches a broadcast campaign
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { 
+      filters, 
+      templateName, 
+      variables = [], // Array of fields to extract for personalization, e.g. ['name', 'preferred_destination']
+      scheduledTime, 
+      tenantId = 'default' 
+    } = body;
+
+    if (!templateName) {
+      return NextResponse.json({ error: 'Template name is required for broadcast campaigns.' }, { status: 400 });
+    }
+
+    if (!supabaseUrl || !serviceKey) {
+      return NextResponse.json({ error: 'Database configuration missing' }, { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, serviceKey);
+
+    // 1. Build dynamic leads query based on filter selections
+    let query = supabase
+      .from('leads')
+      .select('*')
+      .eq('tenant_id', tenantId);
+
+    if (filters) {
+      if (filters.status && filters.status !== 'all') {
+        query = query.eq('status', filters.status);
+      }
+      if (filters.preferred_destination && filters.preferred_destination !== 'all') {
+        query = query.eq('preferred_destination', filters.preferred_destination);
+      }
+      if (filters.course && filters.course !== 'all') {
+        query = query.eq('course', filters.course);
+      }
+      if (filters.tags && filters.tags.length > 0) {
+        // Match leads containing any of these tags in the tags array column
+        query = query.contains('tags', filters.tags);
+      }
+      if (filters.neet_marks_min) {
+        query = query.gte('neet_marks', parseInt(filters.neet_marks_min));
+      }
+      if (filters.budget_max) {
+        query = query.lte('budget', parseFloat(filters.budget_max));
+      }
+    }
+
+    const { data: targets, error: fetchErr } = await query;
+    if (fetchErr) throw new Error(fetchErr.message);
+
+    if (!targets || targets.length === 0) {
+      return NextResponse.json({ success: true, targetsCount: 0, message: 'No leads matched this filter configuration.' });
+    }
+
+    // 2. Dispatch campaign tasks in background to prevent function timeout
+    if (scheduledTime) {
+      // Future scheduler logic could insert into a job queue table
+      console.log(`[Campaign API] Scheduling campaign for ${scheduledTime} on ${targets.length} targets`);
+      return NextResponse.json({ 
+        success: true, 
+        targetsCount: targets.length, 
+        message: `Campaign scheduled successfully to launch at ${new Date(scheduledTime).toLocaleString()}` 
+      });
+    }
+
+    // Process immediately in background
+    console.log(`[Campaign API] Triggering direct campaign dispatch for ${targets.length} targets`);
+    
+    // Resolve provider first to fail fast if config is broken
+    await MessagingService.getProviderForTenant(tenantId);
+    
+    waitUntil(
+      processCampaignBroadcast({
+        targets,
+        templateName,
+        variables,
+        tenantId
+      })
+    );
+
+    return NextResponse.json({ 
+      success: true, 
+      targetsCount: targets.length, 
+      message: 'Campaign broadcast dispatch started successfully in background.' 
+    });
+  } catch (error: any) {
+    console.error('[Campaign API] Error launching campaign:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// Background worker thread logic to deliver template messages to filtered leads
+async function processCampaignBroadcast({ targets, templateName, variables, tenantId }: {
+  targets: any[];
+  templateName: string;
+  variables: string[];
+  tenantId: string;
+}) {
+  try {
+    const provider = await MessagingService.getProviderForTenant(tenantId);
+    const supabase = createClient(supabaseUrl, serviceKey);
+
+    // Load template definition to log the compiled body text
+    const { data: templateObj } = await supabase
+      .from('whatsapp_templates')
+      .select('body')
+      .eq('name', templateName)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    const templateBodyRaw = templateObj?.body || '';
+
+    console.log(`[Campaign worker] Dispatching WhatsApp messages to ${targets.length} leads...`);
+
+    for (const lead of targets) {
+      try {
+        const phone = lead.whatsapp_number || lead.phone;
+        if (!phone) continue;
+
+        // Build parameters values array based on variable selection mappings
+        const paramValues: string[] = [];
+        variables.forEach((v: string) => {
+          if (v === 'name') paramValues.push(lead.name || '');
+          else if (v === 'course') paramValues.push(lead.course || 'MBBS');
+          else if (v === 'preferred_destination') paramValues.push(lead.preferred_destination || '');
+          else if (v === 'budget') paramValues.push(lead.budget ? `\u20B9${lead.budget}` : '');
+          else paramValues.push('');
+        });
+
+        // Compile display text for log history
+        let messageText = templateBodyRaw;
+        paramValues.forEach((val, idx) => {
+          messageText = messageText.replace(new RegExp(`\\{\\{${idx + 1}\\}\\}`, 'g'), val);
+        });
+
+        // Send message via provider
+        const { messageId, status } = await provider.sendMessage({
+          to: phone,
+          type: 'template',
+          templateName,
+          variables: paramValues
+        });
+
+        // Insert history record
+        await supabase.from('whatsapp_history').insert({
+          lead_id: lead.id,
+          direction: 'outgoing',
+          message_text: messageText || `[Sent template: ${templateName}]`,
+          status: status as any,
+          tenant_id: tenantId
+        });
+
+        // Add activity log
+        await supabase.from('activity_logs').insert({
+          lead_id: lead.id,
+          action_type: 'whatsapp_sent',
+          description: `Sent broadcast template message: "${templateName}"`,
+          tenant_id: tenantId
+        });
+
+        // Throttle slightly to respect Meta Cloud API rate limits (e.g. 50ms per message)
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (sendErr: any) {
+        console.error(`[Campaign worker] Failed message to lead ${lead.id}:`, sendErr.message);
+        
+        // Log failure state
+        await supabase.from('whatsapp_history').insert({
+          lead_id: lead.id,
+          direction: 'outgoing',
+          message_text: `[Failed broadcast template: ${templateName}]`,
+          status: 'failed',
+          tenant_id: tenantId
+        });
+      }
+    }
+
+    console.log(`[Campaign worker] Broadcast campaign finished for ${targets.length} targets`);
+  } catch (err: any) {
+    console.error('[Campaign worker] Critical error in campaign execution thread:', err.message);
+  }
+}

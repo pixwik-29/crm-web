@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { waitUntil } from '@vercel/functions';
 import nodemailer from 'nodemailer';
+import { decryptToken } from '@/lib/messaging/crypto';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -62,12 +63,12 @@ export async function POST(req: NextRequest) {
             try {
               const { data: tenantSettings } = await supabase
                 .from('settings')
-                .select('tenant_id, whatsapp_api_token, whatsapp_auto_response_template')
+                .select('tenant_id, whatsapp_api_token, whatsapp_encryption_iv, whatsapp_auto_response_template')
                 .eq('whatsapp_phone_id', phoneId)
                 .maybeSingle();
               if (tenantSettings) {
                 resolvedTenantId = tenantSettings.tenant_id;
-                whatsappApiToken = tenantSettings.whatsapp_api_token || '';
+                whatsappApiToken = decryptToken(tenantSettings.whatsapp_api_token, tenantSettings.whatsapp_encryption_iv);
                 autoResponseTemplate = tenantSettings.whatsapp_auto_response_template || '';
                 console.log(`[Webhook] Resolved WhatsApp tenant: ${resolvedTenantId}`);
               }
