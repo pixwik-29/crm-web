@@ -75,6 +75,22 @@ export async function GET(req: NextRequest) {
 
       if (upsertErr) {
         console.warn('[Templates API] Failed to cache templates in DB:', upsertErr.message);
+      } else {
+        // 3.5 Clean up local templates that no longer exist in Meta
+        const metaNames = metaTemplates.map(t => t.name);
+        if (metaNames.length > 0) {
+          await supabase
+            .from('whatsapp_templates')
+            .delete()
+            .eq('tenant_id', tenantId)
+            .not('name', 'in', `(${metaNames.join(',')})`);
+        } else {
+          // If no templates exist in Meta, clear all local cached templates for this tenant
+          await supabase
+            .from('whatsapp_templates')
+            .delete()
+            .eq('tenant_id', tenantId);
+        }
       }
     }
 
