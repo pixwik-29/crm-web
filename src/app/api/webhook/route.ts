@@ -60,21 +60,35 @@ export async function POST(req: NextRequest) {
           let whatsappApiToken = '';
           let autoResponseTemplate = '';
           if (supabase && phoneId) {
-            try {
-              const { data: tenantSettings } = await supabase
+              let tenantSettings = null;
+              let queryResult = await supabase
                 .from('settings')
                 .select('tenant_id, whatsapp_api_token, whatsapp_encryption_iv, whatsapp_auto_response_template')
                 .eq('whatsapp_phone_id', phoneId)
                 .maybeSingle();
+
+              if (queryResult.error && queryResult.error.code === '42703') {
+                const fallbackQuery = await supabase
+                  .from('settings')
+                  .select('tenant_id, whatsapp_api_token, whatsapp_auto_response_template')
+                  .eq('whatsapp_phone_id', phoneId)
+                  .maybeSingle();
+                if (fallbackQuery.data) {
+                  tenantSettings = {
+                    ...fallbackQuery.data,
+                    whatsapp_encryption_iv: null
+                  };
+                }
+              } else {
+                tenantSettings = queryResult.data;
+              }
+
               if (tenantSettings) {
                 resolvedTenantId = tenantSettings.tenant_id;
                 whatsappApiToken = decryptToken(tenantSettings.whatsapp_api_token, tenantSettings.whatsapp_encryption_iv);
                 autoResponseTemplate = tenantSettings.whatsapp_auto_response_template || '';
                 console.log(`[Webhook] Resolved WhatsApp tenant: ${resolvedTenantId}`);
               }
-            } catch (err: any) {
-              console.error('[Webhook] Error finding tenant for WhatsApp phone ID:', err.message);
-            }
           }
 
           // Case A.1: Incoming messages

@@ -1238,9 +1238,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     saveLocal('crm_settings', updated);
     // Persist to database if Supabase is active
     if (isSupabaseConfigured && supabase) {
+      // Exclude provider and encryption IV to ensure compatibility with older schemas
+      const { whatsapp_provider, whatsapp_encryption_iv, ...cleanSettings } = updated as any;
+      
+      // Never upsert masked token back to the database, as that would overwrite the encrypted actual token
+      if (cleanSettings.whatsapp_api_token && cleanSettings.whatsapp_api_token.startsWith('••••')) {
+        delete cleanSettings.whatsapp_api_token;
+      }
+
       const { error } = await supabase
         .from('settings')
-        .upsert({ ...updated, tenant_id: tenantId });
+        .upsert({ ...cleanSettings, tenant_id: tenantId });
       if (error) console.error('Failed to persist settings:', error.message);
     }
   };

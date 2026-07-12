@@ -110,15 +110,31 @@ export async function GET(req: NextRequest) {
     // Encrypt access token before storing
     const { encryptedText, iv } = encryptToken(accessToken);
     const supabase = createClient(supabaseUrl, serviceKey);
-    const { error: dbError } = await supabase
+    const payload: any = {
+      tenant_id: tenantId,
+      whatsapp_api_token: encryptedText,
+      whatsapp_encryption_iv: iv,
+      whatsapp_account_id: wabaId || null,
+      whatsapp_phone_id: phoneId || null,
+    };
+
+    let { error: dbError } = await supabase
       .from('settings')
-      .upsert({
+      .upsert(payload);
+
+    if (dbError && (dbError as any).code === '42703') {
+      console.warn('[wa-oauth/callback] Column not found, executing fallback upsert...');
+      const fallbackPayload = {
         tenant_id: tenantId,
-        whatsapp_api_token: encryptedText,
-        whatsapp_encryption_iv: iv,
+        whatsapp_api_token: accessToken,
         whatsapp_account_id: wabaId || null,
         whatsapp_phone_id: phoneId || null,
-      });
+      };
+      const fallbackRes = await supabase
+        .from('settings')
+        .upsert(fallbackPayload);
+      dbError = fallbackRes.error;
+    }
 
     if (dbError) {
       console.error('[wa-oauth/callback] Failed to save WhatsApp credentials to DB:', dbError.message);

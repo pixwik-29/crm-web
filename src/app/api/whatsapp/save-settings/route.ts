@@ -41,9 +41,26 @@ export async function POST(req: NextRequest) {
       updates.whatsapp_encryption_iv = null;
     }
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from('settings')
       .upsert(updates);
+
+    if (error && error.code === '42703') {
+      console.warn('[SaveSettings] Column not found, executing fallback upsert...');
+      // Strip new columns and save token in plain text as fallback
+      const fallbackUpdates = {
+        tenant_id: tenantId,
+        whatsapp_phone_id: phoneId || null,
+        whatsapp_account_id: accountId || null,
+        whatsapp_auto_response_template: autoResponse || null,
+        whatsapp_api_token: apiToken && !apiToken.startsWith('••••') ? apiToken : undefined
+      };
+      
+      const fallbackRes = await supabase
+        .from('settings')
+        .upsert(fallbackUpdates);
+      error = fallbackRes.error;
+    }
 
     if (error) {
       throw new Error(error.message);
