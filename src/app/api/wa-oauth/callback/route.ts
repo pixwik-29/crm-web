@@ -122,7 +122,7 @@ export async function GET(req: NextRequest) {
       .from('settings')
       .upsert(payload);
 
-    if (dbError && (dbError as any).code === '42703') {
+    if (dbError && ((dbError as any).code === '42703' || (dbError as any).code === 'PGRST204')) {
       console.warn('[wa-oauth/callback] Column not found, executing fallback upsert...');
       const fallbackPayload = {
         tenant_id: tenantId,

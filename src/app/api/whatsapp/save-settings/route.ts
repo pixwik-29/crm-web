@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       .from('settings')
       .upsert(updates);
 
-    if (error && error.code === '42703') {
+    if (error && (error.code === '42703' || error.code === 'PGRST204')) {
       console.warn('[SaveSettings] Column not found, executing fallback upsert...');
       // Strip new columns and save token in plain text as fallback
       const fallbackUpdates = {

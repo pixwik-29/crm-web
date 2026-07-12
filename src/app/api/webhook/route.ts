@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
                 .eq('whatsapp_phone_id', phoneId)
                 .maybeSingle();
 
-              if (queryResult.error && queryResult.error.code === '42703') {
+              if (queryResult.error && (queryResult.error.code === '42703' || queryResult.error.code === 'PGRST204')) {
                 const fallbackQuery = await supabase
                   .from('settings')
                   .select('tenant_id, whatsapp_api_token, whatsapp_auto_response_template')

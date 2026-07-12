@@ -28,7 +28,7 @@ export class MessagingService {
 
     if (firstQuery.error) {
       // If error is code 42703 (column does not exist), fall back to older settings schema
-      if (firstQuery.error.code === '42703') {
+      if (firstQuery.error.code === '42703' || firstQuery.error.code === 'PGRST204') {
         console.warn(`[MessagingService] Settings columns not found, executing fallback query for tenant ${tenantId}...`);
         const fallbackQuery = await supabase
           .from('settings')
