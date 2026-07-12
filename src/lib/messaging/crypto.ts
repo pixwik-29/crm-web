@@ -32,7 +32,8 @@ export function encryptToken(text: string): { encryptedText: string; iv: string 
  * Decrypts encrypted token cipher using the corresponding IV
  */
 export function decryptToken(encryptedData: string | null, ivHex: string | null): string {
-  if (!encryptedData || !ivHex) return '';
+  if (!encryptedData) return '';
+  if (!ivHex) return encryptedData;
   
   try {
     const [encrypted, authTag] = encryptedData.split(':');

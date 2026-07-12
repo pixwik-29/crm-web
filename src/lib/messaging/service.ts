@@ -16,14 +16,46 @@ export class MessagingService {
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);
-    const { data: settings, error } = await supabase
+    let settings: any = null;
+    let dbError: any = null;
+
+    // Try to query all columns including newly added provider and encryption columns
+    const firstQuery = await supabase
       .from('settings')
       .select('whatsapp_provider, whatsapp_api_token, whatsapp_encryption_iv, whatsapp_phone_id, whatsapp_account_id')
       .eq('tenant_id', tenantId)
       .maybeSingle();
 
-    if (error || !settings) {
-      throw new Error(`Failed to retrieve configuration settings for workspace: ${tenantId}`);
+    if (firstQuery.error) {
+      // If error is code 42703 (column does not exist), fall back to older settings schema
+      if (firstQuery.error.code === '42703') {
+        console.warn(`[MessagingService] Settings columns not found, executing fallback query for tenant ${tenantId}...`);
+        const fallbackQuery = await supabase
+          .from('settings')
+          .select('whatsapp_api_token, whatsapp_phone_id, whatsapp_account_id')
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+
+        if (!fallbackQuery.error && fallbackQuery.data) {
+          settings = {
+            ...fallbackQuery.data,
+            whatsapp_provider: 'meta',
+            whatsapp_encryption_iv: null
+          };
+        } else {
+          dbError = fallbackQuery.error || new Error('No settings row found in database');
+        }
+      } else {
+        dbError = firstQuery.error;
+      }
+    } else {
+      settings = firstQuery.data;
+    }
+
+    if (dbError || !settings) {
+      const errMsg = dbError ? dbError.message : 'No settings row found in database';
+      console.error(`[MessagingService] Failed to retrieve settings for tenant ${tenantId}:`, errMsg);
+      throw new Error(`Failed to retrieve configuration settings for workspace: ${tenantId} (${errMsg})`);
     }
 
     const providerType = settings.whatsapp_provider || 'meta';
