@@ -303,6 +303,35 @@ ${fieldComponents}
 }`;
 }
 
+function generateJavaScriptSnippet(form: WebForm, webhookUrl: string, tenantId: string): string {
+  const enabledFields = form.fields.filter(f => f.enabled);
+  const fieldsObject = enabledFields.map(f => "        " + f.key + ": leadData." + f.key + ", // e.g. " + f.label).join(',\n');
+  return [
+    "<!-- Custom JavaScript Integration for Form: " + form.name + " -->",
+    "<script>",
+    "async function submitLeadToCRM(leadData) {",
+    "  try {",
+    "    const response = await fetch('" + webhookUrl + "', {",
+    "      method: 'POST',",
+    "      headers: { 'Content-Type': 'application/json' },",
+    "      body: JSON.stringify({",
+    "        tenant_id: '" + tenantId + "',",
+    "        lead_source: " + JSON.stringify(form.lead_source) + ",",
+    "        campaign_name: " + JSON.stringify(form.name) + ",",
+    "        landing_page_url: typeof window !== 'undefined' ? window.location.href : '',",
+    "        // Dynamic Fields",
+    fieldsObject,
+    "      })",
+    "    });",
+    "    return await response.json();",
+    "  } catch (err) {",
+    "    console.error('CRM lead submission failed:', err);",
+    "  }",
+    "}",
+    "<\/script>"
+  ].join('\n');
+}
+
 export const WebFormBuilder: React.FC = () => {
   const { settings, updateSettings, currentUser } = useData();
   // Use the CORS-enabled proxy so external websites (e.g. pltci.org) can
@@ -316,7 +345,7 @@ export const WebFormBuilder: React.FC = () => {
   const [view, setView] = useState<'list' | 'create' | 'embed'>('list');
   const [selectedForm, setSelectedForm] = useState<WebForm | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
-  const [embedMode, setEmbedMode] = useState<'styled' | 'plain' | 'react'>('styled');
+  const [embedMode, setEmbedMode] = useState<'styled' | 'plain' | 'react' | 'javascript'>('styled');
 
   // Form builder state
   const [formName, setFormName] = useState('');
@@ -375,10 +404,35 @@ export const WebFormBuilder: React.FC = () => {
     if (!selectedForm) return;
     const code = embedMode === 'styled'
       ? generateEmbedCode(selectedForm, webhookUrl, tenantId)
-      : generatePlainCode(selectedForm, webhookUrl, tenantId);
+      : embedMode === 'plain'
+        ? generatePlainCode(selectedForm, webhookUrl, tenantId)
+        : embedMode === 'react'
+          ? generateReactCode(selectedForm, webhookUrl, tenantId)
+          : generateJavaScriptSnippet(selectedForm, webhookUrl, tenantId);
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2500);
+  };
+
+  const handleDuplicateForm = (form: WebForm) => {
+    const newName = prompt('Enter a new name for the duplicated form:', `${form.name} (Copy)`);
+    if (!newName || !newName.trim()) return;
+
+    const newSource = prompt('Enter a new lead source label:', `${form.lead_source}`);
+    if (!newSource || !newSource.trim()) return;
+
+    const duplicatedForm: WebForm = {
+      ...form,
+      id: `form-${Date.now()}`,
+      name: newName.trim(),
+      lead_source: newSource.trim(),
+      created_at: new Date().toISOString()
+    };
+
+    const updated = [...forms, duplicatedForm];
+    updateSettings({ web_forms: updated });
+    setSelectedForm(duplicatedForm);
+    setView('embed');
   };
 
   // ─── EMBED CODE VIEW ───────────────────────────────────────
@@ -442,6 +496,16 @@ export const WebFormBuilder: React.FC = () => {
           >
             ⚛️ React / Next.js
           </button>
+          <button
+            onClick={() => { setEmbedMode('javascript'); setCopiedCode(false); }}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              embedMode === 'javascript'
+                ? 'bg-white dark:bg-zinc-800 text-slate-800 dark:text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            ⚡ Custom JS Function
+          </button>
         </div>
 
         {/* Mode Description */}
@@ -464,6 +528,16 @@ export const WebFormBuilder: React.FC = () => {
               </p>
             </div>
           </div>
+        ) : embedMode === 'javascript' ? (
+          <div className="bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/40 rounded-2xl p-4 flex gap-3">
+            <span className="text-lg flex-shrink-0">⚡</span>
+            <div className="text-sm">
+              <p className="font-bold text-indigo-800 dark:text-indigo-300 mb-1">Custom JavaScript Function Integration</p>
+              <p className="text-xs text-indigo-700 dark:text-indigo-400">
+                A custom, field-aware JavaScript function to post lead payloads directly to the CRM webhook proxy. Use this to integrate styled forms on WordPress/Webflow or Google Sheet triggers without embedding CRM layout stylesheets.
+              </p>
+            </div>
+          </div>
         ) : (
           <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/40 rounded-2xl p-4 flex gap-3">
             <Sparkles className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
@@ -480,7 +554,7 @@ export const WebFormBuilder: React.FC = () => {
             <div className="flex items-center gap-2">
               <Code2 className="w-4 h-4 text-indigo-400" />
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                {embedMode === 'react' ? 'React / Next.js Component (.tsx)' : embedMode === 'plain' ? 'Plain HTML Form Code' : 'Styled Embed Code'}
+                {embedMode === 'react' ? 'React / Next.js Component (.tsx)' : embedMode === 'plain' ? 'Plain HTML Form Code' : embedMode === 'javascript' ? 'Custom JavaScript Function Code' : 'Styled Embed Code'}
               </span>
             </div>
             <button
@@ -499,7 +573,9 @@ export const WebFormBuilder: React.FC = () => {
               ? generateReactCode(selectedForm, webhookUrl, tenantId)
               : embedMode === 'plain'
                 ? generatePlainCode(selectedForm, webhookUrl, tenantId)
-                : generateEmbedCode(selectedForm, webhookUrl, tenantId)
+                : embedMode === 'javascript'
+                  ? generateJavaScriptSnippet(selectedForm, webhookUrl, tenantId)
+                  : generateEmbedCode(selectedForm, webhookUrl, tenantId)
             }
           </pre>
         </div>
@@ -793,13 +869,24 @@ export const WebFormBuilder: React.FC = () => {
                   <Code2 className="w-3.5 h-3.5" /> Get Code
                 </button>
                 {isAdmin && (
-                  <button
-                    onClick={() => handleDeleteForm(form.id)}
-                    className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-400 rounded-xl transition-all border border-transparent hover:border-rose-200/50 opacity-0 group-hover:opacity-100"
-                    title="Delete form"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleDuplicateForm(form)}
+                      className="px-2.5 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-650 dark:text-slate-350 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all border border-slate-200 dark:border-zinc-800 cursor-pointer"
+                      title="Duplicate form to use elsewhere"
+                    >
+                      <Copy className="w-3 h-3" /> Clone
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteForm(form.id)}
+                      className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-400 rounded-xl transition-all border border-transparent hover:border-rose-200/50 opacity-0 group-hover:opacity-100 cursor-pointer"
+                      title="Delete form"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
                 )}
               </div>
             </div>
