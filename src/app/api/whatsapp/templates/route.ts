@@ -34,10 +34,44 @@ export async function GET(req: NextRequest) {
         // Sync custom columns if they exist in schema (or let them fall back)
       }));
 
-      // In multi-tenant settings, we upsert based on (name, tenant_id)
-      const { error: upsertErr } = await supabase
+      // In multi-tenant settings, we try to upsert based on (name, tenant_id)
+      let { error: upsertErr } = await supabase
         .from('whatsapp_templates')
         .upsert(dbTemplates, { onConflict: 'name,tenant_id' });
+
+      // If we hit error 42P10 (no unique constraint on name, tenant_id), perform manual fallback upsert
+      if (upsertErr && upsertErr.code === '42P10') {
+        console.warn('[Templates API] Missing unique constraint, executing manual fallback sync...');
+        
+        // Fetch current local templates to avoid duplicate primary key errors
+        const { data: existingLocal } = await supabase
+          .from('whatsapp_templates')
+          .select('id, name')
+          .eq('tenant_id', tenantId);
+          
+        const localMap = new Map(existingLocal?.map(t => [t.name, t.id]) || []);
+        
+        for (const t of dbTemplates) {
+          const existingId = localMap.get(t.name);
+          if (existingId) {
+            // Update
+            await supabase
+              .from('whatsapp_templates')
+              .update({
+                body: t.body,
+                attachment_url: t.attachment_url,
+                attachment_name: t.attachment_name
+              })
+              .eq('id', existingId);
+          } else {
+            // Insert
+            await supabase
+              .from('whatsapp_templates')
+              .insert(t);
+          }
+        }
+        upsertErr = null; // Clear error as fallback was successful
+      }
 
       if (upsertErr) {
         console.warn('[Templates API] Failed to cache templates in DB:', upsertErr.message);
