@@ -34,25 +34,53 @@ export async function POST(req: NextRequest) {
       .select('*')
       .eq('tenant_id', tenantId);
 
-    if (filters) {
-      if (filters.status && filters.status !== 'all') {
-        query = query.eq('status', filters.status);
+    let activeFilters = filters;
+
+    if (body.groupId) {
+      const { data: groupData, error: groupErr } = await supabase
+        .from('lead_groups')
+        .select('filters')
+        .eq('id', body.groupId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      
+      if (groupErr) throw new Error(`Failed to load group: ${groupErr.message}`);
+      if (groupData) {
+        activeFilters = groupData.filters;
       }
-      if (filters.preferred_destination && filters.preferred_destination !== 'all') {
-        query = query.eq('preferred_destination', filters.preferred_destination);
+    }
+
+    if (activeFilters) {
+      // Support multi-select statuses
+      if (activeFilters.statuses && Array.isArray(activeFilters.statuses) && activeFilters.statuses.length > 0 && !activeFilters.statuses.includes('all')) {
+        query = query.in('status', activeFilters.statuses);
+      } else if (activeFilters.status && activeFilters.status !== 'all') {
+        query = query.eq('status', activeFilters.status);
       }
-      if (filters.course && filters.course !== 'all') {
-        query = query.eq('course', filters.course);
+
+      // Support multi-select destinations
+      if (activeFilters.destinations && Array.isArray(activeFilters.destinations) && activeFilters.destinations.length > 0 && !activeFilters.destinations.includes('all')) {
+        query = query.in('preferred_destination', activeFilters.destinations);
+      } else if (activeFilters.preferred_destination && activeFilters.preferred_destination !== 'all') {
+        query = query.eq('preferred_destination', activeFilters.preferred_destination);
       }
-      if (filters.tags && filters.tags.length > 0) {
+
+      // Support multi-select courses
+      if (activeFilters.courses && Array.isArray(activeFilters.courses) && activeFilters.courses.length > 0 && !activeFilters.courses.includes('all')) {
+        query = query.in('course', activeFilters.courses);
+      } else if (activeFilters.course && activeFilters.course !== 'all') {
+        query = query.eq('course', activeFilters.course);
+      }
+
+      if (activeFilters.tags && activeFilters.tags.length > 0) {
         // Match leads containing any of these tags in the tags array column
-        query = query.contains('tags', filters.tags);
+        query = query.contains('tags', activeFilters.tags);
       }
-      if (filters.neet_marks_min) {
-        query = query.gte('neet_marks', parseInt(filters.neet_marks_min));
+      if (activeFilters.neet_marks_min) {
+        query = query.gte('neet_marks', parseInt(activeFilters.neet_marks_min));
       }
-      if (filters.budget_max) {
-        query = query.lte('budget', parseFloat(filters.budget_max));
+      if (activeFilters.budget_max) {
+        query = query.lte('budget', parseFloat(activeFilters.budget_max));
       }
     }
 
