@@ -97,7 +97,7 @@ export const SharedInbox: React.FC = () => {
     }, 15000);
 
     return () => {
-      supabase.removeChannel(channel);
+      if (supabase) supabase.removeChannel(channel);
       clearInterval(pollInterval);
     };
   }, [tenantId, activeThreadId]);
