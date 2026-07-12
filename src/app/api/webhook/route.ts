@@ -367,8 +367,8 @@ export async function POST(req: NextRequest) {
     let welcomeTemplateToTrigger = null;
 
     if (supabase) {
-      const lookupKey = resolvedCampaignName;
-      if (lookupKey) {
+      const lookupKey = campaign_name || utm_campaign || lead_source;
+      if (lookupKey && lookupKey !== 'Webhook Entry') {
         try {
           const { data: config } = await supabase
             .from('campaign_configurations')

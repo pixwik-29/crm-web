@@ -231,6 +231,10 @@ export const CRMSettings: React.FC = () => {
   const [editingConfigId, setEditingConfigId] = useState<string | null>(null);
   const [configStatus, setConfigStatus] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [metaForms, setMetaForms] = useState<any[]>([]);
+  const [isFetchingMetaForms, setIsFetchingMetaForms] = useState(false);
+  const [selectedSourceType, setSelectedSourceType] = useState<string>('');
+  const [customKeyInput, setCustomKeyInput] = useState<string>('');
 
   // Change Password states & handler
   const [newPassword, setNewPassword] = useState('');
@@ -553,15 +557,55 @@ export const CRMSettings: React.FC = () => {
     }
   };
 
+  // Fetch Meta lead ads forms from Facebook Graph API using page access tokens
+  const fetchMetaLeadForms = async (pagesList: any[]) => {
+    if (!pagesList || pagesList.length === 0) {
+      setMetaForms([]);
+      return;
+    }
+    setIsFetchingMetaForms(true);
+    const formsFound: any[] = [];
+    try {
+      for (const page of pagesList) {
+        if (!page.is_subscribed || !page.access_token) continue;
+        console.log(`[CRMSettings] Fetching leadgen forms for Facebook Page: ${page.name}`);
+        const res = await fetch(`https://graph.facebook.com/v19.0/${page.id}/leadgen_forms?fields=id,name&access_token=${page.access_token}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.data) {
+            data.data.forEach((form: any) => {
+              formsFound.push({
+                key: `form_${form.id}`,
+                name: `Meta Form: ${form.name} (Page: ${page.name})`,
+                source: 'Facebook Ads'
+              });
+            });
+          }
+        }
+      }
+      setMetaForms(formsFound);
+    } catch (err) {
+      console.error('[CRMSettings] Error loading Meta lead forms:', err);
+    } finally {
+      setIsFetchingMetaForms(false);
+    }
+  };
+
   useEffect(() => {
     if (settingsTab === 'integrations' && tenantId) {
       fetchCampaignConfigs();
+      
+      // Auto-load Meta Forms if FB pages are connected
+      if (connectedPages.length > 0) {
+        fetchMetaLeadForms(connectedPages);
+      }
     }
-  }, [settingsTab, tenantId]);
+  }, [settingsTab, tenantId, settings.fb_pages]);
 
   const handleSaveCampaignConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!campaignKeyInput || !customNameInput) return;
+    const finalKey = selectedSourceType === 'custom' ? customKeyInput : selectedSourceType;
+    if (!finalKey || !customNameInput) return;
 
     setConfigStatus('Saving campaign settings...');
     setConfigError(null);
@@ -572,7 +616,7 @@ export const CRMSettings: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId,
-          campaignKey: campaignKeyInput,
+          campaignKey: finalKey,
           customName: customNameInput,
           welcomeTemplateName: selectedWelcomeTemplate || null
         })
@@ -581,7 +625,8 @@ export const CRMSettings: React.FC = () => {
       if (!res.ok) throw new Error(data.error || 'Failed to save configuration');
 
       setConfigStatus('Campaign configuration saved successfully!');
-      setCampaignKeyInput('');
+      setSelectedSourceType('');
+      setCustomKeyInput('');
       setCustomNameInput('');
       setSelectedWelcomeTemplate('');
       setEditingConfigId(null);
@@ -1289,15 +1334,44 @@ async function submitEduPathLead(leadData) {
               </div>
               
               <div>
-                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Form ID / Campaign Key</label>
-                <input 
-                  type="text" 
-                  required 
-                  value={campaignKeyInput} 
-                  onChange={(e) => setCampaignKeyInput(e.target.value)} 
-                  placeholder="e.g. form_125439487 or utm_campaign_name" 
-                  className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 font-bold" 
-                />
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Select Linked Form / Campaign</label>
+                <select 
+                  value={selectedSourceType} 
+                  onChange={(e) => {
+                    setSelectedSourceType(e.target.value);
+                    if (e.target.value !== 'custom') {
+                      setCustomKeyInput('');
+                    }
+                  }}
+                  className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 font-bold"
+                >
+                  <option value="">Choose Form or Campaign...</option>
+                  
+                  {metaForms.length > 0 && (
+                    <optgroup label="Meta / Facebook Lead Ads Forms">
+                      {metaForms.map(f => (
+                        <option key={f.key} value={f.key}>{f.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+
+                  {((settings.web_forms || []).length > 0) && (
+                    <optgroup label="CRM Web Forms">
+                      {(settings.web_forms || []).map((form: any) => {
+                        const key = form.lead_source || `form_local_${form.id}`;
+                        return (
+                          <option key={key} value={key}>
+                            Web Form: {form.name} (Source: {form.lead_source || 'Website Form'})
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+
+                  <optgroup label="Custom Options">
+                    <option value="custom">Enter Custom Campaign Name / UTM Key...</option>
+                  </optgroup>
+                </select>
               </div>
 
               <div>
@@ -1326,13 +1400,29 @@ async function submitEduPathLead(leadData) {
                 </select>
               </div>
 
+              {selectedSourceType === 'custom' && (
+                <div className="md:col-span-3 animate-slide-down">
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Enter Custom Campaign Key / UTM Campaign Name</label>
+                  <input 
+                    type="text" 
+                    required 
+                    value={customKeyInput} 
+                    onChange={(e) => setCustomKeyInput(e.target.value)} 
+                    placeholder="e.g. google_ads_mbbs or newsletter_july" 
+                    className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 font-bold font-mono" 
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 font-medium">This key will match incoming leads whose campaign name or UTM campaign parameter matches this exact value.</p>
+                </div>
+              )}
+
               <div className="md:col-span-3 flex justify-end gap-2 pt-2">
                 {editingConfigId && (
                   <button 
                     type="button" 
                     onClick={() => {
                       setEditingConfigId(null);
-                      setCampaignKeyInput('');
+                      setSelectedSourceType('');
+                      setCustomKeyInput('');
                       setCustomNameInput('');
                       setSelectedWelcomeTemplate('');
                     }}
@@ -1381,11 +1471,22 @@ async function submitEduPathLead(leadData) {
                           type="button" 
                           onClick={() => {
                             setEditingConfigId(cfg.id);
-                            setCampaignKeyInput(cfg.campaign_key);
                             setCustomNameInput(cfg.custom_name);
                             setSelectedWelcomeTemplate(cfg.welcome_template_name || '');
+                            
+                            // Determine if key matches a known loaded Meta Form or Web Form
+                            const isMeta = metaForms.some(f => f.key === cfg.campaign_key);
+                            const isWeb = (settings.web_forms || []).some((form: any) => (form.lead_source || `form_local_${form.id}`) === cfg.campaign_key);
+                            
+                            if (isMeta || isWeb) {
+                              setSelectedSourceType(cfg.campaign_key);
+                              setCustomKeyInput('');
+                            } else {
+                              setSelectedSourceType('custom');
+                              setCustomKeyInput(cfg.campaign_key);
+                            }
                           }} 
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-slate-350 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
                         >
                           Edit
                         </button>
