@@ -43,6 +43,9 @@ export const SharedInbox: React.FC = () => {
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
 
+  // Local optimistic state: messages added immediately after sending (before DB re-fetch)
+  const [localHistory, setLocalHistory] = useState<any[]>([]);
+
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,7 +54,7 @@ export const SharedInbox: React.FC = () => {
     if (chatBottomRef.current) {
       chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [activeThreadId, whatsappHistory]);
+  }, [activeThreadId, whatsappHistory, localHistory]);
 
   // Aggregate active lead threads from whatsapp history & leads list
   const threads: Thread[] = React.useMemo(() => {
@@ -99,15 +102,20 @@ export const SharedInbox: React.FC = () => {
   });
 
   const activeLead = leads.find(l => l.id === activeThreadId);
-  const activeChats = activeThreadId 
-    ? whatsappHistory
-        .filter(c => c.lead_id === activeThreadId)
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-    : [];
+
+  // Merge DB history with locally-added messages (optimistic updates) and deduplicate by id
+  const activeChats = React.useMemo(() => {
+    if (!activeThreadId) return [];
+    const dbMsgs = whatsappHistory.filter(c => c.lead_id === activeThreadId);
+    const localMsgs = localHistory.filter(c => c.lead_id === activeThreadId);
+    const dbIds = new Set(dbMsgs.map(m => m.id));
+    const merged = [...dbMsgs, ...localMsgs.filter(m => !dbIds.has(m.id))];
+    return merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [activeThreadId, whatsappHistory, localHistory]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeThreadId) return;
+    if (!activeThreadId || !activeLead) return;
 
     const messageContent = selectedTemplateId 
       ? whatsappTemplates.find(t => t.id === selectedTemplateId)?.body || ''
@@ -119,7 +127,7 @@ export const SharedInbox: React.FC = () => {
     setSendError(null);
 
     try {
-      // 1. Dispatch custom internal team notes
+      // 1. Dispatch internal team notes
       if (activeInputTab === 'note') {
         if (isConfigured && supabase) {
           await supabase.from('notes').insert({
@@ -128,7 +136,6 @@ export const SharedInbox: React.FC = () => {
             created_by: currentUser?.id || null,
             tenant_id: tenantId
           });
-          
           await supabase.from('activity_logs').insert({
             lead_id: activeThreadId,
             actor_id: currentUser?.id || null,
@@ -143,87 +150,64 @@ export const SharedInbox: React.FC = () => {
         return;
       }
 
-      // 2. Dispatch WhatsApp API message
-      let mediaUrl = '';
-      let mediaType: any = 'text';
+      // 2. Determine the target phone number
+      const targetPhone = activeLead.whatsapp_number || activeLead.phone || '';
+      if (!targetPhone) throw new Error('Lead has no WhatsApp/phone number.');
 
-      if (selectedFile) {
-        // Upload attachment to Supabase Storage or mock it
-        if (isConfigured && supabase) {
-          const fileExt = selectedFile.name.split('.').pop();
-          const fileName = `${Date.now()}_${selectedFile.name.replace(/\s+/g, '_')}`;
-          const filePath = `${tenantId}/${fileName}`;
+      // 3. Call the real Meta Cloud API via campaigns endpoint
+      const payload: any = {
+        tenantId,
+        to: targetPhone,
+        type: selectedTemplateId ? 'template' : (selectedFile ? 'document' : 'text'),
+        message: messageContent,
+      };
 
-          const { error: uploadError } = await supabase.storage
-            .from('whatsapp_attachments')
-            .upload(filePath, selectedFile);
-
-          if (uploadError) throw new Error(`File upload failed: ${uploadError.message}`);
-
-          const { data: publicUrlData } = supabase.storage
-            .from('whatsapp_attachments')
-            .getPublicUrl(filePath);
-
-          mediaUrl = publicUrlData.publicUrl;
-          
-          // Deduce media type
-          if (selectedFile.type.startsWith('image/')) mediaType = 'image';
-          else if (selectedFile.type.startsWith('video/')) mediaType = 'video';
-          else mediaType = 'document';
-        } else {
-          mediaUrl = 'https://via.placeholder.com/150';
-          mediaType = 'image';
-        }
-      } else if (selectedTemplateId) {
-        mediaType = 'template';
+      if (selectedTemplateId) {
+        const tpl = whatsappTemplates.find(t => t.id === selectedTemplateId);
+        payload.templateName = tpl?.name;
       }
 
-      // Hit API integration to dispatch message
-      const response = await fetch('/api/webhook', {
+      const response = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          object: 'whatsapp_business_account',
-          entry: [{
-            id: settings.whatsapp_account_id,
-            changes: [{
-              field: 'messages',
-              value: {
-                messaging_product: 'whatsapp',
-                metadata: { phone_number_id: settings.whatsapp_phone_id },
-                // Mock outgoing trigger through webhook loopback for local rendering
-                statuses: [{
-                  id: `wamid-out-${Date.now()}`,
-                  status: 'sent',
-                  timestamp: Math.floor(Date.now() / 1000).toString(),
-                  recipient_id: activeLead?.whatsapp_number || activeLead?.phone || ''
-                }]
-              }
-            }]
-          }]
-        })
+        body: JSON.stringify(payload)
       });
 
-      // Write mock row directly in DB if API call logic is simulated
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to send message');
+
+      // 4. Write to whatsapp_history DB
+      const newMsgId = `wa-out-${Date.now()}`;
       if (isConfigured && supabase) {
-        await supabase.from('whatsapp_history').insert({
+        const { data: inserted } = await supabase.from('whatsapp_history').insert({
+          id: newMsgId,
           lead_id: activeThreadId,
           direction: 'outgoing',
-          message_text: messageContent || `[Media Attachment]`,
+          message_text: messageContent || '[Attachment]',
           status: 'sent',
           tenant_id: tenantId
-        });
+        }).select().maybeSingle();
 
         await supabase.from('activity_logs').insert({
           lead_id: activeThreadId,
           actor_id: currentUser?.id || null,
           action_type: 'whatsapp_sent',
-          description: `Dispatched WhatsApp Chat: "${messageContent.substring(0, 50)}"`,
+          description: `Sent WhatsApp: "${messageContent.substring(0, 50)}"`,
           tenant_id: tenantId
         });
       }
 
-      // Reset states
+      // 5. Update local state immediately so message appears without refresh
+      setLocalHistory(prev => [...prev, {
+        id: newMsgId,
+        lead_id: activeThreadId,
+        direction: 'outgoing' as const,
+        message_text: messageContent || '[Attachment]',
+        status: 'sent',
+        created_at: new Date().toISOString()
+      }]);
+
+      // Reset inputs
       setInputText('');
       setSelectedTemplateId('');
       setSelectedFile(null);
