@@ -362,6 +362,35 @@ export async function POST(req: NextRequest) {
     else if (marks > 300) score = 65;
     else if (marks > 150) score = 50;
 
+    // Resolve campaign custom name if configured
+    let resolvedCampaignName = campaign_name || utm_campaign || '';
+    let welcomeTemplateToTrigger = null;
+
+    if (supabase) {
+      const lookupKey = resolvedCampaignName;
+      if (lookupKey) {
+        try {
+          const { data: config } = await supabase
+            .from('campaign_configurations')
+            .select('custom_name, welcome_template_name')
+            .eq('tenant_id', resolvedTenantId)
+            .eq('campaign_key', lookupKey)
+            .maybeSingle();
+
+          if (config) {
+            if (config.custom_name) {
+              resolvedCampaignName = config.custom_name;
+            }
+            if (config.welcome_template_name) {
+              welcomeTemplateToTrigger = config.welcome_template_name;
+            }
+          }
+        } catch (err: any) {
+          console.error('[Webhook] Error fetching campaign configurations:', err.message);
+        }
+      }
+    }
+
     const leadPayload = {
       name,
       phone,
@@ -372,7 +401,7 @@ export async function POST(req: NextRequest) {
       preferred_destination,
       course,
       lead_source,
-      campaign_name,
+      campaign_name: resolvedCampaignName || null,
       adset_name,
       creative_name,
       utm_source,
@@ -414,12 +443,23 @@ export async function POST(req: NextRequest) {
       await supabase.from('activity_logs').insert([{
         lead_id: data.id,
         action_type: 'lead_created',
-        description: `Lead auto-captured via Webhook from ${lead_source}. Campaign: ${campaign_name || 'N/A'}`,
+        description: `Lead auto-captured via Webhook from ${lead_source}. Campaign: ${resolvedCampaignName || 'N/A'}`,
         tenant_id: data.tenant_id
       }]);
 
       // Trigger background email and push notifications
       waitUntil(sendNewLeadNotifications(data));
+
+      // Trigger automated Welcome message if configured
+      if (welcomeTemplateToTrigger) {
+        const originalLookupKey = campaign_name || utm_campaign || '';
+        waitUntil(triggerWelcomeWhatsAppMessage({
+          tenantId: data.tenant_id,
+          phone: data.phone,
+          lookupKey: originalLookupKey,
+          leadName: data.name
+        }));
+      }
 
       return NextResponse.json({ success: true, lead: data }, { status: 201 });
     } else {
@@ -537,6 +577,33 @@ async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'de
         let score = 30;
         if (marks > 450) score = 90;
         else if (marks > 300) score = 65;
+
+        // Resolve custom campaign name and welcome template for Meta Lead Ads Form
+        let resolvedCampaignName = `Form ID: ${formId || 'N/A'}`;
+        let welcomeTemplateToTrigger = null;
+
+        if (supabase && formId) {
+          try {
+            const lookupKey = `form_${formId}`;
+            const { data: config } = await supabase
+              .from('campaign_configurations')
+              .select('custom_name, welcome_template_name')
+              .eq('tenant_id', tenantId)
+              .eq('campaign_key', lookupKey)
+              .maybeSingle();
+
+            if (config) {
+              if (config.custom_name) {
+                resolvedCampaignName = config.custom_name;
+              }
+              if (config.welcome_template_name) {
+                welcomeTemplateToTrigger = config.welcome_template_name;
+              }
+            }
+          } catch (err: any) {
+            console.error('[processMetaLead] Error fetching campaign configurations:', err.message);
+          }
+        }
         
         leadPayload = {
           name: name || 'Meta Lead Form User',
@@ -547,7 +614,7 @@ async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'de
           preferred_destination: preferred_destination || undefined,
           course: 'MBBS',
           lead_source: 'Facebook Ads',
-          campaign_name: `Form ID: ${formId || 'N/A'} (Page ID: ${pageId || 'N/A'})`,
+          campaign_name: resolvedCampaignName,
           status: '1st followup',
           score,
           tags: ['Facebook Lead Ads'],
@@ -586,6 +653,25 @@ async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'de
     return;
   }
 
+  // Resolve welcome template details before leadPayload insertion
+  let welcomeTemplateNameForInsert = null;
+  if (leadPayload && formId) {
+    try {
+      const lookupKey = `form_${formId}`;
+      const { data: config } = await supabase
+        .from('campaign_configurations')
+        .select('welcome_template_name')
+        .eq('tenant_id', tenantId)
+        .eq('campaign_key', lookupKey)
+        .maybeSingle();
+      if (config?.welcome_template_name) {
+        welcomeTemplateNameForInsert = config.welcome_template_name;
+      }
+    } catch (err) {
+      // Ignored
+    }
+  }
+
   if (leadPayload) {
     leadPayload.tenant_id = tenantId;
     try {
@@ -618,7 +704,7 @@ async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'de
     await supabase.from('activity_logs').insert([{
       lead_id: data.id,
       action_type: 'lead_created',
-      description: `Lead auto-captured from Facebook Ads. LeadGen ID: ${leadgenId}. Ad ID: ${adId || 'N/A'}`,
+      description: `Lead auto-captured from Facebook Ads. Campaign: ${data.campaign_name || 'N/A'}. LeadGen ID: ${leadgenId}`,
       tenant_id: data.tenant_id
     }]);
     
@@ -626,6 +712,16 @@ async function processMetaLead({ leadgenId, formId, pageId, adId, tenantId = 'de
 
     // Trigger email and push notifications for Meta Leads
     await sendNewLeadNotifications(data);
+
+    // Trigger welcome WhatsApp template if configured
+    if (welcomeTemplateNameForInsert) {
+      waitUntil(triggerWelcomeWhatsAppMessage({
+        tenantId: data.tenant_id,
+        phone: data.phone,
+        lookupKey: `form_${formId}`,
+        leadName: data.name
+      }));
+    }
   } catch (dbErr: any) {
     console.error('[processMetaLead] Exception during DB insert:', dbErr.message);
   }
@@ -858,5 +954,128 @@ async function sendWhatsAppAutoResponse({ phoneId, apiToken, to, templateName }:
     console.log(`[WhatsApp Auto-Response] Send success:`, JSON.stringify(resData));
   } catch (err: any) {
     console.error(`[WhatsApp Auto-Response] Error:`, err.message);
+  }
+}
+
+// Background helper to dispatch automated campaign-specific WhatsApp welcome messages
+async function triggerWelcomeWhatsAppMessage({
+  tenantId,
+  phone,
+  lookupKey,
+  leadName
+}: {
+  tenantId: string;
+  phone: string;
+  lookupKey: string;
+  leadName: string;
+}) {
+  if (!supabase) return;
+  try {
+    // 1. Fetch campaign configuration
+    const { data: config } = await supabase
+      .from('campaign_configurations')
+      .select('welcome_template_name')
+      .eq('tenant_id', tenantId)
+      .eq('campaign_key', lookupKey)
+      .maybeSingle();
+
+    if (!config || !config.welcome_template_name) {
+      console.log(`[Webhook Welcome] No welcome template configured for key "${lookupKey}" in tenant ${tenantId}.`);
+      return;
+    }
+
+    const welcomeTemplateName = config.welcome_template_name;
+
+    // 2. Fetch tenant settings for WhatsApp
+    let tenantSettings = null;
+    let queryResult = await supabase
+      .from('settings')
+      .select('whatsapp_api_token, whatsapp_encryption_iv, whatsapp_phone_id')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (queryResult.error && (queryResult.error.code === '42703' || queryResult.error.code === 'PGRST204')) {
+      const fallbackQuery = await supabase
+        .from('settings')
+        .select('whatsapp_api_token, whatsapp_phone_id')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (fallbackQuery.data) {
+        tenantSettings = {
+          ...fallbackQuery.data,
+          whatsapp_encryption_iv: null
+        };
+      }
+    } else {
+      tenantSettings = queryResult.data;
+    }
+
+    if (!tenantSettings || !tenantSettings.whatsapp_phone_id || !tenantSettings.whatsapp_api_token) {
+      console.warn(`[Webhook Welcome] WhatsApp settings incomplete for tenant ${tenantId}, cannot send welcome message.`);
+      return;
+    }
+
+    const apiToken = decryptToken(tenantSettings.whatsapp_api_token, tenantSettings.whatsapp_encryption_iv);
+    const phoneId = tenantSettings.whatsapp_phone_id;
+
+    // Clean phone number (add + if missing, strip spaces)
+    let targetPhone = phone.replace(/[^0-9]/g, '');
+    if (targetPhone.length === 10) {
+      targetPhone = `91${targetPhone}`; // Default to India prefix if exactly 10 digits
+    }
+
+    console.log(`[Webhook Welcome] Triggering welcome template "${welcomeTemplateName}" to ${targetPhone}...`);
+    
+    // Send message using Meta endpoint
+    const apiUrl = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: targetPhone,
+        type: "template",
+        template: {
+          name: welcomeTemplateName,
+          language: {
+            code: "en_US"
+          },
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                {
+                  type: 'text',
+                  text: leadName
+                }
+              ]
+            }
+          ]
+        }
+      })
+    });
+
+    const resData = await response.json();
+    if (!response.ok) {
+      throw new Error(resData.error?.message || 'Failed to send welcome message');
+    }
+
+    console.log(`[Webhook Welcome] Welcome message successfully sent to ${targetPhone}:`, resData.messages?.[0]?.id);
+
+    // Save to message history
+    await supabase.from('whatsapp_history').insert({
+      lead_id: (await supabase.from('leads').select('id').eq('phone', phone).eq('tenant_id', tenantId).limit(1).maybeSingle()).data?.id || null,
+      direction: 'outgoing',
+      message_text: `[Welcome Message Template: ${welcomeTemplateName}]`,
+      status: 'sent',
+      tenant_id: tenantId
+    });
+
+  } catch (err: any) {
+    console.error('[Webhook Welcome] Error executing welcome message trigger:', err.message);
   }
 }

@@ -223,6 +223,15 @@ export const CRMSettings: React.FC = () => {
   const [waStatus, setWaStatus] = useState<string | null>(null);
   const isWhatsAppConnected = Boolean(settings.whatsapp_api_token && settings.whatsapp_api_token.trim().length > 10);
 
+  // Campaign welcome message and naming states
+  const [campaignConfigs, setCampaignConfigs] = useState<any[]>([]);
+  const [campaignKeyInput, setCampaignKeyInput] = useState('');
+  const [customNameInput, setCustomNameInput] = useState('');
+  const [selectedWelcomeTemplate, setSelectedWelcomeTemplate] = useState('');
+  const [editingConfigId, setEditingConfigId] = useState<string | null>(null);
+  const [configStatus, setConfigStatus] = useState<string | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
+
   // Change Password states & handler
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -529,6 +538,73 @@ export const CRMSettings: React.FC = () => {
     });
     setSaveStatus('Meta integration settings saved!');
     setTimeout(() => setSaveStatus(null), 3000);
+  };
+
+  const fetchCampaignConfigs = async () => {
+    if (!tenantId) return;
+    try {
+      const res = await fetch(`/api/campaign-configurations?tenantId=${tenantId}`);
+      const data = await res.json();
+      if (data.success) {
+        setCampaignConfigs(data.configs);
+      }
+    } catch (err) {
+      console.error('Failed to fetch campaign configs:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (settingsTab === 'integrations' && tenantId) {
+      fetchCampaignConfigs();
+    }
+  }, [settingsTab, tenantId]);
+
+  const handleSaveCampaignConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!campaignKeyInput || !customNameInput) return;
+
+    setConfigStatus('Saving campaign settings...');
+    setConfigError(null);
+
+    try {
+      const res = await fetch('/api/campaign-configurations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          campaignKey: campaignKeyInput,
+          customName: customNameInput,
+          welcomeTemplateName: selectedWelcomeTemplate || null
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save configuration');
+
+      setConfigStatus('Campaign configuration saved successfully!');
+      setCampaignKeyInput('');
+      setCustomNameInput('');
+      setSelectedWelcomeTemplate('');
+      setEditingConfigId(null);
+      fetchCampaignConfigs();
+      setTimeout(() => setConfigStatus(null), 4000);
+    } catch (err: any) {
+      setConfigError(err.message);
+      setConfigStatus(null);
+    }
+  };
+
+  const handleDeleteCampaignConfig = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this configuration?')) return;
+    try {
+      const res = await fetch(`/api/campaign-configurations?id=${id}&tenantId=${tenantId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        fetchCampaignConfigs();
+      }
+    } catch (err) {
+      console.error('Failed to delete configuration:', err);
+    }
   };
 
   const handleSaveWhatsAppSettings = async () => {
@@ -1189,6 +1265,147 @@ async function submitEduPathLead(leadData) {
               <div>
                 <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">System App Verify ID</label>
                 <input type="text" readOnly value="edu_verify_sub_channel" className="w-full bg-slate-150/40 dark:bg-black/40 border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-400 outline-none cursor-not-allowed" />
+              </div>
+            </div>
+          </div>
+
+          {/* Form & Campaign Welcome Automation ────────────────────────── */}
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-6 animate-fade-in">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-900 pb-4">
+              <div className="flex items-center gap-2.5">
+                <Users className="w-5 h-5 text-indigo-500" />
+                <div>
+                  <h3 className="font-bold text-slate-800 dark:text-white">Form & Campaign Welcome Automation</h3>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Map Facebook Ads forms/campaign keys to friendly names and trigger welcome WhatsApp messages</p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveCampaignConfig} className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 dark:bg-zinc-900/30 p-5 rounded-2xl border border-slate-150 dark:border-zinc-900/60">
+              <div className="md:col-span-3">
+                <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wider">
+                  {editingConfigId ? 'Edit Configuration' : 'Configure New Form / Campaign Mapping'}
+                </span>
+              </div>
+              
+              <div>
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Form ID / Campaign Key</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={campaignKeyInput} 
+                  onChange={(e) => setCampaignKeyInput(e.target.value)} 
+                  placeholder="e.g. form_125439487 or utm_campaign_name" 
+                  className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 font-bold" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Friendly Campaign Name</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={customNameInput} 
+                  onChange={(e) => setCustomNameInput(e.target.value)} 
+                  placeholder="e.g. Davao MBBS Intake July Form" 
+                  className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 font-bold" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Welcome WhatsApp Template</label>
+                <select 
+                  value={selectedWelcomeTemplate} 
+                  onChange={(e) => setSelectedWelcomeTemplate(e.target.value)} 
+                  className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-855 dark:text-white outline-none focus:border-indigo-500 font-bold"
+                >
+                  <option value="">None (Welcome Message Disabled)</option>
+                  {whatsappTemplates.map(t => (
+                    <option key={t.id} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-3 flex justify-end gap-2 pt-2">
+                {editingConfigId && (
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setEditingConfigId(null);
+                      setCampaignKeyInput('');
+                      setCustomNameInput('');
+                      setSelectedWelcomeTemplate('');
+                    }}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-slate-350 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button 
+                  type="submit" 
+                  disabled={!isAdmin}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+                >
+                  {editingConfigId ? 'Update Mapping' : 'Save Campaign Setting'}
+                </button>
+              </div>
+            </form>
+
+            {configStatus && <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl text-[10px] font-semibold">{configStatus}</div>}
+            {configError && <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-semibold">⚠️ {configError}</div>}
+
+            {/* Configured campaigns list */}
+            <div className="space-y-3">
+              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Configured Form / Campaign Mappings ({campaignConfigs.length})</span>
+              <div className="grid grid-cols-1 gap-2">
+                {campaignConfigs.map((cfg) => (
+                  <div key={cfg.id} className="bg-slate-50 dark:bg-black/40 border border-slate-150 dark:border-zinc-900/60 p-4 rounded-2xl flex flex-wrap items-center justify-between text-xs gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-extrabold text-slate-800 dark:text-white text-xs">{cfg.custom_name}</h4>
+                        <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-50 dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-zinc-800/80 font-bold">
+                          Key: {cfg.campaign_key}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-semibold">
+                        Welcome WhatsApp: {cfg.welcome_template_name ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold">Auto-send &quot;{cfg.welcome_template_name}&quot;</span>
+                        ) : (
+                          <span className="text-slate-500 italic font-medium">Disabled</span>
+                        )}
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex items-center gap-2">
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            setEditingConfigId(cfg.id);
+                            setCampaignKeyInput(cfg.campaign_key);
+                            setCustomNameInput(cfg.custom_name);
+                            setSelectedWelcomeTemplate(cfg.welcome_template_name || '');
+                          }} 
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => handleDeleteCampaignConfig(cfg.id)} 
+                          className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 rounded-lg transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {campaignConfigs.length === 0 && (
+                  <p className="text-xs text-slate-400 font-medium italic text-center py-4 bg-slate-50 dark:bg-black/20 rounded-2xl border border-dashed border-slate-200 dark:border-zinc-900">
+                    No campaigns or forms configured yet.
+                  </p>
+                )}
               </div>
             </div>
           </div>
