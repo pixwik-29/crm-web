@@ -56,6 +56,53 @@ export const SharedInbox: React.FC = () => {
     }
   }, [activeThreadId, whatsappHistory, localHistory]);
 
+  // Dedicated realtime subscription for incoming messages in this component
+  // (independent of DataContext — acts as a direct safety net)
+  useEffect(() => {
+    if (!supabase || !tenantId) return;
+
+    const channel = supabase
+      .channel(`inbox-realtime-${tenantId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'whatsapp_history',
+        filter: `tenant_id=eq.${tenantId}`
+      }, (payload) => {
+        const newMsg = payload.new as any;
+        // Add to local state so it appears immediately without waiting for DataContext
+        setLocalHistory(prev => {
+          if (prev.some(m => m.id === newMsg.id)) return prev; // deduplicate
+          return [...prev, newMsg];
+        });
+      })
+      .subscribe();
+
+    // 15-second polling fallback: fetch latest messages in active thread
+    const pollInterval = setInterval(async () => {
+      if (!activeThreadId || !supabase) return;
+      const { data } = await supabase
+        .from('whatsapp_history')
+        .select('*')
+        .eq('lead_id', activeThreadId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (data) {
+        setLocalHistory(prev => {
+          const existingIds = new Set([...prev.map(m => m.id)]);
+          const newMsgs = data.filter(m => !existingIds.has(m.id));
+          return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev;
+        });
+      }
+    }, 15000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
+    };
+  }, [tenantId, activeThreadId]);
+
+
   // Aggregate active lead threads from whatsapp history & leads list
   const threads: Thread[] = React.useMemo(() => {
     const threadMap = new Map<string, Thread>();
