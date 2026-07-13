@@ -367,11 +367,14 @@ export const WebFormBuilder: React.FC = () => {
   };
 
   const handleCreateForm = () => {
-    if (!formName.trim()) return;
+    if (!formName.trim()) {
+      alert('Form name is required.');
+      return;
+    }
     const newForm: WebForm = {
       id: `form-${Date.now()}`,
       name: formName.trim(),
-      lead_source: leadSource,
+      lead_source: leadSource.trim() || 'Website Form',
       button_text: buttonText,
       success_message: successMessage,
       primary_color: primaryColor,
@@ -383,6 +386,19 @@ export const WebFormBuilder: React.FC = () => {
     resetBuilder();
     setSelectedForm(newForm);
     setView('embed');
+  };
+
+  const handleStartNewForm = () => {
+    const name = prompt('Enter a name for your new lead form:');
+    if (name === null) return; // User cancelled
+    if (!name.trim()) {
+      alert('Form name is required to create a new form.');
+      return;
+    }
+    resetBuilder();
+    setFormName(name.trim());
+    setLeadSource(name.trim());
+    setView('create');
   };
 
   const handleDeleteForm = (id: string) => {
@@ -803,7 +819,7 @@ export const WebFormBuilder: React.FC = () => {
         </div>
         {isAdmin && (
           <button
-            onClick={() => setView('create')}
+            onClick={handleStartNewForm}
             className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md shadow-indigo-500/10 transition-all hover:scale-[1.01]"
           >
             <Plus className="w-4 h-4" /> New Form
@@ -829,7 +845,7 @@ export const WebFormBuilder: React.FC = () => {
           <p className="text-xs text-slate-400 mb-5 max-w-xs">Create your first lead capture form and get a code snippet to paste on your website.</p>
           {isAdmin && (
             <button
-              onClick={() => setView('create')}
+              onClick={handleStartNewForm}
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all"
             >
               <Plus className="w-4 h-4" /> Create First Form
