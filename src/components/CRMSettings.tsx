@@ -313,6 +313,21 @@ export const CRMSettings: React.FC = () => {
     }
   };
   const connectedPages = getFbPages();
+
+  const existingLeadCampaigns = React.useMemo(() => {
+    if (!leads || !Array.isArray(leads)) return [];
+    const uniqueCampaigns = new Set<string>();
+    leads.forEach((lead: any) => {
+      if (lead.campaign_name && lead.campaign_name.trim()) {
+        uniqueCampaigns.add(lead.campaign_name.trim());
+      }
+      if (lead.utm_campaign && lead.utm_campaign.trim()) {
+        uniqueCampaigns.add(lead.utm_campaign.trim());
+      }
+    });
+    return Array.from(uniqueCampaigns).sort();
+  }, [leads]);
+
   const [isSubscribingId, setIsSubscribingId] = useState<string | null>(null);
 
   const handleToggleSubscription = async (page: any) => {
@@ -567,7 +582,7 @@ export const CRMSettings: React.FC = () => {
     const formsFound: any[] = [];
     try {
       for (const page of pagesList) {
-        if (!page.is_subscribed || !page.access_token) continue;
+        if (!page.access_token) continue;
         console.log(`[CRMSettings] Fetching leadgen forms for Facebook Page: ${page.name}`);
         const res = await fetch(`https://graph.facebook.com/v19.0/${page.id}/leadgen_forms?fields=id,name&access_token=${page.access_token}`);
         if (res.ok) {
@@ -1368,6 +1383,14 @@ async function submitEduPathLead(leadData) {
                     </optgroup>
                   )}
 
+                  {existingLeadCampaigns.length > 0 && (
+                    <optgroup label="Active CRM Lead Campaigns">
+                      {existingLeadCampaigns.map(camp => (
+                        <option key={camp} value={camp}>Campaign: {camp}</option>
+                      ))}
+                    </optgroup>
+                  )}
+
                   <optgroup label="Custom Options">
                     <option value="custom">Enter Custom Campaign Name / UTM Key...</option>
                   </optgroup>
@@ -1474,11 +1497,12 @@ async function submitEduPathLead(leadData) {
                             setCustomNameInput(cfg.custom_name);
                             setSelectedWelcomeTemplate(cfg.welcome_template_name || '');
                             
-                            // Determine if key matches a known loaded Meta Form or Web Form
+                            // Determine if key matches a known loaded Meta Form, Web Form, or Active Campaign
                             const isMeta = metaForms.some(f => f.key === cfg.campaign_key);
                             const isWeb = (settings.web_forms || []).some((form: any) => (form.lead_source || `form_local_${form.id}`) === cfg.campaign_key);
+                            const isActiveCamp = existingLeadCampaigns.includes(cfg.campaign_key);
                             
-                            if (isMeta || isWeb) {
+                            if (isMeta || isWeb || isActiveCamp) {
                               setSelectedSourceType(cfg.campaign_key);
                               setCustomKeyInput('');
                             } else {
