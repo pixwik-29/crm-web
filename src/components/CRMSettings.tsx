@@ -317,16 +317,28 @@ export const CRMSettings: React.FC = () => {
   const existingLeadCampaigns = React.useMemo(() => {
     if (!leads || !Array.isArray(leads)) return [];
     const uniqueCampaigns = new Set<string>();
+    
+    // Create a set of loaded Meta forms to prevent overlaps
+    const metaKeys = new Set((metaForms || []).map(f => f.key));
+
     leads.forEach((lead: any) => {
       if (lead.campaign_name && lead.campaign_name.trim()) {
-        uniqueCampaigns.add(lead.campaign_name.trim());
+        const name = lead.campaign_name.trim();
+        // Exclude if starts with 'form_' or matches a Meta Form ID
+        if (!name.startsWith('form_') && !metaKeys.has(name) && !metaKeys.has(`form_${name}`)) {
+          uniqueCampaigns.add(name);
+        }
       }
       if (lead.utm_campaign && lead.utm_campaign.trim()) {
-        uniqueCampaigns.add(lead.utm_campaign.trim());
+        const name = lead.utm_campaign.trim();
+        // Exclude if starts with 'form_' or matches a Meta Form ID
+        if (!name.startsWith('form_') && !metaKeys.has(name) && !metaKeys.has(`form_${name}`)) {
+          uniqueCampaigns.add(name);
+        }
       }
     });
     return Array.from(uniqueCampaigns).sort();
-  }, [leads]);
+  }, [leads, metaForms]);
 
   const [isSubscribingId, setIsSubscribingId] = useState<string | null>(null);
 
