@@ -49,6 +49,7 @@ interface DataContextType {
   connectLeadToPartnerStudent: (leadId: string, studentId: string) => Promise<void>;
   disconnectLeadFromPartnerStudent: (studentId: string) => Promise<void>;
   verifyPartnerDoc: (docId: string, status: 'verified' | 'rejected') => Promise<void>;
+  uploadAdminPartnerDoc: (studentId: string, documentName: string, file: File) => Promise<void>;
   syncPartnerReferrals: () => Promise<{ importedCount: number }>;
   colleges: any[];
   
@@ -2810,6 +2811,86 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const uploadAdminPartnerDoc = async (studentId: string, documentName: string, file: File): Promise<void> => {
+    let fileUrl = '';
+    let fileName = file.name;
+
+    if (isSupabaseConfigured && supabase) {
+      const bucketName = 'partner_documents';
+      const fileKey = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+      
+      let { data, error } = await supabase.storage.from(bucketName).upload(fileKey, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+      
+      if (error) {
+        try {
+          await supabase.storage.createBucket(bucketName, {
+            public: true,
+            fileSizeLimit: 10485760 // 10MB
+          });
+          
+          const retryResult = await supabase.storage.from(bucketName).upload(fileKey, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+          if (retryResult.error) throw retryResult.error;
+          data = retryResult.data;
+        } catch (bucketErr: any) {
+          throw new Error(error.message || "Failed to upload file to storage.");
+        }
+      }
+      
+      const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(fileKey);
+      fileUrl = urlData.publicUrl;
+    } else {
+      fileUrl = `https://mockstorage.com/partner_documents/${Date.now()}_${file.name}`;
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      const { data: newDoc, error } = await supabase
+        .from('partner_uploaded_docs')
+        .upsert({
+          student_id: studentId,
+          document_name: documentName,
+          file_url: fileUrl,
+          file_name: fileName,
+          verification_status: 'verified',
+          uploaded_by_admin: true,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'student_id,document_name'
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+
+      if (newDoc) {
+        setPartnerUploadedDocs(prev => {
+          const filtered = prev.filter(d => !(d.student_id === studentId && d.document_name.toLowerCase() === documentName.toLowerCase()));
+          return [...filtered, newDoc];
+        });
+      }
+    } else {
+      const mockDoc = {
+        id: `admin-doc-${Date.now()}`,
+        student_id: studentId,
+        document_name: documentName,
+        file_url: fileUrl,
+        file_name: fileName,
+        verification_status: 'verified',
+        uploaded_by_admin: true,
+        uploaded_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      const updated = [...partnerUploadedDocs.filter(d => !(d.student_id === studentId && d.document_name.toLowerCase() === documentName.toLowerCase())), mockDoc];
+      setPartnerUploadedDocs(updated);
+      saveLocal('crm_partner_uploaded_docs', updated);
+    }
+  };
+
   const syncPartnerReferrals = async (): Promise<{ importedCount: number }> => {
     // ── Admin-configured routing rules ─────────────────────────────────────────
     // Admin sets these in CRM Settings > Partner Lead Auto-Routing.
@@ -3310,6 +3391,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       connectLeadToPartnerStudent,
       disconnectLeadFromPartnerStudent,
       verifyPartnerDoc,
+      uploadAdminPartnerDoc,
       syncPartnerReferrals,
       colleges,
       

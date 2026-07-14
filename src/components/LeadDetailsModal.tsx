@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Lead, Profile, Note, Task, ActivityLog, WhatsAppMessage } from '@/types/crm';
 import { useData } from '@/context/DataContext';
-import { X, Send, Phone, MessageCircle, Mail, Plus, Check, Clock, User, FileText, Activity, AlertCircle, Edit, Calendar } from 'lucide-react';
+import { X, Send, Phone, MessageCircle, Mail, Plus, Check, Clock, User, FileText, Activity, AlertCircle, Edit, Calendar, Upload } from 'lucide-react';
 
 interface LeadDetailsModalProps {
   lead: Lead | null;
@@ -46,6 +46,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
     connectLeadToPartnerStudent,
     disconnectLeadFromPartnerStudent,
     verifyPartnerDoc,
+    uploadAdminPartnerDoc,
     visaRequiredDocs,
     colleges
   } = useData();
@@ -920,40 +921,60 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                               )}
                             </div>
 
-                            {upload && (
-                              <div className="flex gap-2 self-end sm:self-auto">
-                                {upload.verification_status !== 'verified' && (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      try {
-                                        await verifyPartnerDoc(upload.id, 'verified');
-                                      } catch (err: any) {
-                                        alert(err.message || 'Failed to verify.');
-                                      }
-                                    }}
-                                    className="px-2.5 py-1 bg-emerald-650 hover:bg-emerald-555 hover:scale-[1.01] active:scale-[0.99] text-white rounded-lg text-[10px] font-bold transition-all shadow-sm"
-                                  >
-                                    Verify
-                                  </button>
-                                )}
-                                {upload.verification_status !== 'rejected' && (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      try {
-                                        await verifyPartnerDoc(upload.id, 'rejected');
-                                      } catch (err: any) {
-                                        alert(err.message || 'Failed to reject.');
-                                      }
-                                    }}
-                                    className="px-2.5 py-1 bg-rose-650 hover:bg-rose-555 hover:scale-[1.01] active:scale-[0.99] text-white rounded-lg text-[10px] font-bold transition-all shadow-sm"
-                                  >
-                                    Reject
-                                  </button>
-                                )}
-                              </div>
-                            )}
+                            <div className="flex items-center gap-2 self-end sm:self-auto">
+                              {upload && (
+                                <div className="flex gap-2">
+                                  {upload.verification_status !== 'verified' && (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          await verifyPartnerDoc(upload.id, 'verified');
+                                        } catch (err: any) {
+                                          alert(err.message || 'Failed to verify.');
+                                        }
+                                      }}
+                                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 hover:scale-[1.01] active:scale-[0.99] text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer border-none"
+                                    >
+                                      Verify
+                                    </button>
+                                  )}
+                                  {upload.verification_status !== 'rejected' && (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          await verifyPartnerDoc(upload.id, 'rejected');
+                                        } catch (err: any) {
+                                          alert(err.message || 'Failed to reject.');
+                                        }
+                                      }}
+                                      className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 hover:scale-[1.01] active:scale-[0.99] text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer border-none"
+                                    >
+                                      Reject
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              
+                              <label className="px-2.5 py-1 bg-indigo-650 hover:bg-indigo-555 hover:scale-[1.01] active:scale-[0.99] text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1.5 border-none">
+                                <Upload className="w-3 h-3" /> Upload College Issued File
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    try {
+                                      await uploadAdminPartnerDoc(connectedStudent.id, docName, file);
+                                      alert(`Successfully uploaded "${file.name}" as official "${docName}"!`);
+                                    } catch (err: any) {
+                                      alert(err.message || "Failed to upload document.");
+                                    }
+                                  }}
+                                />
+                              </label>
+                            </div>
                           </div>
                         );
                       });
