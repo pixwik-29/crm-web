@@ -1453,7 +1453,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 title: '🎓 Student Status Update',
                 content: `${student.first_name} ${student.last_name}'s application status changed to "${updates.status}".`,
                 priority: 'normal',
-                target_partner_id: student.partner_id
+                target_partner_id: student.partner_id,
+                type: 'notification'
               }]);
 
             if (announceErr) {
@@ -2447,7 +2448,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     title: '📄 Visa Document Issued',
                     content: `CRM admin uploaded visa document "${documentName}" for student ${studentName}.`,
                     priority: 'normal',
-                    target_partner_id: student.partner_id
+                    target_partner_id: student.partner_id,
+                    type: 'notification'
                   }]);
 
                 // 2. Fetch partner users and send push notifications via Expo API
@@ -2468,7 +2470,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                       sound: 'default',
                       title: '📄 Visa Document Issued',
                       body: `CRM admin uploaded visa document "${documentName}" for student ${studentName}.`,
-                      data: { studentId: student.id }
+                      data: { link: `student:${student.id}`, studentId: student.id }
                     }));
 
                     await fetch('https://exp.host/--/api/v2/push/send', {
@@ -2613,7 +2615,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                       title,
                       body,
                       sound: 'default',
-                      data: { studentId: studentData.id, documentName: vDocData.document_name }
+                      data: { link: `student:${studentData.id}`, studentId: studentData.id, documentName: vDocData.document_name }
                     })
                   });
                   console.log(`[Push Notification] Dispatched successfully to consultant ${studentData.submitted_by} for student ${studentName}`);
@@ -2887,7 +2889,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     title,
                     body,
                     sound: 'default',
-                    data: { studentId: docData.student_id, documentName: docData.document_name }
+                    data: { link: `student:${docData.student_id}`, studentId: docData.student_id, documentName: docData.document_name }
                   })
                 });
                 console.log(`[Push Notification] Dispatched successfully to consultant ${studentData.submitted_by} for student ${studentName}`);
@@ -3005,7 +3007,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   title: '📄 New Document Issued',
                   content: `CRM admin uploaded "${documentName}" for student ${studentName}.`,
                   priority: 'normal',
-                  target_partner_id: student.partner_id
+                  target_partner_id: student.partner_id,
+                  type: 'notification'
                 }]);
 
               // 2. Fetch partner users and send push notifications via Expo API
@@ -3026,7 +3029,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     sound: 'default',
                     title: '📄 New Document Issued',
                     body: `CRM admin uploaded "${documentName}" for student ${studentName}.`,
-                    data: { studentId }
+                    data: { link: `student:${studentId}`, studentId }
                   }));
 
                   await fetch('https://exp.host/--/api/v2/push/send', {
