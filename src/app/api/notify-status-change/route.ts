@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     const { student, tokens } = ctx;
     const studentName = `${student.first_name} ${student.last_name}`;
-    const actor = actorName ? `${actorName}` : 'Your counsellor';
+    const actor = 'Perfect Scholar';
 
     // ── Event: status_change ──────────────────────────────────────────────────
     if (eventType === 'status_change') {
