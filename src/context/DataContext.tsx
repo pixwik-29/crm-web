@@ -1330,7 +1330,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         description: `Lead created from source: ${leadData.lead_source}`,
         tenant_id: tenantId
       }]);
-      
+
+      if (data) {
+        setLeads(prev => [data as Lead, ...prev]);
+      }
       return data as Lead;
     } else {
       // In local mode, store and simulate
@@ -1463,6 +1466,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             })
           }).catch(e => console.warn('[Auto-Notification] Meta Cloud dispatch failed:', e.message));
         }
+      if (data) {
+        setLeads(prev => prev.map(l => l.id === id ? (data as Lead) : l));
       }
       return data as Lead;
     } else {
@@ -1674,6 +1679,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tenant_id: tenantId
       }]);
 
+      if (data) {
+        setNotes(prev => [data as Note, ...prev]);
+      }
       return data as Note;
     } else {
       const updated = [newNote, ...notes];
@@ -1725,6 +1733,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tenant_id: tenantId
       }]);
 
+      if (data) {
+        setTasks(prev => [data as Task, ...prev]);
+      }
       return data as Task;
     } else {
       const updated = [newTask, ...tasks];
@@ -1770,6 +1781,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tenant_id: tenantId
       }]);
 
+      if (data) {
+        setTasks(prev => prev.map(t => t.id === taskId ? (data as Task) : t));
+      }
       return data as Task;
     } else {
       const updatedTasks = tasks.map(t => {
