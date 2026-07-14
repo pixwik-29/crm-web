@@ -701,29 +701,28 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
           <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950/40 p-6 space-y-4">
             
             <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Select a template to send directly to the lead via the WhatsApp Desktop app or Web.
+              Compose custom message to send directly to the lead via the WhatsApp Desktop app or Web.
             </div>
 
-            {/* Template Selector */}
-            <div className="flex gap-2 items-center">
-              <select
-                value={selectedTemplateId}
-                onChange={(e) => setSelectedTemplateId(e.target.value)}
-                className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm rounded-xl p-3 outline-none text-slate-700 dark:text-slate-300"
-              >
-                <option value="">-- Choose WhatsApp Template --</option>
-                {whatsappTemplates.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-              <button
-                onClick={handleSendWhatsAppTemplate}
-                disabled={!selectedTemplateId}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2"
-              >
-                <MessageCircle className="w-4 h-4" /> Send Template
-              </button>
-            </div>
+            {/* Custom Message Form */}
+            <form onSubmit={handleSendCustomWhatsApp} className="flex flex-col gap-3">
+              <textarea
+                value={customMsg}
+                onChange={(e) => setCustomMsg(e.target.value)}
+                placeholder="Type your WhatsApp message here..."
+                rows={4}
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm rounded-xl p-3 outline-none text-slate-700 dark:text-slate-300 resize-none"
+              />
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={!customMsg.trim()}
+                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2"
+                >
+                  <MessageCircle className="w-4 h-4" /> Send Message
+                </button>
+              </div>
+            </form>
           </div>
         )}
 
