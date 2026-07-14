@@ -1391,25 +1391,37 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (updates.status) {
         try {
           // Find the student linked to this crm lead
-          const { data: student } = await supabase
+          const { data: student, error: studentFetchErr } = await supabase
             .from('partner_students')
             .select('id, first_name, last_name, partner_id')
             .eq('crm_lead_id', id)
             .maybeSingle();
 
+          if (studentFetchErr) {
+            console.error('[Notification Sync] Error fetching partner student:', studentFetchErr.message, studentFetchErr);
+          }
+
           if (student) {
             // Update student status
-            await supabase
+            const { error: studentUpdateErr } = await supabase
               .from('partner_students')
               .update({ application_status: updates.status, updated_at: new Date().toISOString() })
               .eq('id', student.id);
 
+            if (studentUpdateErr) {
+              console.error('[Notification Sync] Error updating student status:', studentUpdateErr.message, studentUpdateErr);
+            }
+
             // Fetch partner users for this partner agency to send push notifications
-            const { data: partnerUsers } = await supabase
+            const { data: partnerUsers, error: usersFetchErr } = await supabase
               .from('partner_users')
               .select('push_token')
               .eq('partner_id', student.partner_id)
               .not('push_token', 'is', null);
+
+            if (usersFetchErr) {
+              console.error('[Notification Sync] Error fetching partner users:', usersFetchErr.message, usersFetchErr);
+            }
 
             if (partnerUsers && partnerUsers.length > 0) {
               const tokens = partnerUsers
@@ -1435,7 +1447,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             // Also insert an in-app announcement notification for the agency
-            await supabase
+            const { error: announceErr } = await supabase
               .from('partner_announcements')
               .insert([{
                 title: '🎓 Student Status Update',
@@ -1443,9 +1455,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 priority: 'normal',
                 target_partner_id: student.partner_id
               }]);
+
+            if (announceErr) {
+              console.error('[Notification Sync] Error inserting in-app announcement:', announceErr.message, announceErr);
+            }
+          } else {
+            console.log('[Notification Sync] No linked partner student found for lead ID:', id);
           }
-        } catch (syncErr) {
-          console.warn("Failed to sync lead status to partner student:", syncErr);
+        } catch (syncErr: any) {
+          console.error("Failed to sync lead status to partner student:", syncErr.message || syncErr);
         }
       }
 
@@ -2898,6 +2916,63 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const filtered = prev.filter(d => !(d.student_id === studentId && d.document_name.toLowerCase() === documentName.toLowerCase()));
           return [...filtered, newDoc];
         });
+
+        // Trigger in-app and push notifications for the partner portal
+        (async () => {
+          try {
+            const { data: student } = await supabase
+              .from('partner_students')
+              .select('first_name, last_name, partner_id')
+              .eq('id', studentId)
+              .single();
+
+            if (student) {
+              const studentName = `${student.first_name} ${student.last_name}`;
+
+              // 1. Insert in-app notification entry
+              await supabase
+                .from('partner_announcements')
+                .insert([{
+                  title: '📄 New Document Issued',
+                  content: `CRM admin uploaded "${documentName}" for student ${studentName}.`,
+                  priority: 'normal',
+                  target_partner_id: student.partner_id
+                }]);
+
+              // 2. Fetch partner users and send push notifications via Expo API
+              const { data: partnerUsers } = await supabase
+                .from('partner_users')
+                .select('push_token')
+                .eq('partner_id', student.partner_id)
+                .not('push_token', 'is', null);
+
+              if (partnerUsers && partnerUsers.length > 0) {
+                const tokens = partnerUsers
+                  .map((u: any) => u.push_token)
+                  .filter((t: any) => typeof t === 'string' && (t.startsWith('ExponentPushToken') || t.startsWith('ExpoPushToken')));
+
+                if (tokens.length > 0) {
+                  const pushMessages = tokens.map(token => ({
+                    to: token,
+                    sound: 'default',
+                    title: '📄 New Document Issued',
+                    body: `CRM admin uploaded "${documentName}" for student ${studentName}.`,
+                    data: { studentId }
+                  }));
+
+                  await fetch('https://exp.host/--/api/v2/push/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(pushMessages)
+                  });
+                  console.log(`[Push] Dispatched document upload push notification to partner users of agency ${student.partner_id}`);
+                }
+              }
+            }
+          } catch (notifErr) {
+            console.warn('[Upload Notification] Failed to send notifications:', notifErr);
+          }
+        })();
       }
     } else {
       const mockDoc = {
