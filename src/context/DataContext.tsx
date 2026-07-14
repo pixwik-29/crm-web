@@ -2863,6 +2863,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const isConfirmed = (student.referral_type || 'interested') === 'confirmed';
         const targetPipeline = pipelines.find(p => p.id === targetPipeId);
+        // Resolve staff member name if available
+        let staffName = 'Partner Staff';
+        if (student.submitted_by) {
+          try {
+            const { data: staffObj } = await supabase
+              .from('partner_users')
+              .select('full_name')
+              .eq('id', student.submitted_by)
+              .maybeSingle();
+            if (staffObj && staffObj.full_name) {
+              staffName = staffObj.full_name;
+            }
+          } catch (err) {
+            console.warn("Could not fetch staff name:", err);
+          }
+        }
+
         // 1. Insert new lead
         const { data: newLead, error: leadErr } = await supabase
           .from('leads')
@@ -2872,7 +2889,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email: student.email || null,
             preferred_destination: student.destination_country,
             course: student.target_program,
-            lead_source: `Partner: ${partnerName}`,
+            lead_source: partnerName,
+            external_consultant: staffName,
             status: targetStage,
             pipeline_id: targetPipeId,
             tenant_id: tenantId
