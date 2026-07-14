@@ -1387,104 +1387,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
       if (error) throw error;
 
-      // Sync status change to partner portal student record if linked
+      // Sync status change to partner portal — use server-side API to bypass RLS
       if (updates.status) {
-        try {
-          // Find the student linked to this crm lead
-          const { data: student, error: studentFetchErr } = await supabase
-            .from('partner_students')
-            .select('id, first_name, last_name, partner_id')
-            .eq('crm_lead_id', id)
-            .maybeSingle();
-
-          if (studentFetchErr) {
-            console.error('[Notification Sync] Error fetching partner student:', studentFetchErr.message, studentFetchErr);
-          }
-
-          if (student) {
-            // Update student status
-            const { error: studentUpdateErr } = await supabase
-              .from('partner_students')
-              .update({ application_status: updates.status, updated_at: new Date().toISOString() })
-              .eq('id', student.id);
-
-            if (studentUpdateErr) {
-              console.error('[Notification Sync] Error updating student status:', studentUpdateErr.message, studentUpdateErr);
-            }
-
-            // Fetch partner users for this partner agency to send push notifications
-            const { data: partnerUsers, error: usersFetchErr } = await supabase
-              .from('partner_users')
-              .select('push_token')
-              .eq('partner_id', student.partner_id)
-              .not('push_token', 'is', null);
-
-            if (usersFetchErr) {
-              console.error('[Notification Sync] Error fetching partner users:', usersFetchErr.message, usersFetchErr);
-            }
-
-            if (partnerUsers && partnerUsers.length > 0) {
-              const tokens = partnerUsers
-                .map((u: any) => u.push_token)
-                .filter((t: any) => typeof t === 'string' && (t.startsWith('ExponentPushToken') || t.startsWith('ExpoPushToken')));
-
-              if (tokens.length > 0) {
-                const pushMessages = tokens.map(token => ({
-                  to: token,
-                  sound: 'default',
-                  title: '🎓 Student Status Update',
-                  body: `${student.first_name} ${student.last_name}'s application status changed to "${updates.status}".`,
-                  data: { link: `student:${student.id}` }
-                }));
-
-                const pushRes = await fetch('https://exp.host/--/api/v2/push/send', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'Accept-Encoding': 'gzip, deflate',
-                  },
-                  body: JSON.stringify(pushMessages)
-                });
-                const pushJson = await pushRes.json().catch(() => null);
-                console.log(`[Push] Expo API response:`, JSON.stringify(pushJson));
-                if (!pushRes.ok) {
-                  console.error('[Push] Expo push API HTTP error:', pushRes.status, pushJson);
-                } else {
-                  // Check for per-token errors
-                  const results = Array.isArray(pushJson?.data) ? pushJson.data : (pushJson?.data ? [pushJson.data] : []);
-                  results.forEach((r: any, i: number) => {
-                    if (r?.status === 'error') {
-                      console.error(`[Push] Token ${tokens[i]} failed:`, r.message, r.details);
-                    } else {
-                      console.log(`[Push] Token ${i} dispatched OK, id:`, r?.id);
-                    }
-                  });
-                  console.log(`[Push] Dispatched status update push notification to partner users of agency ${student.partner_id}`);
-                }
-              }
-            } // closes: if (partnerUsers && partnerUsers.length > 0)
-
-            // Also insert an in-app announcement notification for the agency
-            const { error: announceErr } = await supabase
-              .from('partner_announcements')
-              .insert([{
-                title: '🎓 Student Status Update',
-                content: `${student.first_name} ${student.last_name}'s application status changed to "${updates.status}".`,
-                priority: 'normal',
-                target_partner_id: student.partner_id,
-                type: 'notification'
-              }]);
-
-            if (announceErr) {
-              console.error('[Notification Sync] Error inserting in-app announcement:', announceErr.message, announceErr);
-            }
-          } else {
-            console.log('[Notification Sync] No linked partner student found for lead ID:', id);
-          }
-        } catch (syncErr: any) {
-          console.error("Failed to sync lead status to partner student:", syncErr.message || syncErr);
-        }
+        fetch('/api/notify-status-change', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ leadId: id, newStatus: updates.status })
+        })
+          .then(r => r.json())
+          .then(result => console.log('[notify-status-change] Result:', result))
+          .catch(e => console.error('[notify-status-change] Fetch failed:', e.message));
       }
 
       // Log status change or update
