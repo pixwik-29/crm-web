@@ -1372,6 +1372,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
       if (error) throw error;
 
+      // Sync status change to partner portal student record if linked
+      if (updates.status) {
+        try {
+          await supabase
+            .from('partner_students')
+            .update({ application_status: updates.status, updated_at: new Date().toISOString() })
+            .eq('crm_lead_id', id);
+        } catch (syncErr) {
+          console.warn("Failed to sync lead status to partner student:", syncErr);
+        }
+      }
+
       // Log status change or update
       if (updates.status) {
         await supabase.from('activity_logs').insert([{

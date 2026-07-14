@@ -313,6 +313,75 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 text-sm">
+            {/* Qualification Action Bar */}
+            <div className="col-span-2 sm:col-span-3 bg-slate-50 dark:bg-black/25 border border-slate-200/60 dark:border-zinc-900 rounded-3xl p-4 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black text-slate-405 dark:text-slate-500 uppercase tracking-widest">Lead Qualification Status</p>
+                <div className="flex items-center gap-2 mt-1.5">
+                  {lead.tags?.includes('Unqualified') ? (
+                    <span className="px-2.5 py-1 text-[10px] font-black uppercase bg-rose-50 dark:bg-rose-955/20 border border-rose-200/60 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 rounded-lg flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" /> Unqualified / Disqualified
+                    </span>
+                  ) : lead.tags?.includes('Qualified') ? (
+                    <span className="px-2.5 py-1 text-[10px] font-black uppercase bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-250 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-450 rounded-lg flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5" /> Qualified Lead
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 text-[10px] font-black uppercase bg-amber-50 dark:bg-amber-955/20 border border-amber-205 dark:border-amber-900/50 text-amber-600 dark:text-amber-400 rounded-lg flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" /> Pending Review
+                    </span>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const currentTags = lead.tags || [];
+                      const filtered = currentTags.filter((t: string) => t !== 'Unqualified');
+                      if (!filtered.includes('Qualified')) {
+                        filtered.push('Qualified');
+                      }
+                      const updates: any = { tags: filtered };
+                      // If it's closed lost, move it back to first stage
+                      if (lead.status === 'Closed Lost') {
+                        const defaultPipe = pipelines.find(p => p.is_default) || pipelines[0];
+                        updates.status = defaultPipe?.stages[0]?.id || '1st followup';
+                      }
+                      await updateLead(lead.id, updates);
+                    } catch (err) {
+                      console.error("Failed to qualify lead:", err);
+                    }
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 hover:shadow-lg active:scale-95 transition-all text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl flex items-center gap-1.5 cursor-pointer border-none"
+                >
+                  <Check className="w-3.5 h-3.5" /> Qualify
+                </button>
+                
+                <button
+                  onClick={async () => {
+                    try {
+                      const currentTags = lead.tags || [];
+                      const filtered = currentTags.filter((t: string) => t !== 'Qualified');
+                      if (!filtered.includes('Unqualified')) {
+                        filtered.push('Unqualified');
+                      }
+                      await updateLead(lead.id, {
+                        tags: filtered,
+                        status: 'Closed Lost'
+                      });
+                    } catch (err) {
+                      console.error("Failed to disqualify lead:", err);
+                    }
+                  }}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 hover:shadow-lg active:scale-95 transition-all text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl flex items-center gap-1.5 cursor-pointer border-none"
+                >
+                  <X className="w-3.5 h-3.5" /> Disqualify
+                </button>
+              </div>
+            </div>
+
             <div>
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Phone Number</p>
               <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1 flex items-center gap-1.5">
