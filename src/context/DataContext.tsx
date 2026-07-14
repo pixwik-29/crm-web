@@ -1392,7 +1392,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fetch('/api/notify-status-change', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ leadId: id, newStatus: updates.status })
+          body: JSON.stringify({ eventType: 'status_change', leadId: id, newStatus: updates.status, actorName: currentUser?.full_name })
         })
           .then(r => r.json())
           .then(result => console.log('[notify-status-change] Result:', result))
@@ -1640,6 +1640,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         description: `Added internal team note: "${content.substring(0, 40)}${content.length > 40 ? '...' : ''}"`,
         tenant_id: tenantId
       }]);
+
+      // Notify partner if this lead has a linked student
+      fetch('/api/notify-status-change', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventType: 'note_added', leadId, noteContent: content, actorName: currentUser?.full_name })
+      })
+        .then(r => r.json())
+        .then(result => console.log('[notify-note-added] Result:', result))
+        .catch(e => console.error('[notify-note-added] Fetch failed:', e.message));
 
       if (data) {
         setNotes(prev => [data as Note, ...prev]);
