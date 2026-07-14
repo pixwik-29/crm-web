@@ -143,7 +143,7 @@ export const CampaignManager: React.FC = () => {
     const template = whatsappTemplates.find(t => t.name === selectedTemplateName);
     if (!template) return;
 
-    const placeholderMatches = template.body.match(/\{\{\d+\}\}/g) || [];
+    const placeholderMatches = template.body.match(/\{\{[\w\d_]+\}\}/g) || [];
     const counts = placeholderMatches.length;
     
     const initial = Array(counts).fill('').map((_, idx) => idx === 0 ? 'name' : 'course');

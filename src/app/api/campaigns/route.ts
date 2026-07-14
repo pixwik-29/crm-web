@@ -169,7 +169,9 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         // Compile display text for log history
         let messageText = templateBodyRaw;
         paramValues.forEach((val, idx) => {
-          messageText = messageText.replace(new RegExp(`\\{\\{${idx + 1}\\}\\}`, 'g'), val);
+          // Replace both standard {{1}} and named placeholders in history text
+          const keyName = variables[idx] || '';
+          messageText = messageText.replace(new RegExp(`\\{\\{(${idx + 1}|${keyName})\\}\\}`, 'gi'), val);
         });
 
         // Send message via provider
