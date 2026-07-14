@@ -7,7 +7,7 @@ import { useData } from '@/context/DataContext';
 import { 
   Users, Webhook, MessageSquare, ShieldAlert, Check, Copy, 
   Settings, Key, Shuffle, RefreshCw, PlusCircle, Trash2, Wifi, WifiOff,
-  Plus, FileText, Plane
+  Plus, FileText, Plane, Link as LinkIcon, ExternalLink
 } from 'lucide-react';
 
 import { PipelineStage, PartnerRoutingRule } from '@/types/crm';
@@ -52,7 +52,11 @@ export const CRMSettings: React.FC = () => {
     updatePipelineAccess,
     visaRequiredDocs,
     saveVisaRequiredDoc,
-    deleteVisaRequiredDoc
+    deleteVisaRequiredDoc,
+    redirectLinks,
+    addRedirectLink,
+    updateRedirectLink,
+    deleteRedirectLink
   } = useData();
 
   const searchParams = useSearchParams();
@@ -75,6 +79,17 @@ export const CRMSettings: React.FC = () => {
     settings.pipeline_stages ? [...settings.pipeline_stages].sort((a,b) => a.order - b.order) : []
   );
   const [newStageName, setNewStageName] = useState('');
+
+  // Dynamic Links States
+  const [newLinkSlug, setNewLinkSlug] = useState('');
+  const [newLinkTitle, setNewLinkTitle] = useState('');
+  const [newLinkUrl, setNewLinkUrl] = useState('');
+  const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
+  const [editingLinkTitle, setEditingLinkTitle] = useState('');
+  const [editingLinkUrl, setEditingLinkUrl] = useState('');
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkSuccess, setLinkSuccess] = useState<string | null>(null);
+  const [isSubmittingLink, setIsSubmittingLink] = useState(false);
 
   // Pipeline management states
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>('');
@@ -137,7 +152,7 @@ export const CRMSettings: React.FC = () => {
   // ── End Partner Routing States ─────────────────────────────────────────────
 
   // ── Settings Tab Navigation ─────────────────────────────────────────────────
-  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'pipelines' | 'visa' | 'team' | 'account'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'pipelines' | 'visa' | 'team' | 'account' | 'links'>('general');
   // ── End Settings Tab ─────────────────────────────────────────────────────────
 
   const handleAddConfigDoc = async (e: React.FormEvent) => {
@@ -1091,6 +1106,8 @@ async function submitEduPathLead(leadData) {
           { id: 'visa'         as const, Icon: Plane,          label: 'Visa & Docs'  },
           { id: 'team'         as const, Icon: Users,          label: 'Team'         },
           { id: 'account'      as const, Icon: Key,            label: 'Account'      },
+          { id: 'links'        as const, Icon: LinkIcon,        label: 'Dynamic Links'},
+
         ]).map(({ id, Icon, label }) => (
           <button
             key={id}
@@ -2180,6 +2197,214 @@ async function submitEduPathLead(leadData) {
                 Data Deletion Instructions & Request Form →
               </Link>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════ DYNAMIC LINKS ════════════════════════════════ */}
+      {settingsTab === 'links' && (
+        <div className="space-y-6">
+
+          {/* Create New Link Form */}
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center border-b border-slate-100 dark:border-zinc-900 pb-3 gap-2.5">
+              <LinkIcon className="w-5 h-5 text-indigo-500" />
+              <div>
+                <h3 className="font-bold text-slate-800 dark:text-white text-xs">Create Dynamic Redirect Link</h3>
+                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Define a short slug that redirects anyone to any external URL — change the destination anytime.</p>
+              </div>
+            </div>
+
+            {linkError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-semibold">⚠️ {linkError}</div>
+            )}
+            {linkSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">✓ {linkSuccess}</div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newLinkSlug.trim() || !newLinkTitle.trim() || !newLinkUrl.trim()) return;
+                setIsSubmittingLink(true);
+                setLinkError(null);
+                setLinkSuccess(null);
+                try {
+                  await addRedirectLink(newLinkSlug, newLinkTitle, newLinkUrl);
+                  setNewLinkSlug('');
+                  setNewLinkTitle('');
+                  setNewLinkUrl('');
+                  setLinkSuccess('Dynamic link created successfully!');
+                  setTimeout(() => setLinkSuccess(null), 4000);
+                } catch (err: any) {
+                  setLinkError(err.message || 'Failed to create link.');
+                } finally {
+                  setIsSubmittingLink(false);
+                }
+              }}
+              className="grid grid-cols-1 md:grid-cols-3 gap-4"
+            >
+              <div>
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Link Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Offer Letter Portal"
+                  value={newLinkTitle}
+                  onChange={(e) => setNewLinkTitle(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Short Slug *</label>
+                <div className="flex items-center bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2">
+                  <span className="text-slate-400 text-xs select-none whitespace-nowrap">/r/</span>
+                  <input
+                    type="text"
+                    required
+                    placeholder="offer-letter"
+                    value={newLinkSlug}
+                    onChange={(e) => setNewLinkSlug(e.target.value)}
+                    className="w-full bg-transparent border-none text-xs text-slate-800 dark:text-white outline-none font-bold"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Destination URL *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="https://example.com/register"
+                  value={newLinkUrl}
+                  onChange={(e) => setNewLinkUrl(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div className="md:col-span-3">
+                <button
+                  type="submit"
+                  disabled={isSubmittingLink}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-200 dark:disabled:bg-zinc-800 text-white rounded-xl text-xs font-bold transition-all shadow hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-1.5"
+                >
+                  {isSubmittingLink ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <><Plus className="w-3.5 h-3.5" /> Create Redirect Link</>}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* All Links List */}
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Active Redirect Links ({redirectLinks.length})</h3>
+
+            {redirectLinks.length === 0 ? (
+              <div className="text-center py-10 bg-slate-50/50 dark:bg-black/20 rounded-2xl border border-dashed border-slate-200 dark:border-zinc-900">
+                <LinkIcon className="w-8 h-8 text-slate-300 dark:text-zinc-700 mx-auto mb-2" />
+                <p className="text-xs text-slate-400">No dynamic links created yet.</p>
+                <p className="text-[10px] text-slate-350 dark:text-zinc-600 mt-1">Create your first link above and share it anywhere.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {redirectLinks.map((link) => {
+                  const shortUrl = typeof window !== 'undefined' ? `${window.location.origin}/r/${link.slug}` : `/r/${link.slug}`;
+                  const isEditing = editingLinkId === link.id;
+                  return (
+                    <div key={link.id} className="border border-slate-150 dark:border-zinc-900/80 p-4 rounded-2xl bg-slate-50/30 dark:bg-black/20 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                      <div className="flex-1 space-y-1.5">
+                        {isEditing ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl">
+                            <input
+                              type="text"
+                              value={editingLinkTitle}
+                              onChange={(e) => setEditingLinkTitle(e.target.value)}
+                              placeholder="Link title"
+                              className="bg-white dark:bg-zinc-900 border border-slate-250 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                            />
+                            <input
+                              type="text"
+                              value={editingLinkUrl}
+                              onChange={(e) => setEditingLinkUrl(e.target.value)}
+                              placeholder="Destination URL"
+                              className="bg-white dark:bg-zinc-900 border border-slate-250 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{link.title}</span>
+                              <span className="text-[9px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-mono font-bold">/r/{link.slug}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-450">
+                              <span className="font-semibold text-slate-500 dark:text-slate-400">Short URL:</span>
+                              <a href={shortUrl} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline flex items-center gap-0.5 font-mono">
+                                {shortUrl} <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+                              </a>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              <span className="font-semibold">→</span> <span className="font-mono break-all">{link.destination_url}</span>
+                            </div>
+                          </>
+                        )}
+                        <div className="flex items-center gap-3 pt-0.5 text-[9px] text-slate-400 font-semibold">
+                          <span>📈 {link.clicks || 0} clicks</span>
+                          <span>•</span>
+                          <span>Updated {new Date(link.updated_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end lg:self-auto flex-shrink-0">
+                        {isEditing ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!editingLinkTitle.trim() || !editingLinkUrl.trim()) return;
+                                try {
+                                  await updateRedirectLink(link.id, { title: editingLinkTitle, destination_url: editingLinkUrl });
+                                  setEditingLinkId(null);
+                                  setLinkSuccess('Link updated!');
+                                  setTimeout(() => setLinkSuccess(null), 3000);
+                                } catch (err: any) { alert(err.message || 'Failed to update.'); }
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold border-none cursor-pointer transition-all"
+                            >Save</button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingLinkId(null)}
+                              className="px-3 py-1.5 bg-slate-200 dark:bg-zinc-800 text-slate-600 dark:text-slate-350 rounded-lg text-[10px] font-bold border-none cursor-pointer transition-all"
+                            >Cancel</button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => { navigator.clipboard.writeText(shortUrl); setLinkSuccess('Link copied!'); setTimeout(() => setLinkSuccess(null), 2500); }}
+                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-650 dark:text-slate-350 rounded-lg text-[10px] font-bold flex items-center gap-1 border-none cursor-pointer transition-all"
+                            ><Copy className="w-3 h-3" /> Copy</button>
+                            <button
+                              type="button"
+                              onClick={() => { setEditingLinkId(link.id); setEditingLinkTitle(link.title); setEditingLinkUrl(link.destination_url); }}
+                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-650 dark:text-slate-350 rounded-lg text-[10px] font-bold border-none cursor-pointer transition-all"
+                            >Edit</button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!confirm('Delete this redirect link? This cannot be undone.')) return;
+                                try {
+                                  await deleteRedirectLink(link.id);
+                                  setLinkSuccess('Link deleted.');
+                                  setTimeout(() => setLinkSuccess(null), 3000);
+                                } catch (err: any) { alert(err.message || 'Failed to delete.'); }
+                              }}
+                              className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 rounded-lg text-[10px] font-bold border-none cursor-pointer transition-all"
+                            >Delete</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

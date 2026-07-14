@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase as originalSupabase, isSupabaseConfigured as originalIsSupabaseConfigured } from '@/lib/supabase';
-import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess, Partner, PartnerStudent, PartnerUploadedDoc } from '@/types/crm';
+import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess, Partner, PartnerStudent, PartnerUploadedDoc, RedirectLink } from '@/types/crm';
 
 interface DataContextType {
   isConfigured: boolean;
@@ -52,6 +52,10 @@ interface DataContextType {
   uploadAdminPartnerDoc: (studentId: string, documentName: string, file: File) => Promise<void>;
   syncPartnerReferrals: () => Promise<{ importedCount: number }>;
   colleges: any[];
+  redirectLinks: RedirectLink[];
+  addRedirectLink: (slug: string, title: string, destinationUrl: string) => Promise<RedirectLink>;
+  updateRedirectLink: (id: string, updates: Partial<RedirectLink>) => Promise<RedirectLink>;
+  deleteRedirectLink: (id: string) => Promise<void>;
   
   // Auth/User Operations
   login: (email: string, role: UserRole, name: string, password?: string) => Promise<Profile>;
@@ -324,6 +328,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [partnerStudents, setPartnerStudents] = useState<PartnerStudent[]>([]);
   const [partnerUploadedDocs, setPartnerUploadedDocs] = useState<PartnerUploadedDoc[]>([]);
   const [colleges, setColleges] = useState<any[]>([]);
+  const [redirectLinks, setRedirectLinks] = useState<RedirectLink[]>([]);
   
   // Pipeline States
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -524,6 +529,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
  
           const { data: collegesList } = await client.from('partner_colleges').select('*');
           if (collegesList) setColleges(collegesList);
+
+          const { data: redirLinks } = await client.from('redirect_links').select('*').eq('tenant_id', tenantId);
+          if (redirLinks) setRedirectLinks(redirLinks as RedirectLink[]);
 
           // Load settings first
           const { data: dbSettings } = await client
@@ -974,6 +982,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const defaultPipe = parsedPipelines.find((p: Pipeline) => p.is_default) || parsedPipelines[0] || null;
         setActivePipeline(defaultPipe);
+
+        const storedRedirLinks = localStorage.getItem(getLocalKey('crm_redirect_links'));
+        setRedirectLinks(storedRedirLinks ? JSON.parse(storedRedirLinks) : []);
       }
       setIsLoading(false);
     };
@@ -2903,6 +2914,107 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPartnerUploadedDocs(updated);
       saveLocal('crm_partner_uploaded_docs', updated);
     }
+  const addRedirectLink = async (slug: string, title: string, destinationUrl: string): Promise<RedirectLink> => {
+    const cleanSlug = slug.trim().toLowerCase().replace(/\s+/g, '-');
+    const newLink: RedirectLink = {
+      id: `link-${Date.now()}`,
+      slug: cleanSlug,
+      title,
+      destination_url: destinationUrl,
+      clicks: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      tenant_id: tenantId
+    };
+
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('redirect_links')
+        .insert([{
+          slug: cleanSlug,
+          title,
+          destination_url: destinationUrl,
+          tenant_id: tenantId
+        }])
+        .select()
+        .single();
+      if (error) {
+        if (error.code === '23505') throw new Error(`Slug '${cleanSlug}' is already in use.`);
+        throw error;
+      }
+      if (data) {
+        setRedirectLinks(prev => [data as RedirectLink, ...prev]);
+      }
+      return data as RedirectLink;
+    } else {
+      if (redirectLinks.some(l => l.slug === cleanSlug)) {
+        throw new Error(`Slug '${cleanSlug}' is already in use.`);
+      }
+      const updated = [newLink, ...redirectLinks];
+      setRedirectLinks(updated);
+      saveLocal('crm_redirect_links', updated);
+      return newLink;
+    }
+  };
+
+  const updateRedirectLink = async (id: string, updates: Partial<RedirectLink>): Promise<RedirectLink> => {
+    if (updates.slug) {
+      updates.slug = updates.slug.trim().toLowerCase().replace(/\s+/g, '-');
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('redirect_links')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .select()
+        .single();
+      if (error) {
+        if (error.code === '23505') throw new Error(`Slug is already in use.`);
+        throw error;
+      }
+      if (data) {
+        setRedirectLinks(prev => prev.map(l => l.id === id ? (data as RedirectLink) : l));
+      }
+      return data as RedirectLink;
+    } else {
+      const link = redirectLinks.find(l => l.id === id);
+      if (!link) throw new Error("Link not found");
+      
+      if (updates.slug && redirectLinks.some(l => l.id !== id && l.slug === updates.slug)) {
+        throw new Error(`Slug '${updates.slug}' is already in use.`);
+      }
+
+      const updatedLink = {
+        ...link,
+        ...updates,
+        updated_at: new Date().toISOString()
+      };
+      const updated = redirectLinks.map(l => l.id === id ? updatedLink : l);
+      setRedirectLinks(updated);
+      saveLocal('crm_redirect_links', updated);
+      return updatedLink;
+    }
+  };
+
+  const deleteRedirectLink = async (id: string): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('redirect_links')
+        .delete()
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
+      if (error) throw error;
+      setRedirectLinks(prev => prev.filter(l => l.id !== id));
+    } else {
+      const updated = redirectLinks.filter(l => l.id !== id);
+      setRedirectLinks(updated);
+      saveLocal('crm_redirect_links', updated);
+    }
   };
 
   const syncPartnerReferrals = async (): Promise<{ importedCount: number }> => {
@@ -3408,6 +3520,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       uploadAdminPartnerDoc,
       syncPartnerReferrals,
       colleges,
+      redirectLinks,
+      addRedirectLink,
+      updateRedirectLink,
+      deleteRedirectLink,
       
       triggerLeadSimulation,
       isLoading,

@@ -248,3 +248,14 @@ export interface PartnerUploadedDoc {
   uploaded_at: string;
   updated_at: string;
 }
+
+export interface RedirectLink {
+  id: string;
+  slug: string;
+  title: string;
+  destination_url: string;
+  clicks: number;
+  created_at: string;
+  updated_at: string;
+  tenant_id: string;
+}
