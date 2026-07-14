@@ -1763,11 +1763,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const template = whatsappTemplates.find(t => t.id === templateId);
     if (!lead || !template) return;
 
-    let body = template.body
-      .replace('{{lead_name}}', lead.name)
-      .replace('{{neet_marks}}', String(lead.neet_marks || 200))
-      .replace('{{budget}}', lead.budget ? `${(lead.budget / 100000).toFixed(1)} Lakh` : '40 Lakh')
-      .replace('{{preferred_destination}}', lead.preferred_destination || 'Georgia/Russia');
+    // Replace both standard numbered placeholders and legacy named placeholders
+    let body = template.body;
+    body = body.replace(/\{\{1\}\}/g, lead.name || '');
+    body = body.replace(/\{\{2\}\}/g, lead.course || 'MBBS');
+    body = body.replace(/\{\{3\}\}/g, lead.preferred_destination || 'Georgia/Russia');
+    body = body.replace(/\{\{4\}\}/g, lead.budget ? `₹${lead.budget}` : '');
+
+    body = body
+      .replace(/\{\{lead_name\}\}/gi, lead.name || '')
+      .replace(/\{\{neet_marks\}\}/gi, String(lead.neet_marks || 200))
+      .replace(/\{\{budget\}\}/gi, lead.budget ? `${(lead.budget / 100000).toFixed(1)} Lakh` : '40 Lakh')
+      .replace(/\{\{preferred_destination\}\}/gi, lead.preferred_destination || 'Georgia/Russia');
 
     if (template.attachment_url) {
       body += `\n\n📄 Document: ${template.attachment_url}`;
@@ -1782,9 +1789,44 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       created_at: new Date().toISOString()
     };
 
-    // Open WhatsApp Web/Desktop App directly on computer
-    if (typeof window !== 'undefined') {
-      const targetPhone = lead.whatsapp_number || lead.phone;
+    // Attempt background sending via Meta Cloud API
+    let sentViaApi = false;
+    const targetPhone = lead.whatsapp_number || lead.phone;
+    if (targetPhone && targetPhone !== '#') {
+      try {
+        const paramValues: string[] = [
+          lead.name || '',
+          lead.course || 'MBBS',
+          lead.preferred_destination || 'Georgia/Russia',
+          lead.budget ? `₹${lead.budget}` : ''
+        ];
+
+        const apiRes = await fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            to: targetPhone,
+            type: 'template',
+            templateName: template.name,
+            variables: paramValues
+          })
+        });
+
+        if (apiRes.ok) {
+          sentViaApi = true;
+          console.log('[WhatsApp] Template successfully sent in background via Meta API.');
+        } else {
+          const errData = await apiRes.json();
+          console.warn('[WhatsApp] Meta API template send failed, falling back to manual redirect:', errData.error);
+        }
+      } catch (err) {
+        console.warn('[WhatsApp] Network error, falling back to manual redirect:', err);
+      }
+    }
+
+    // Fallback: Open WhatsApp Web/Desktop App directly on computer if API is not active
+    if (!sentViaApi && typeof window !== 'undefined' && targetPhone) {
       let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
       if (cleanPhone.length === 10) {
         cleanPhone = `91${cleanPhone}`;
@@ -1841,9 +1883,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       created_at: new Date().toISOString()
     };
 
-    // Open WhatsApp Web/Desktop App directly on computer
-    if (typeof window !== 'undefined') {
-      const targetPhone = lead.whatsapp_number || lead.phone;
+    // Attempt background sending via Meta Cloud API
+    let sentViaApi = false;
+    const targetPhone = lead.whatsapp_number || lead.phone;
+    if (targetPhone && targetPhone !== '#') {
+      try {
+        const apiRes = await fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            to: targetPhone,
+            type: 'text',
+            message: message
+          })
+        });
+
+        if (apiRes.ok) {
+          sentViaApi = true;
+          console.log('[WhatsApp] Custom message successfully sent in background via Meta API.');
+        } else {
+          const errData = await apiRes.json();
+          console.warn('[WhatsApp] Meta API manual send failed, falling back to manual redirect:', errData.error);
+        }
+      } catch (err) {
+        console.warn('[WhatsApp] Network error, falling back to manual redirect:', err);
+      }
+    }
+
+    // Fallback: Open WhatsApp Web/Desktop App directly on computer if API is not active
+    if (!sentViaApi && typeof window !== 'undefined' && targetPhone) {
       let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
       if (cleanPhone.length === 10) {
         cleanPhone = `91${cleanPhone}`;
