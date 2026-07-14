@@ -12,6 +12,25 @@ interface LeadDetailsModalProps {
   initialTab?: 'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist';
 }
 
+const openWhatsAppLink = (phone: string, text: string = '') => {
+  if (typeof window === 'undefined') return;
+  
+  let cleanPhone = phone.replace(/[^0-9]/g, '');
+  if (cleanPhone.length === 10) {
+    cleanPhone = `91${cleanPhone}`;
+  } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+    cleanPhone = `91${cleanPhone.substring(1)}`;
+  }
+
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (isMobile) {
+    window.location.href = `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`;
+  } else {
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+  }
+};
+
 const COURSES = [
   'MBBS',
   'MBBS Abroad',
@@ -698,31 +717,22 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
 
         {/* TAB: WHATSAPP */}
         {activeTab === 'whatsapp' && (
-          <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950/40 p-6 space-y-4">
-            
-            <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Compose custom message to send directly to the lead via the WhatsApp Desktop app or Web.
+          <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950/40 p-8 space-y-6 items-center justify-center min-h-[220px]">
+            <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 text-center max-w-sm">
+              Launch WhatsApp chat directly to connect with {lead.name} ({lead.whatsapp_number || lead.phone}).
             </div>
 
-            {/* Custom Message Form */}
-            <form onSubmit={handleSendCustomWhatsApp} className="flex flex-col gap-3">
-              <textarea
-                value={customMsg}
-                onChange={(e) => setCustomMsg(e.target.value)}
-                placeholder="Type your WhatsApp message here..."
-                rows={4}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm rounded-xl p-3 outline-none text-slate-700 dark:text-slate-300 resize-none"
-              />
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={!customMsg.trim()}
-                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2"
-                >
-                  <MessageCircle className="w-4 h-4" /> Send Message
-                </button>
-              </div>
-            </form>
+            <button
+              onClick={() => {
+                const targetPhone = lead.whatsapp_number || lead.phone;
+                if (targetPhone) {
+                  openWhatsAppLink(targetPhone, '');
+                }
+              }}
+              className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-base font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-3 active:scale-95"
+            >
+              <MessageCircle className="w-5 h-5" /> Open WhatsApp Chat
+            </button>
           </div>
         )}
 
