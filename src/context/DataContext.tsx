@@ -9,6 +9,8 @@ interface DataContextType {
   isSubscriptionValid: boolean | null; // null = still checking, true = ok, false = blocked
   currentUser: Profile | null;
   setCurrentUser: (profile: Profile | null) => void;
+  newLeadAlert: Lead | null;
+  setNewLeadAlert: (lead: Lead | null) => void;
   profiles: Profile[];
   leads: Lead[];
   notes: Note[];
@@ -331,6 +333,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [tenantId, setTenantId] = useState<string>('');
   // null = still verifying, true = active subscription, false = blocked/deleted
   const [isSubscriptionValid, setIsSubscriptionValid] = useState<boolean | null>(null);
+  const [newLeadAlert, setNewLeadAlert] = useState<Lead | null>(null);
 
   const isSupabaseConfigured = originalIsSupabaseConfigured;
   const supabase = originalSupabase;
@@ -396,6 +399,31 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initSession();
   }, []);
+
+  const playNotificationSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      
+      // Dual-tone chime: first tone D5, second tone A5
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.12); // A5
+      
+      gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+      
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.35);
+    } catch (err) {
+      console.warn('Failed to play notification audio:', err);
+    }
+  };
 
   // 2. Load settings and data for the active tenantId
   useEffect(() => {
@@ -588,7 +616,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           leadsChannel = client.channel(`realtime-db-${tenantId}`)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
-                setLeads(prev => [payload.new as Lead, ...prev]);
+                const newLead = payload.new as Lead;
+                setLeads(prev => [newLead, ...prev]);
+                
+                // Play audio chime and trigger context banner
+                setNewLeadAlert(newLead);
+                playNotificationSound();
+                
+                // Trigger HTML5 System Notification if tab is in background
+                if (typeof window !== 'undefined' && 'Notification' in window) {
+                  if (Notification.permission === 'granted') {
+                    new Notification('🔥 New Lead Ingested!', {
+                      body: `${newLead.name} - NEET: ${newLead.neet_marks || 'N/A'} (${newLead.lead_source})`,
+                      icon: '/favicon.png'
+                    });
+                  }
+                }
               } else if (payload.eventType === 'UPDATE') {
                 setLeads(prev => prev.map(l => l.id === payload.new.id ? (payload.new as Lead) : l));
               } else if (payload.eventType === 'DELETE') {
@@ -3056,6 +3099,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isConfigured: isSupabaseConfigured,
       currentUser,
       setCurrentUser,
+      newLeadAlert,
+      setNewLeadAlert,
       profiles,
       leads,
       notes,

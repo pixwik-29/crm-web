@@ -18,7 +18,7 @@ import { Footer } from '@/components/Footer';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
   HelpCircle, User, ShieldCheck, Flame, Settings, Globe, Plane, ShieldAlert, Lock,
-  MessageSquare, Send
+  MessageSquare, Send, X
 } from 'lucide-react';
 
 const DashboardContent: React.FC = () => {
@@ -34,7 +34,9 @@ const DashboardContent: React.FC = () => {
     isLoading,
     isSubscriptionValid,
     tenantId,
-    settings
+    settings,
+    newLeadAlert,
+    setNewLeadAlert
   } = useData();
 
   // Navigation tab
@@ -456,6 +458,48 @@ const DashboardContent: React.FC = () => {
         onClose={() => setIsPendingTasksOpen(false)}
         onSelectLead={handleSelectLead}
       />
+
+      {/* Floating In-App Real-time Toast Alert */}
+      {newLeadAlert && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-5 shadow-2xl shadow-indigo-500/10 flex flex-col gap-3.5 animate-slide-up">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                <Sparkles className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="text-left">
+                <h4 className="text-xs font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">New Lead Ingested!</h4>
+                <p className="text-xs font-bold text-slate-800 dark:text-white mt-0.5">{newLeadAlert.name}</p>
+                <p className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">Source: {newLeadAlert.lead_source || 'Website'}</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setNewLeadAlert(null)} 
+              className="p-1 hover:bg-slate-100 dark:hover:bg-zinc-900 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                handleSelectLead(newLeadAlert);
+                setNewLeadAlert(null);
+              }}
+              className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition-all text-white font-extrabold text-[11px] uppercase tracking-wider rounded-xl cursor-pointer"
+            >
+              View Candidate
+            </button>
+            <button
+              onClick={() => setNewLeadAlert(null)}
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-extrabold text-[11px] uppercase tracking-wider rounded-xl cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
