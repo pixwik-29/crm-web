@@ -461,17 +461,45 @@ export const CampaignManager: React.FC = () => {
                   </h3>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {variableMappings.map((mapping, idx) => (
-                      <div key={idx}>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Variable {'{'}{idx + 1}{'}'}</label>
-                        <select value={mapping} onChange={(e) => updateVariableMapping(idx, e.target.value)} className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 font-bold">
-                          <option value="name">Candidate Full Name (lead.name)</option>
-                          <option value="course">Selected Course (lead.course)</option>
-                          <option value="preferred_destination">Preferred Country (lead.preferred_destination)</option>
-                          <option value="budget">Candidate Budget (lead.budget)</option>
-                        </select>
-                      </div>
-                    ))}
+                    {variableMappings.map((mapping, idx) => {
+                      const isCustom = mapping.startsWith('custom:');
+                      const selectValue = isCustom ? 'custom' : mapping;
+                      const customText = isCustom ? mapping.substring(7) : '';
+
+                      return (
+                        <div key={idx} className="space-y-2">
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest font-bold">Variable {'{'}{idx + 1}{'}'}</label>
+                          <select 
+                            value={selectValue} 
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'custom') {
+                                updateVariableMapping(idx, 'custom:');
+                              } else {
+                                updateVariableMapping(idx, val);
+                              }
+                            }} 
+                            className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 font-bold"
+                          >
+                            <option value="name">Candidate Full Name (lead.name)</option>
+                            <option value="course">Selected Course (lead.course)</option>
+                            <option value="preferred_destination">Preferred Country (lead.preferred_destination)</option>
+                            <option value="budget">Candidate Budget (lead.budget)</option>
+                            <option value="custom">✍️ Custom Text / Link</option>
+                          </select>
+                          
+                          {isCustom && (
+                            <input 
+                              type="text" 
+                              value={customText} 
+                              onChange={(e) => updateVariableMapping(idx, `custom:${e.target.value}`)} 
+                              placeholder="Enter custom link or text (e.g. https://...)" 
+                              className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 font-mono"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

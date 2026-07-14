@@ -163,6 +163,7 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
           else if (v === 'course') paramValues.push(lead.course || 'MBBS');
           else if (v === 'preferred_destination') paramValues.push(lead.preferred_destination || '');
           else if (v === 'budget') paramValues.push(lead.budget ? `\u20B9${lead.budget}` : '');
+          else if (v.startsWith('custom:')) paramValues.push(v.substring(7));
           else paramValues.push('');
         });
 
@@ -171,7 +172,8 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         paramValues.forEach((val, idx) => {
           // Replace both standard {{1}} and named placeholders in history text
           const keyName = variables[idx] || '';
-          messageText = messageText.replace(new RegExp(`\\{\\{(${idx + 1}|${keyName})\\}\\}`, 'gi'), val);
+          const cleanKey = keyName.startsWith('custom:') ? 'custom_val' : keyName;
+          messageText = messageText.replace(new RegExp(`\\{\\{(${idx + 1}|${cleanKey})\\}\\}`, 'gi'), val);
         });
 
         // Send message via provider
