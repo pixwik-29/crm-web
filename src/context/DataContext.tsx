@@ -137,6 +137,28 @@ const isValidUuid = (id: any): boolean => {
   return uuidRegex.test(id);
 };
 
+const openWhatsAppLink = (phone: string, text: string) => {
+  if (typeof window === 'undefined') return;
+  
+  let cleanPhone = phone.replace(/[^0-9]/g, '');
+  if (cleanPhone.length === 10) {
+    cleanPhone = `91${cleanPhone}`;
+  } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+    cleanPhone = `91${cleanPhone.substring(1)}`;
+  }
+
+  // Detect mobile user agent
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (isMobile) {
+    // deep link directly opens native WhatsApp on mobile without blank browser tab
+    window.location.href = `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`;
+  } else {
+    // On desktop, wa.me is clean and redirects to WhatsApp Web/Desktop app
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+  }
+};
+
 const MOCK_PROFILES: Profile[] = [
   { id: 'user-admin', full_name: 'Nash Newton (Admin)', role: 'admin', email: 'admin@crm.com', created_at: new Date().toISOString(), phone: '+919876543212' },
   { id: 'user-manager', full_name: 'Rajesh Kumar (Manager)', role: 'manager', email: 'manager@crm.com', created_at: new Date().toISOString(), phone: '+919876543213' },
@@ -1875,15 +1897,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // Fallback: Open WhatsApp Web/Desktop App directly on computer if API is not active
-    if (!sentViaApi && typeof window !== 'undefined' && targetPhone) {
-      let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
-      if (cleanPhone.length === 10) {
-        cleanPhone = `91${cleanPhone}`;
-      } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
-        cleanPhone = `91${cleanPhone.substring(1)}`;
-      }
-      const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(body)}`;
-      window.open(waUrl, '_blank');
+    if (!sentViaApi && targetPhone) {
+      openWhatsAppLink(targetPhone, body);
     }
 
     if (isSupabaseConfigured && supabase) {
@@ -1961,15 +1976,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // Fallback: Open WhatsApp Web/Desktop App directly on computer if API is not active
-    if (!sentViaApi && typeof window !== 'undefined' && targetPhone) {
-      let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
-      if (cleanPhone.length === 10) {
-        cleanPhone = `91${cleanPhone}`;
-      } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
-        cleanPhone = `91${cleanPhone.substring(1)}`;
-      }
-      const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
-      window.open(waUrl, '_blank');
+    if (!sentViaApi && targetPhone) {
+      openWhatsAppLink(targetPhone, message);
     }
 
     if (isSupabaseConfigured && supabase) {
@@ -2594,16 +2602,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const message = `Hello ${lead.name}, your official ${doc.document_name} for ${vApp.target_college || lead.course || 'your selected college'} has been issued! You can view and download it here: ${doc.file_url}`;
     
-    if (typeof window !== 'undefined') {
-      const targetPhone = lead.whatsapp_number || lead.phone;
-      let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
-      if (cleanPhone.length === 10) {
-        cleanPhone = `91${cleanPhone}`;
-      } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
-        cleanPhone = `91${cleanPhone.substring(1)}`;
-      }
-      const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
-      window.open(waUrl, '_blank');
+    const targetPhone = lead.whatsapp_number || lead.phone;
+    if (targetPhone) {
+      openWhatsAppLink(targetPhone, message);
     }
 
     if (isSupabaseConfigured && supabase) {
