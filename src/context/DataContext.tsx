@@ -2417,6 +2417,75 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenant_id: tenantId
         }, { onConflict: 'visa_application_id,document_name' });
       if (error) throw error;
+
+      if (isIssuance) {
+        // Trigger in-app and push notifications for the partner portal
+        (async () => {
+          try {
+            // Find the lead associated with this visa application
+            const { data: vApp } = await supabase
+              .from('visa_applications')
+              .select('lead_id')
+              .eq('id', visaApplicationId)
+              .single();
+
+            if (vApp?.lead_id) {
+              // Find the student record linked to this lead
+              const { data: student } = await supabase
+                .from('partner_students')
+                .select('id, first_name, last_name, partner_id')
+                .eq('crm_lead_id', vApp.lead_id)
+                .single();
+
+              if (student) {
+                const studentName = `${student.first_name} ${student.last_name}`;
+
+                // 1. Insert in-app notification entry
+                await supabase
+                  .from('partner_announcements')
+                  .insert([{
+                    title: '📄 Visa Document Issued',
+                    content: `CRM admin uploaded visa document "${documentName}" for student ${studentName}.`,
+                    priority: 'normal',
+                    target_partner_id: student.partner_id
+                  }]);
+
+                // 2. Fetch partner users and send push notifications via Expo API
+                const { data: partnerUsers } = await supabase
+                  .from('partner_users')
+                  .select('push_token')
+                  .eq('partner_id', student.partner_id)
+                  .not('push_token', 'is', null);
+
+                if (partnerUsers && partnerUsers.length > 0) {
+                  const tokens = partnerUsers
+                    .map((u: any) => u.push_token)
+                    .filter((t: any) => typeof t === 'string' && (t.startsWith('ExponentPushToken') || t.startsWith('ExpoPushToken')));
+
+                  if (tokens.length > 0) {
+                    const pushMessages = tokens.map(token => ({
+                      to: token,
+                      sound: 'default',
+                      title: '📄 Visa Document Issued',
+                      body: `CRM admin uploaded visa document "${documentName}" for student ${studentName}.`,
+                      data: { studentId: student.id }
+                    }));
+
+                    await fetch('https://exp.host/--/api/v2/push/send', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(pushMessages)
+                    });
+                    console.log(`[Push] Dispatched visa document upload push notification to partner users of agency ${student.partner_id}`);
+                  }
+                }
+              }
+            }
+          } catch (notifErr) {
+            console.error('[Visa Upload Notification] Failed to send notifications:', notifErr);
+          }
+        })();
+      }
     } else {
       let exists = false;
       const updated = visaUploadedDocs.map(vud => {
