@@ -81,6 +81,11 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const [editExternalConsultant, setEditExternalConsultant] = useState('');
   const [editPipelineId, setEditPipelineId] = useState('');
 
+  // States for uploading official admin documents
+  const [adminDocType, setAdminDocType] = useState('Admission Letter');
+  const [customAdminDocName, setCustomAdminDocName] = useState('');
+  const [isUploadingAdminDoc, setIsUploadingAdminDoc] = useState(false);
+
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // Synchronize activeTab when lead or initialTab changes
@@ -956,29 +961,118 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                                   )}
                                 </div>
                               )}
-                              
-                              <label className="px-2.5 py-1 bg-indigo-650 hover:bg-indigo-555 hover:scale-[1.01] active:scale-[0.99] text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1.5 border-none">
-                                <Upload className="w-3 h-3" /> Upload College Issued File
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
-                                    try {
-                                      await uploadAdminPartnerDoc(connectedStudent.id, docName, file);
-                                      alert(`Successfully uploaded "${file.name}" as official "${docName}"!`);
-                                    } catch (err: any) {
-                                      alert(err.message || "Failed to upload document.");
-                                    }
-                                  }}
-                                />
-                              </label>
                             </div>
                           </div>
                         );
                       });
                     })()}
+                  </div>
+                </div>
+
+                {/* Official Documents Issued by Admin (Separate Section) */}
+                <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Official College Issued Documents</h3>
+                      <p className="text-xs text-slate-400 mt-1">Upload and manage official documents (Admission Letter, Offer Letter, Visa Letter) issued to the partner for this student.</p>
+                    </div>
+                  </div>
+
+                  {/* List of currently uploaded official documents */}
+                  <div className="space-y-3">
+                    {(() => {
+                      const adminDocs = partnerUploadedDocs.filter(
+                        d => d.student_id === connectedStudent.id && d.uploaded_by_admin
+                      );
+
+                      if (adminDocs.length === 0) {
+                        return (
+                          <p className="text-xs italic text-slate-400 bg-slate-50 dark:bg-black/20 p-4 rounded-xl border border-dashed border-slate-200 dark:border-zinc-800 text-center">
+                            No official documents uploaded yet. Use the upload area below to issue documents.
+                          </p>
+                        );
+                      }
+
+                      return adminDocs.map(doc => (
+                        <div key={doc.id} className="flex items-center justify-between border border-emerald-150 dark:border-emerald-950/30 p-3.5 rounded-xl bg-emerald-50/30 dark:bg-emerald-950/10">
+                          <div>
+                            <p className="text-xs font-bold text-emerald-800 dark:text-emerald-400">{doc.document_name}</p>
+                            <p className="text-[10px] text-slate-400 mt-1 font-mono">{doc.file_name}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <a href={doc.file_url} target="_blank" rel="noreferrer" className="text-[10px] bg-white dark:bg-zinc-900 px-2.5 py-1 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-zinc-850 font-bold transition shadow-sm">
+                              View File
+                            </a>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+
+                  {/* Upload document inline form */}
+                  <div className="border-t border-slate-100 dark:border-zinc-900 pt-4 mt-2 space-y-3">
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-350">Issue New Document</p>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-450 dark:text-slate-400 uppercase mb-1 font-sans">Document Type</label>
+                        <select
+                          value={adminDocType}
+                          onChange={(e) => setAdminDocType(e.target.value)}
+                          className="w-full text-xs bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white"
+                        >
+                          <option value="Admission Letter">Admission Letter</option>
+                          <option value="Offer Letter">Offer Letter</option>
+                          <option value="Visa Invitation Letter">Visa Invitation Letter</option>
+                          <option value="Tuition Fee Invoice">Tuition Fee Invoice</option>
+                          <option value="Other Document">Other (Specify Name)</option>
+                        </select>
+                      </div>
+
+                      {adminDocType === 'Other Document' && (
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-450 dark:text-slate-400 uppercase mb-1 font-sans">Specify Document Name</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Scholarship Letter"
+                            value={customAdminDocName}
+                            onChange={(e) => setCustomAdminDocName(e.target.value)}
+                            className="w-full text-xs bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2.5">
+                      <label className={`px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-2 border-none ${isUploadingAdminDoc ? 'opacity-50 pointer-events-none' : ''}`}>
+                        <Upload className="w-3.5 h-3.5" /> 
+                        {isUploadingAdminDoc ? 'Uploading...' : 'Select & Upload Document File'}
+                        <input
+                          type="file"
+                          className="hidden"
+                          disabled={isUploadingAdminDoc}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+
+                            const finalDocName = adminDocType === 'Other Document' 
+                              ? (customAdminDocName.trim() || 'Official Document')
+                              : adminDocType;
+
+                            setIsUploadingAdminDoc(true);
+                            try {
+                              await uploadAdminPartnerDoc(connectedStudent.id, finalDocName, file);
+                              alert(`Successfully uploaded "${file.name}" as "${finalDocName}"!`);
+                              setCustomAdminDocName('');
+                            } catch (err: any) {
+                              alert(err.message || "Failed to upload document.");
+                            } finally {
+                              setIsUploadingAdminDoc(false);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>

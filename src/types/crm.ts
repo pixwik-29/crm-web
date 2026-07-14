@@ -247,6 +247,7 @@ export interface PartnerUploadedDoc {
   expiry_date?: string | null;
   uploaded_at: string;
   updated_at: string;
+  uploaded_by_admin?: boolean;
 }
 
 export interface RedirectLink {

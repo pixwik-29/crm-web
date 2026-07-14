@@ -2842,7 +2842,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let fileName = file.name;
 
     if (isSupabaseConfigured && supabase) {
-      const bucketName = 'partner_documents';
+      const bucketName = 'partner_student_documents';
       const fileKey = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
       
       let { data, error } = await supabase.storage.from(bucketName).upload(fileKey, file, {
