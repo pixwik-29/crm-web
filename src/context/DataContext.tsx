@@ -1463,6 +1463,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   console.log(`[Push] Dispatched status update push notification to partner users of agency ${student.partner_id}`);
                 }
               }
+            } // closes: if (partnerUsers && partnerUsers.length > 0)
 
             // Also insert an in-app announcement notification for the agency
             const { error: announceErr } = await supabase
