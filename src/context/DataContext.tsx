@@ -1375,10 +1375,50 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Sync status change to partner portal student record if linked
       if (updates.status) {
         try {
-          await supabase
+          // Find the student linked to this crm lead
+          const { data: student } = await supabase
             .from('partner_students')
-            .update({ application_status: updates.status, updated_at: new Date().toISOString() })
-            .eq('crm_lead_id', id);
+            .select('id, first_name, last_name, partner_id')
+            .eq('crm_lead_id', id)
+            .maybeSingle();
+
+          if (student) {
+            // Update student status
+            await supabase
+              .from('partner_students')
+              .update({ application_status: updates.status, updated_at: new Date().toISOString() })
+              .eq('id', student.id);
+
+            // Fetch partner users for this partner agency to send push notifications
+            const { data: partnerUsers } = await supabase
+              .from('partner_users')
+              .select('push_token')
+              .eq('partner_id', student.partner_id)
+              .not('push_token', 'is', null);
+
+            if (partnerUsers && partnerUsers.length > 0) {
+              const tokens = partnerUsers
+                .map((u: any) => u.push_token)
+                .filter((t: any) => typeof t === 'string' && (t.startsWith('ExponentPushToken') || t.startsWith('ExpoPushToken')));
+
+              if (tokens.length > 0) {
+                const pushMessages = tokens.map(token => ({
+                  to: token,
+                  sound: 'default',
+                  title: '🎓 Student Status Update',
+                  body: `${student.first_name} ${student.last_name}'s application status changed to "${updates.status}".`,
+                  data: { link: `student:${student.id}` }
+                }));
+
+                await fetch('https://exp.host/--/api/v2/push/send', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(pushMessages)
+                });
+                console.log(`[Push] Dispatched status update push notification to partner users of agency ${student.partner_id}`);
+              }
+            }
+          }
         } catch (syncErr) {
           console.warn("Failed to sync lead status to partner student:", syncErr);
         }
