@@ -1418,6 +1418,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 console.log(`[Push] Dispatched status update push notification to partner users of agency ${student.partner_id}`);
               }
             }
+
+            // Also insert an in-app announcement notification for the agency
+            await supabase
+              .from('partner_announcements')
+              .insert([{
+                title: '🎓 Student Status Update',
+                content: `${student.first_name} ${student.last_name}'s application status changed to "${updates.status}".`,
+                priority: 'normal',
+                target_partner_id: student.partner_id
+              }]);
           }
         } catch (syncErr) {
           console.warn("Failed to sync lead status to partner student:", syncErr);
