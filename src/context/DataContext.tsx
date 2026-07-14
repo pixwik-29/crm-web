@@ -1477,6 +1477,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             })
           }).catch(e => console.warn('[Auto-Notification] Meta Cloud dispatch failed:', e.message));
         }
+      }  // closes: if (updates.status)
       if (data) {
         setLeads(prev => prev.map(l => l.id === id ? (data as Lead) : l));
       }
@@ -2914,6 +2915,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPartnerUploadedDocs(updated);
       saveLocal('crm_partner_uploaded_docs', updated);
     }
+  };
+
   const addRedirectLink = async (slug: string, title: string, destinationUrl: string): Promise<RedirectLink> => {
     const cleanSlug = slug.trim().toLowerCase().replace(/\s+/g, '-');
     const newLink: RedirectLink = {
