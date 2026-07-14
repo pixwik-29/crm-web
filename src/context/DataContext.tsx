@@ -1437,14 +1437,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   data: { link: `student:${student.id}` }
                 }));
 
-                await fetch('https://exp.host/--/api/v2/push/send', {
+                const pushRes = await fetch('https://exp.host/--/api/v2/push/send', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Accept-Encoding': 'gzip, deflate',
+                  },
                   body: JSON.stringify(pushMessages)
                 });
-                console.log(`[Push] Dispatched status update push notification to partner users of agency ${student.partner_id}`);
+                const pushJson = await pushRes.json().catch(() => null);
+                console.log(`[Push] Expo API response:`, JSON.stringify(pushJson));
+                if (!pushRes.ok) {
+                  console.error('[Push] Expo push API HTTP error:', pushRes.status, pushJson);
+                } else {
+                  // Check for per-token errors
+                  const results = Array.isArray(pushJson?.data) ? pushJson.data : (pushJson?.data ? [pushJson.data] : []);
+                  results.forEach((r: any, i: number) => {
+                    if (r?.status === 'error') {
+                      console.error(`[Push] Token ${tokens[i]} failed:`, r.message, r.details);
+                    } else {
+                      console.log(`[Push] Token ${i} dispatched OK, id:`, r?.id);
+                    }
+                  });
+                  console.log(`[Push] Dispatched status update push notification to partner users of agency ${student.partner_id}`);
+                }
               }
-            }
 
             // Also insert an in-app announcement notification for the agency
             const { error: announceErr } = await supabase
