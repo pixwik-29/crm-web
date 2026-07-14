@@ -717,11 +717,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
 
         {/* TAB: WHATSAPP */}
         {activeTab === 'whatsapp' && (
-          <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950/40 p-8 space-y-6 items-center justify-center min-h-[220px]">
-            <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 text-center max-w-sm">
-              Launch WhatsApp chat directly to connect with {lead.name} ({lead.whatsapp_number || lead.phone}).
-            </div>
-
+          <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950/40 p-8 items-center justify-center min-h-[220px]">
             <button
               onClick={() => {
                 const targetPhone = lead.whatsapp_number || lead.phone;
@@ -729,10 +725,16 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                   openWhatsAppLink(targetPhone, '');
                 }
               }}
-              className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-base font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-3 active:scale-95"
+              className="w-16 h-16 bg-emerald-500 hover:bg-emerald-450 active:scale-90 text-white rounded-full flex items-center justify-center transition-all shadow-lg shadow-emerald-500/30 border-4 border-white dark:border-zinc-900"
+              title="Open WhatsApp Chat"
             >
-              <MessageCircle className="w-5 h-5" /> Open WhatsApp Chat
+              <svg viewBox="0 0 24 24" className="w-8 h-8 fill-current">
+                <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.455L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.625 1.451 5.45.002 9.885-4.417 9.888-9.866.002-2.638-1.02-5.118-2.879-6.98-1.858-1.863-4.331-2.887-6.972-2.888-5.453 0-9.89 4.417-9.893 9.868-.001 1.503.393 2.973 1.14 4.301l.449.779-.997 3.642 3.734-.976.73.433zm11.233-7.234c-.267-.134-1.58-.779-1.825-.869-.245-.09-.423-.134-.6.134-.178.268-.69.869-.846 1.048-.156.179-.311.201-.578.067-.267-.134-1.127-.416-2.148-1.328-.795-.71-1.332-1.587-1.488-1.856-.156-.268-.017-.413.117-.547.12-.12.267-.313.4-.469.134-.156.178-.268.267-.446.09-.179.045-.335-.022-.469-.067-.134-.6-1.446-.822-1.982-.217-.521-.456-.45-.6-.457-.134-.005-.289-.006-.445-.006-.156 0-.411.058-.626.294-.216.236-.822.803-.822 1.959 0 1.157.842 2.277.96 2.434.118.157 1.658 2.531 4.015 3.548.56.242.998.387 1.34.496.564.18 1.077.154 1.482.094.452-.067 1.58-.647 1.802-1.272.223-.625.223-1.161.156-1.272-.067-.112-.245-.178-.512-.313z"/>
+              </svg>
             </button>
+            <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400 text-center">
+              Chat with {lead.name}
+            </p>
           </div>
         )}
 
