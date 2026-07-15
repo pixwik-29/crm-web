@@ -29,8 +29,13 @@ function getAllowedOrigins(): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  // Always allow localhost variants during development
-  const devOrigins = ['http://localhost:3000', 'http://localhost:8000'];
+  // Always allow localhost variants and tsmu.co.in
+  const devOrigins = [
+    'http://localhost:3000',
+    'http://localhost:8000',
+    'http://localhost:5173',
+    'https://tsmu.co.in',
+  ];
 
   return [...new Set([...fromEnv, ...devOrigins])];
 }
