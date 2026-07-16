@@ -690,7 +690,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_history', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
-              if (payload.eventType === 'INSERT') setWhatsappHistory(prev => [payload.new as WhatsAppMessage, ...prev]);
+              if (payload.eventType === 'INSERT') {
+                setWhatsappHistory(prev => {
+                  if (prev.some(m => m.id === payload.new.id)) return prev;
+                  return [payload.new as WhatsAppMessage, ...prev];
+                });
+              } else if (payload.eventType === 'UPDATE') {
+                setWhatsappHistory(prev => prev.map(m => m.id === payload.new.id ? (payload.new as WhatsAppMessage) : m));
+              }
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_templates', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
@@ -779,6 +786,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setPartnerUploadedDocs(prev => prev.map(pud => pud.id === payload.new.id ? (payload.new as PartnerUploadedDoc) : pud));
               } else if (payload.eventType === 'DELETE') {
                 setPartnerUploadedDocs(prev => prev.filter(pud => pud.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_logs', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                // Deduplicate — some inserts are followed by a local push from the calling function
+                setActivityLogs(prev => {
+                  if (prev.some(a => a.id === payload.new.id)) return prev;
+                  return [payload.new as ActivityLog, ...prev];
+                });
               }
             })
             .subscribe();
