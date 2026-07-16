@@ -441,6 +441,7 @@ export const CRMSettings: React.FC = () => {
     setAccountId(settings.whatsapp_account_id);
     setWhApiToken(settings.whatsapp_api_token ? '••••••••••••••••••••' : '');
     setAutoResponse(settings.whatsapp_auto_response_template);
+    setWelcomeTemplate(settings.whatsapp_welcome_partner_template || '');
     setFormStrategy(settings.form_integration_strategy || 'fixed');
     setFixedCourse(settings.form_integration_fixed_course || 'MBBS');
     setDynamicField(settings.form_integration_dynamic_field || 'course');
