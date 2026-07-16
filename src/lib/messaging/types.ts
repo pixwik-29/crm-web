@@ -10,6 +10,7 @@ export interface SendMessageOptions {
   contactName?: string;
   contactPhone?: string;
   variables?: string[];
+  templateBody?: string;
 }
 
 export interface IMessagingProvider {

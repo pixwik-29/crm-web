@@ -222,7 +222,8 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
           to: phone,
           type: 'template',
           templateName,
-          variables: paramValues
+          variables: paramValues,
+          templateBody: templateBodyRaw
         });
 
         // Insert history record

@@ -42,13 +42,39 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
           language: { code: primaryLanguage }
         };
         if (options.variables && options.variables.length > 0) {
+          let bodyText = options.templateBody || '';
+          if (!bodyText && options.templateName) {
+            try {
+              const templates = await this.syncTemplates();
+              const matched = templates.find(t => t.name === options.templateName);
+              if (matched) {
+                bodyText = matched.body;
+              }
+            } catch (e) {
+              console.error('[MetaWhatsAppProvider] Failed to sync template body:', e);
+            }
+          }
+          const placeholders = [...bodyText.matchAll(/\{\{([^}]+)\}\}/g)].map(m => m[1]);
+
           body.template.components = [
             {
               type: 'body',
-              parameters: options.variables.map(v => ({
-                type: 'text',
-                text: v
-              }))
+              parameters: options.variables.map((v, idx) => {
+                const paramName = placeholders[idx];
+                const isNumeric = paramName && /^\d+$/.test(paramName);
+                if (paramName && !isNumeric) {
+                  return {
+                    type: 'text',
+                    text: v,
+                    parameter_name: paramName
+                  };
+                } else {
+                  return {
+                    type: 'text',
+                    text: v
+                  };
+                }
+              })
             }
           ];
         }
