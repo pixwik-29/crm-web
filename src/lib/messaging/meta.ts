@@ -26,6 +26,9 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
       to: options.to
     };
 
+    const primaryLanguage = options.templateName === 'hello_world' ? 'en_US' : 'en';
+    const secondaryLanguage = primaryLanguage === 'en_US' ? 'en' : 'en_US';
+
     switch (options.type) {
       case 'text':
         body.type = 'text';
@@ -36,7 +39,7 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
         body.type = 'template';
         body.template = {
           name: options.templateName,
-          language: { code: 'en_US' }
+          language: { code: primaryLanguage }
         };
         if (options.variables && options.variables.length > 0) {
           body.template.components = [
@@ -109,9 +112,24 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
       body: JSON.stringify(body)
     });
 
-    const resData = await response.json();
+    let resData = await response.json();
     if (!response.ok) {
-      throw new Error(resData.error?.message || 'Meta Cloud API message send failed');
+      if (options.type === 'template' && resData.error?.code === 132001) {
+        console.warn(`[MetaWhatsAppProvider] Template not found in ${primaryLanguage}, retrying with ${secondaryLanguage}...`);
+        body.template.language.code = secondaryLanguage;
+        const retryResponse = await fetch(url, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(body)
+        });
+        const retryData = await retryResponse.json();
+        if (!retryResponse.ok) {
+          throw new Error(retryData.error?.message || 'Meta Cloud API message send failed');
+        }
+        resData = retryData;
+      } else {
+        throw new Error(resData.error?.message || 'Meta Cloud API message send failed');
+      }
     }
 
     return {
