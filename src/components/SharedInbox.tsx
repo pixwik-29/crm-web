@@ -104,15 +104,21 @@ export const SharedInbox: React.FC = () => {
     };
   }, [tenantId]);
 
+  // Merge all messages: DataContext (DB) + localHistory (optimistic/realtime)
+  // This unified pool is used for BOTH thread list previews AND chat panel
+  const allMessages = React.useMemo(() => {
+    const dbIds = new Set(whatsappHistory.map(m => m.id));
+    const merged = [...whatsappHistory, ...localHistory.filter(m => !dbIds.has(m.id))];
+    return merged;
+  }, [whatsappHistory, localHistory]);
+
   // Use the unified allMessages pool filtered to the active thread for the chat panel
   const activeChats = React.useMemo(() => {
     if (!activeThreadId) return [];
-    const dbIds = new Set(whatsappHistory.map(m => m.id));
-    const merged = [...whatsappHistory, ...localHistory.filter(m => !dbIds.has(m.id))];
-    return merged
+    return allMessages
       .filter(m => m.lead_id === activeThreadId)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  }, [activeThreadId, whatsappHistory, localHistory]);
+  }, [activeThreadId, allMessages]);
 
   // Update last seen timestamp for the active thread when it changes or a new message arrives
   useEffect(() => {
@@ -127,14 +133,6 @@ export const SharedInbox: React.FC = () => {
       });
     }
   }, [activeThreadId, activeChats.length]);
-
-  // Merge all messages: DataContext (DB) + localHistory (optimistic/realtime)
-  // This unified pool is used for BOTH thread list previews AND chat panel
-  const allMessages = React.useMemo(() => {
-    const dbIds = new Set(whatsappHistory.map(m => m.id));
-    const merged = [...whatsappHistory, ...localHistory.filter(m => !dbIds.has(m.id))];
-    return merged;
-  }, [whatsappHistory, localHistory]);
 
   // Aggregate active lead threads from merged message pool
   const threads: Thread[] = React.useMemo(() => {
@@ -206,14 +204,6 @@ export const SharedInbox: React.FC = () => {
       return next;
     });
   };
-
-  // Use the unified allMessages pool filtered to the active thread for the chat panel
-  const activeChats = React.useMemo(() => {
-    if (!activeThreadId) return [];
-    return allMessages
-      .filter(m => m.lead_id === activeThreadId)
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  }, [activeThreadId, allMessages]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
