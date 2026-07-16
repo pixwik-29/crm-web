@@ -56,11 +56,12 @@ export const CampaignManager: React.FC = () => {
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
 
-  // UI status states
+   // UI status states
   const [matchedLeadsCount, setMatchedLeadsCount] = useState(0);
   const [isLaunching, setIsLaunching] = useState(false);
   const [campaignStatus, setCampaignStatus] = useState<string | null>(null);
   const [campaignError, setCampaignError] = useState<string | null>(null);
+  const [showConfirmLaunch, setShowConfirmLaunch] = useState(false);
 
   // Unique options for dropdowns/badges
   const uniqueDestinations = Array.from(new Set(leads.map(l => l.preferred_destination).filter(Boolean))) as string[];
@@ -181,8 +182,8 @@ export const CampaignManager: React.FC = () => {
     setVariableMappings(initial);
   }, [selectedTemplateName, whatsappTemplates]);
 
-  // Launch broadcast
-  const handleLaunchCampaign = async (e: React.FormEvent) => {
+  // Trigger double-check confirmation modal before launch
+  const handleSubmitTrigger = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTemplateName) {
       setCampaignError('Please select a template.');
@@ -192,7 +193,17 @@ export const CampaignManager: React.FC = () => {
       setCampaignError('Please specify scheduling date and time.');
       return;
     }
+    if (targetGroupCount === 0) {
+      setCampaignError('No leads are matched with current filter selection.');
+      return;
+    }
+    setCampaignError(null);
+    setShowConfirmLaunch(true);
+  };
 
+  // Launch broadcast (after confirmation)
+  const handleLaunchCampaign = async () => {
+    setShowConfirmLaunch(false);
     setCampaignError(null);
     setCampaignStatus('Launching broadcast campaign...');
     setIsLaunching(true);
@@ -461,7 +472,7 @@ export const CampaignManager: React.FC = () => {
               </div>
             )}
 
-            <form onSubmit={handleLaunchCampaign} className="space-y-6">
+            <form onSubmit={handleSubmitTrigger} className="space-y-6">
               
               {/* Template Selection */}
               <div className="border-t border-slate-100 dark:border-zinc-900 pt-6 space-y-4">
@@ -1032,6 +1043,106 @@ export const CampaignManager: React.FC = () => {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirm Launch Campaign */}
+      {showConfirmLaunch && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl w-full max-w-lg p-6 shadow-2xl animate-scale-up space-y-6">
+            
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 dark:bg-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                <AlertCircle className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">Confirm Bulk Broadcast</h3>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">Please review target audience and parameters before dispatching</p>
+              </div>
+            </div>
+
+            {/* Warning Message */}
+            <div className="p-4 bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 rounded-2xl text-[11px] leading-relaxed space-y-1">
+              <span className="font-extrabold block">⚠️ Warning: Bulk Messaging Restrictions</span>
+              <p>Meta policies restrict unsolicited bulk messages. Ensure all contacts have consented to receive communication to avoid account suspension/penalties.</p>
+            </div>
+
+            {/* Campaign Details Summary */}
+            <div className="divide-y divide-slate-100 dark:divide-zinc-900 border border-slate-200 dark:border-zinc-900 rounded-2xl p-4 bg-slate-50/50 dark:bg-black/20 text-xs space-y-3.5">
+              
+              <div className="flex justify-between items-center pt-0">
+                <span className="text-slate-400 font-semibold">Matched Audience</span>
+                <span className="font-extrabold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md">
+                  {targetGroupCount} lead(s) targeted
+                </span>
+              </div>
+
+              <div className="flex justify-between items-start pt-3">
+                <span className="text-slate-400 font-semibold flex-shrink-0">Target Criteria</span>
+                <span className="font-bold text-slate-700 dark:text-zinc-300 text-right">
+                  {targetGroupId 
+                    ? `Group: ${groups.find(g => g.id === targetGroupId)?.name}` 
+                    : `Filters: Status [${filterStatus}], Destination [${filterDestination}], Course [${filterCourse}]`
+                  }
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center pt-3">
+                <span className="text-slate-400 font-semibold">Template Selected</span>
+                <span className="font-bold font-mono text-[10px] text-emerald-600 dark:text-emerald-400">
+                  {selectedTemplateName}
+                </span>
+              </div>
+
+              {variableMappings.length > 0 && (
+                <div className="flex flex-col gap-1.5 pt-3">
+                  <span className="text-slate-400 font-semibold">Variables Personalization</span>
+                  <div className="grid grid-cols-2 gap-1.5 pl-2">
+                    {variableMappings.map((mapping, idx) => (
+                      <div key={idx} className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">
+                        {`{{${idx + 1}}}`} → {mapping.startsWith('custom:') ? mapping.substring(7) : `lead.${mapping}`}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-3">
+                <span className="text-slate-400 font-semibold">Schedule Time</span>
+                <span className="font-bold text-slate-700 dark:text-zinc-300">
+                  {isScheduled ? `📅 ${new Date(scheduleDateTime).toLocaleString()}` : '⚡ Immediately'}
+                </span>
+              </div>
+            </div>
+
+            {/* Template Body Preview */}
+            <div className="bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-2xl p-4 space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Template Message Text Preview</span>
+              <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed font-mono whitespace-pre-wrap">
+                {whatsappTemplates.find(t => t.name === selectedTemplateName)?.body}
+              </p>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="flex gap-3 justify-end pt-2">
+              <button 
+                type="button" 
+                onClick={() => setShowConfirmLaunch(false)}
+                className="px-5 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 rounded-2xl text-xs font-bold transition-all cursor-pointer border-none"
+              >
+                Cancel / Edit
+              </button>
+              <button 
+                type="button" 
+                onClick={handleLaunchCampaign}
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold uppercase tracking-wider transition-all shadow-md shadow-emerald-600/10 cursor-pointer border-none flex items-center gap-1.5"
+              >
+                <Play className="w-3.5 h-3.5 fill-white" /> Confirm &amp; Launch
+              </button>
+            </div>
+
           </div>
         </div>
       )}
