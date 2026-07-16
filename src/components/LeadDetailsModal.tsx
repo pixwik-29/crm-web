@@ -67,7 +67,8 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
     verifyPartnerDoc,
     uploadAdminPartnerDoc,
     visaRequiredDocs,
-    colleges
+    colleges,
+    tenantId
   } = useData();
 
   const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist'>(initialTab || 'notes');
@@ -104,6 +105,64 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const [adminDocType, setAdminDocType] = useState('Admission Letter');
   const [customAdminDocName, setCustomAdminDocName] = useState('');
   const [isUploadingAdminDoc, setIsUploadingAdminDoc] = useState(false);
+  const [groups, setGroups] = useState<any[]>([]);
+
+  // Fetch groups
+  const fetchGroups = async () => {
+    if (!tenantId) return;
+    try {
+      const res = await fetch(`/api/lead-groups?tenantId=${tenantId}`);
+      const data = await res.json();
+      if (data.success) {
+        setGroups(data.groups);
+      }
+    } catch (err) {
+      console.error('Failed to fetch groups:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (lead) {
+      fetchGroups();
+    }
+  }, [lead, tenantId]);
+
+  const handleToggleGroupMembership = async (group: any, shouldBeMember: boolean) => {
+    if (!lead) return;
+    const currentLeadIds = group.filters?.lead_ids || [];
+    let newLeadIds;
+    if (shouldBeMember) {
+      if (currentLeadIds.includes(lead.id)) return;
+      newLeadIds = [...currentLeadIds, lead.id];
+    } else {
+      newLeadIds = currentLeadIds.filter((id: string) => id !== lead.id);
+    }
+    
+    const updatedFilters = {
+      ...group.filters,
+      lead_ids: newLeadIds
+    };
+    
+    try {
+      const res = await fetch('/api/lead-groups', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: group.id,
+          tenantId,
+          name: group.name,
+          description: group.description,
+          filters: updatedFilters
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGroups(prev => prev.map(g => g.id === group.id ? data.group : g));
+      }
+    } catch (err) {
+      console.error('Failed to update group membership:', err);
+    }
+  };
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -517,6 +576,40 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                 <User className="w-3.5 h-3.5 text-slate-400" />
                 {counselor ? counselor.full_name : <span className="text-slate-400 italic">Unassigned</span>}
               </p>
+            </div>
+            <div className="col-span-2 sm:col-span-3 border-t border-slate-100 dark:border-zinc-900 pt-4">
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">WhatsApp Marketing Groups</p>
+              <div className="flex flex-wrap gap-2 items-center">
+                {groups.filter(g => g.filters?.lead_ids?.includes(lead.id)).map(g => (
+                  <span key={g.id} className="inline-flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-full text-xs font-bold border border-indigo-100 dark:border-indigo-900/50">
+                    👥 {g.name}
+                    <button 
+                      onClick={() => handleToggleGroupMembership(g, false)} 
+                      className="hover:text-rose-500 transition-colors ml-1 font-bold text-sm leading-none"
+                      title="Remove from group"
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
+                
+                {/* Dropdown to add to group */}
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const selectedGroupId = e.target.value;
+                    if (!selectedGroupId) return;
+                    const g = groups.find(group => group.id === selectedGroupId);
+                    if (g) handleToggleGroupMembership(g, true);
+                  }}
+                  className="bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-350 outline-none cursor-pointer focus:border-indigo-500"
+                >
+                  <option value="">+ Add to Group...</option>
+                  {groups.filter(g => !g.filters?.lead_ids?.includes(lead.id)).map(g => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="flex items-end">
               <button 

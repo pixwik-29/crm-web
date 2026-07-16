@@ -50,42 +50,83 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const hasDynamicFilters = (f: any) => {
+      if (!f) return false;
+      const hasStatuses = f.statuses && Array.isArray(f.statuses) && f.statuses.length > 0 && !f.statuses.includes('all');
+      const hasDestinations = f.destinations && Array.isArray(f.destinations) && f.destinations.length > 0 && !f.destinations.includes('all');
+      const hasCourses = f.courses && Array.isArray(f.courses) && f.courses.length > 0 && !f.courses.includes('all');
+      const hasTags = f.tags && Array.isArray(f.tags) && f.tags.length > 0;
+      const hasNeet = !!f.neet_marks_min;
+      const hasBudget = !!f.budget_max;
+      const hasStatus = f.status && f.status !== 'all';
+      const hasDestination = f.preferred_destination && f.preferred_destination !== 'all';
+      const hasCourse = f.course && f.course !== 'all';
+      return hasStatuses || hasDestinations || hasCourses || hasTags || hasNeet || hasBudget || hasStatus || hasDestination || hasCourse;
+    };
+
+    let targets: any[] = [];
+    const hasDyn = hasDynamicFilters(activeFilters);
+
     if (activeFilters) {
-      // Support multi-select statuses
-      if (activeFilters.statuses && Array.isArray(activeFilters.statuses) && activeFilters.statuses.length > 0 && !activeFilters.statuses.includes('all')) {
-        query = query.in('status', activeFilters.statuses);
-      } else if (activeFilters.status && activeFilters.status !== 'all') {
-        query = query.eq('status', activeFilters.status);
-      }
+      if (hasDyn || (!activeFilters.lead_ids || activeFilters.lead_ids.length === 0)) {
+        // Support multi-select statuses
+        if (activeFilters.statuses && Array.isArray(activeFilters.statuses) && activeFilters.statuses.length > 0 && !activeFilters.statuses.includes('all')) {
+          query = query.in('status', activeFilters.statuses);
+        } else if (activeFilters.status && activeFilters.status !== 'all') {
+          query = query.eq('status', activeFilters.status);
+        }
 
-      // Support multi-select destinations
-      if (activeFilters.destinations && Array.isArray(activeFilters.destinations) && activeFilters.destinations.length > 0 && !activeFilters.destinations.includes('all')) {
-        query = query.in('preferred_destination', activeFilters.destinations);
-      } else if (activeFilters.preferred_destination && activeFilters.preferred_destination !== 'all') {
-        query = query.eq('preferred_destination', activeFilters.preferred_destination);
-      }
+        // Support multi-select destinations
+        if (activeFilters.destinations && Array.isArray(activeFilters.destinations) && activeFilters.destinations.length > 0 && !activeFilters.destinations.includes('all')) {
+          query = query.in('preferred_destination', activeFilters.destinations);
+        } else if (activeFilters.preferred_destination && activeFilters.preferred_destination !== 'all') {
+          query = query.eq('preferred_destination', activeFilters.preferred_destination);
+        }
 
-      // Support multi-select courses
-      if (activeFilters.courses && Array.isArray(activeFilters.courses) && activeFilters.courses.length > 0 && !activeFilters.courses.includes('all')) {
-        query = query.in('course', activeFilters.courses);
-      } else if (activeFilters.course && activeFilters.course !== 'all') {
-        query = query.eq('course', activeFilters.course);
-      }
+        // Support multi-select courses
+        if (activeFilters.courses && Array.isArray(activeFilters.courses) && activeFilters.courses.length > 0 && !activeFilters.courses.includes('all')) {
+          query = query.in('course', activeFilters.courses);
+        } else if (activeFilters.course && activeFilters.course !== 'all') {
+          query = query.eq('course', activeFilters.course);
+        }
 
-      if (activeFilters.tags && activeFilters.tags.length > 0) {
-        // Match leads containing any of these tags in the tags array column
-        query = query.contains('tags', activeFilters.tags);
+        if (activeFilters.tags && activeFilters.tags.length > 0) {
+          // Match leads containing any of these tags in the tags array column
+          query = query.contains('tags', activeFilters.tags);
+        }
+        if (activeFilters.neet_marks_min) {
+          query = query.gte('neet_marks', parseInt(activeFilters.neet_marks_min));
+        }
+        if (activeFilters.budget_max) {
+          query = query.lte('budget', parseFloat(activeFilters.budget_max));
+        }
+
+        const { data: dynamicTargets, error: fetchErr } = await query;
+        if (fetchErr) throw new Error(fetchErr.message);
+        targets = dynamicTargets || [];
       }
-      if (activeFilters.neet_marks_min) {
-        query = query.gte('neet_marks', parseInt(activeFilters.neet_marks_min));
-      }
-      if (activeFilters.budget_max) {
-        query = query.lte('budget', parseFloat(activeFilters.budget_max));
-      }
+    } else {
+      const { data: defaultTargets, error: fetchErr } = await query;
+      if (fetchErr) throw new Error(fetchErr.message);
+      targets = defaultTargets || [];
     }
 
-    const { data: targets, error: fetchErr } = await query;
-    if (fetchErr) throw new Error(fetchErr.message);
+    // Now append manual leads if they exist
+    if (activeFilters && activeFilters.lead_ids && Array.isArray(activeFilters.lead_ids) && activeFilters.lead_ids.length > 0) {
+      const { data: manualTargets, error: manualErr } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .in('id', activeFilters.lead_ids);
+      if (manualErr) throw new Error(manualErr.message);
+
+      if (manualTargets && manualTargets.length > 0) {
+        const mergedMap = new Map();
+        targets.forEach(t => mergedMap.set(t.id, t));
+        manualTargets.forEach(t => mergedMap.set(t.id, t));
+        targets = Array.from(mergedMap.values());
+      }
+    }
 
     if (!targets || targets.length === 0) {
       return NextResponse.json({ success: true, targetsCount: 0, message: 'No leads matched this filter configuration.' });

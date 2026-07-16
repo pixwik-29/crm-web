@@ -37,6 +37,8 @@ export const CampaignManager: React.FC = () => {
   const [groupTags, setGroupTags] = useState<string[]>([]);
   const [groupNeetMin, setGroupNeetMin] = useState('');
   const [groupBudgetMax, setGroupBudgetMax] = useState('');
+  const [groupLeadIds, setGroupLeadIds] = useState<string[]>([]);
+  const [leadSearchQuery, setLeadSearchQuery] = useState('');
 
   // Manual Broadcast Filters state
   const [filterStatus, setFilterStatus] = useState('all');
@@ -87,27 +89,56 @@ export const CampaignManager: React.FC = () => {
   // Calculate dynamic matching count for a specific filters object
   const calculateGroupCount = (filters: any) => {
     if (!filters) return 0;
-    let filtered = leads;
-    
-    if (filters.statuses && Array.isArray(filters.statuses) && filters.statuses.length > 0 && !filters.statuses.includes('all')) {
-      filtered = filtered.filter(l => filters.statuses.includes(l.status));
+
+    const hasDynamicFilters = (f: any) => {
+      const hasStatuses = f.statuses && Array.isArray(f.statuses) && f.statuses.length > 0 && !f.statuses.includes('all');
+      const hasDestinations = f.destinations && Array.isArray(f.destinations) && f.destinations.length > 0 && !f.destinations.includes('all');
+      const hasCourses = f.courses && Array.isArray(f.courses) && f.courses.length > 0 && !f.courses.includes('all');
+      const hasTags = f.tags && Array.isArray(f.tags) && f.tags.length > 0;
+      const hasNeet = !!f.neet_marks_min;
+      const hasBudget = !!f.budget_max;
+      return hasStatuses || hasDestinations || hasCourses || hasTags || hasNeet || hasBudget;
+    };
+
+    let dynamicMatched: any[] = [];
+    const hasDyn = hasDynamicFilters(filters);
+
+    if (hasDyn || (!filters.lead_ids || filters.lead_ids.length === 0)) {
+      let filtered = leads;
+      if (filters.statuses && Array.isArray(filters.statuses) && filters.statuses.length > 0 && !filters.statuses.includes('all')) {
+        filtered = filtered.filter(l => filters.statuses.includes(l.status));
+      }
+      if (filters.destinations && Array.isArray(filters.destinations) && filters.destinations.length > 0 && !filters.destinations.includes('all')) {
+        filtered = filtered.filter(l => filters.destinations.includes(l.preferred_destination));
+      }
+      if (filters.courses && Array.isArray(filters.courses) && filters.courses.length > 0 && !filters.courses.includes('all')) {
+        filtered = filtered.filter(l => filters.courses.includes(l.course));
+      }
+      if (filters.tags && Array.isArray(filters.tags) && filters.tags.length > 0) {
+        filtered = filtered.filter(l => filters.tags.some((t: string) => l.tags?.includes(t)));
+      }
+      if (filters.neet_marks_min) {
+        filtered = filtered.filter(l => (l.neet_marks || 0) >= parseInt(filters.neet_marks_min));
+      }
+      if (filters.budget_max) {
+        filtered = filtered.filter(l => (l.budget || 9999999) <= parseFloat(filters.budget_max));
+      }
+      dynamicMatched = filtered;
     }
-    if (filters.destinations && Array.isArray(filters.destinations) && filters.destinations.length > 0 && !filters.destinations.includes('all')) {
-      filtered = filtered.filter(l => filters.destinations.includes(l.preferred_destination));
+
+    let manualMatched: any[] = [];
+    if (filters.lead_ids && Array.isArray(filters.lead_ids) && filters.lead_ids.length > 0) {
+      manualMatched = leads.filter(l => filters.lead_ids.includes(l.id));
     }
-    if (filters.courses && Array.isArray(filters.courses) && filters.courses.length > 0 && !filters.courses.includes('all')) {
-      filtered = filtered.filter(l => filters.courses.includes(l.course));
-    }
-    if (filters.tags && Array.isArray(filters.tags) && filters.tags.length > 0) {
-      filtered = filtered.filter(l => filters.tags.some((t: string) => l.tags?.includes(t)));
-    }
-    if (filters.neet_marks_min) {
-      filtered = filtered.filter(l => (l.neet_marks || 0) >= parseInt(filters.neet_marks_min));
-    }
-    if (filters.budget_max) {
-      filtered = filtered.filter(l => (l.budget || 9999999) <= parseFloat(filters.budget_max));
-    }
-    return filtered.length;
+
+    const combined = [...dynamicMatched];
+    manualMatched.forEach(ml => {
+      if (!combined.some(cl => cl.id === ml.id)) {
+        combined.push(ml);
+      }
+    });
+
+    return combined.length;
   };
 
   // Calculate matching leads in real-time on UI (Manual Broadcast mode)
@@ -228,7 +259,8 @@ export const CampaignManager: React.FC = () => {
           courses: groupCourses,
           tags: groupTags,
           neet_marks_min: groupNeetMin || undefined,
-          budget_max: groupBudgetMax || undefined
+          budget_max: groupBudgetMax || undefined,
+          lead_ids: groupLeadIds
         }
       };
 
@@ -250,6 +282,8 @@ export const CampaignManager: React.FC = () => {
         setGroupTags([]);
         setGroupNeetMin('');
         setGroupBudgetMax('');
+        setGroupLeadIds([]);
+        setLeadSearchQuery('');
         fetchGroups();
       }
     } catch (err) {
@@ -268,6 +302,8 @@ export const CampaignManager: React.FC = () => {
     setGroupTags(group.filters?.tags || []);
     setGroupNeetMin(group.filters?.neet_marks_min || '');
     setGroupBudgetMax(group.filters?.budget_max || '');
+    setGroupLeadIds(group.filters?.lead_ids || []);
+    setLeadSearchQuery('');
     setIsGroupModalOpen(true);
   };
 
@@ -597,6 +633,8 @@ export const CampaignManager: React.FC = () => {
                 setGroupTags([]);
                 setGroupNeetMin('');
                 setGroupBudgetMax('');
+                setGroupLeadIds([]);
+                setLeadSearchQuery('');
                 setIsGroupModalOpen(true);
               }}
               className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold tracking-wider uppercase transition-all shadow-md shadow-emerald-600/10 flex items-center gap-2 cursor-pointer"
@@ -900,6 +938,79 @@ export const CampaignManager: React.FC = () => {
                     placeholder="e.g. 2500000" 
                     className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 font-bold" 
                   />
+                </div>
+              </div>
+
+
+              {/* 5. Explicitly Added Leads */}
+              <div className="border-t border-slate-100 dark:border-zinc-900 pt-4">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 text-emerald-600 dark:text-emerald-450">Explicitly Added Leads (Manually Grouped)</label>
+                <div className="space-y-3">
+                  {/* Search box to find leads by name or phone */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search leads by name or phone number..."
+                      value={leadSearchQuery}
+                      onChange={(e) => setLeadSearchQuery(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 font-medium"
+                    />
+                    {leadSearchQuery && (
+                      <div className="absolute top-full left-0 right-0 max-h-48 overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-xl mt-1 z-20 shadow-lg">
+                        {leads
+                          .filter(l => 
+                            ((l.name && l.name.toLowerCase().includes(leadSearchQuery.toLowerCase())) || 
+                            (l.phone && l.phone.includes(leadSearchQuery))) &&
+                            !groupLeadIds.includes(l.id)
+                          )
+                          .slice(0, 10)
+                          .map(l => (
+                            <button
+                              key={l.id}
+                              type="button"
+                              onClick={() => {
+                                setGroupLeadIds([...groupLeadIds, l.id]);
+                                setLeadSearchQuery('');
+                              }}
+                              className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-zinc-905 text-xs text-slate-700 dark:text-zinc-300 font-bold border-b border-slate-100 dark:border-zinc-900 last:border-b-0 cursor-pointer flex justify-between items-center"
+                            >
+                              <span>{l.name} ({l.phone})</span>
+                              <span className="text-[10px] bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-full">Add</span>
+                            </button>
+                          ))}
+                        {leads.filter(l => 
+                          ((l.name && l.name.toLowerCase().includes(leadSearchQuery.toLowerCase())) || 
+                          (l.phone && l.phone.includes(leadSearchQuery))) &&
+                          !groupLeadIds.includes(l.id)
+                        ).length === 0 && (
+                          <div className="px-4 py-2 text-xs text-slate-400 dark:text-zinc-500 italic text-center">No matching leads found</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Selected Manual Leads List */}
+                  {groupLeadIds.length > 0 && (
+                    <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-2.5 border border-slate-150 dark:border-zinc-900/60 rounded-xl bg-slate-50/50 dark:bg-black/20">
+                      {groupLeadIds.map(id => {
+                        const leadObj = leads.find(l => l.id === id);
+                        if (!leadObj) return null;
+                        return (
+                          <span key={id} className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold border border-emerald-100 dark:border-emerald-900/50">
+                            {leadObj.name}
+                            <button
+                              type="button"
+                              onClick={() => setGroupLeadIds(groupLeadIds.filter(gid => gid !== id))}
+                              className="hover:text-rose-500 transition-colors ml-1 font-bold text-sm leading-none"
+                              title="Remove from group"
+                            >
+                              &times;
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
