@@ -34,8 +34,14 @@ export const SharedInbox: React.FC = () => {
   const [inboxFilter, setInboxFilter] = useState<'all' | 'me' | 'unassigned'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Track which thread IDs the user has opened (to clear unread badges)
-  const [readThreadIds, setReadThreadIds] = useState<Set<string>>(new Set());
+  // Track the timestamp of when each thread was last seen/read by the user
+  const [lastSeenMap, setLastSeenMap] = useState<Record<string, string>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('inbox_last_seen');
+      return saved ? JSON.parse(saved) : {};
+    }
+    return {};
+  });
   
   // Messaging input states
   const [inputText, setInputText] = useState('');
@@ -98,6 +104,29 @@ export const SharedInbox: React.FC = () => {
     };
   }, [tenantId]);
 
+  // Use the unified allMessages pool filtered to the active thread for the chat panel
+  const activeChats = React.useMemo(() => {
+    if (!activeThreadId) return [];
+    const dbIds = new Set(whatsappHistory.map(m => m.id));
+    const merged = [...whatsappHistory, ...localHistory.filter(m => !dbIds.has(m.id))];
+    return merged
+      .filter(m => m.lead_id === activeThreadId)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [activeThreadId, whatsappHistory, localHistory]);
+
+  // Update last seen timestamp for the active thread when it changes or a new message arrives
+  useEffect(() => {
+    if (activeThreadId) {
+      const nowStr = new Date().toISOString();
+      setLastSeenMap(prev => {
+        const next = { ...prev, [activeThreadId]: nowStr };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('inbox_last_seen', JSON.stringify(next));
+        }
+        return next;
+      });
+    }
+  }, [activeThreadId, activeChats.length]);
 
   // Merge all messages: DataContext (DB) + localHistory (optimistic/realtime)
   // This unified pool is used for BOTH thread list previews AND chat panel
@@ -122,10 +151,13 @@ export const SharedInbox: React.FC = () => {
 
       const lastMsg = leadHistory[0];
       
-      // Count unread incoming messages (only count if thread hasn't been opened/read)
-      const isRead = readThreadIds.has(lead.id);
-      const unreadMsgs = leadHistory.filter(m => m.direction === 'incoming' && m.status !== 'read');
-      const unreadCount = isRead ? 0 : unreadMsgs.length;
+      // Count unread incoming messages (only count if they are newer than the last seen time)
+      const lastSeen = lastSeenMap[lead.id] || '1970-01-01T00:00:00.000Z';
+      const unreadMsgs = leadHistory.filter(m => 
+        m.direction === 'incoming' && 
+        new Date(m.created_at).getTime() > new Date(lastSeen).getTime()
+      );
+      const unreadCount = activeThreadId === lead.id ? 0 : unreadMsgs.length;
 
       threadMap.set(lead.id, {
         leadId: lead.id,
@@ -140,7 +172,7 @@ export const SharedInbox: React.FC = () => {
     });
 
     return Array.from(threadMap.values()).sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
-  }, [leads, allMessages, readThreadIds]);
+  }, [leads, allMessages, lastSeenMap, activeThreadId]);
 
   // Filter threads
   const filteredThreads = threads.filter(t => {
@@ -165,7 +197,14 @@ export const SharedInbox: React.FC = () => {
   // Mark thread as read when user opens it
   const handleOpenThread = (leadId: string) => {
     setActiveThreadId(leadId);
-    setReadThreadIds(prev => new Set([...prev, leadId]));
+    const nowStr = new Date().toISOString();
+    setLastSeenMap(prev => {
+      const next = { ...prev, [leadId]: nowStr };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('inbox_last_seen', JSON.stringify(next));
+      }
+      return next;
+    });
   };
 
   // Use the unified allMessages pool filtered to the active thread for the chat panel
