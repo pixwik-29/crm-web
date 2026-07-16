@@ -68,11 +68,11 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
             });
           }
 
-          // Include body component only if there are variables to pass
-          if (options.variables && options.variables.length > 0) {
+          // Include body component only if there are variables to pass and placeholders expected
+          if (options.variables && options.variables.length > 0 && placeholders.length > 0) {
             components.push({
               type: 'body',
-              parameters: options.variables.map((v, idx) => {
+              parameters: options.variables.slice(0, placeholders.length).map((v, idx) => {
                 const paramName = placeholders[idx] || String(idx + 1);
                 return {
                   type: 'text',
