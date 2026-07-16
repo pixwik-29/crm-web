@@ -57,12 +57,12 @@ export const SharedInbox: React.FC = () => {
   }, [activeThreadId, whatsappHistory, localHistory]);
 
   // Dedicated realtime subscription for incoming messages in this component
-  // (independent of DataContext — acts as a direct safety net)
+  // Handles both INSERT (new messages) and UPDATE (status changes: sent→delivered→read)
   useEffect(() => {
     if (!supabase || !tenantId) return;
 
     const channel = supabase
-      .channel(`inbox-realtime-${tenantId}`)
+      .channel(`inbox-realtime-${tenantId}-v2`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
@@ -70,50 +70,49 @@ export const SharedInbox: React.FC = () => {
         filter: `tenant_id=eq.${tenantId}`
       }, (payload) => {
         const newMsg = payload.new as any;
-        // Add to local state so it appears immediately without waiting for DataContext
         setLocalHistory(prev => {
           if (prev.some(m => m.id === newMsg.id)) return prev; // deduplicate
           return [...prev, newMsg];
         });
       })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'whatsapp_history',
+        filter: `tenant_id=eq.${tenantId}`
+      }, (payload) => {
+        const updatedMsg = payload.new as any;
+        // Update status in local state so delivery ticks update live
+        setLocalHistory(prev =>
+          prev.map(m => m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m)
+        );
+      })
       .subscribe();
-
-    // 15-second polling fallback: fetch latest messages in active thread
-    const pollInterval = setInterval(async () => {
-      if (!activeThreadId || !supabase) return;
-      const { data } = await supabase
-        .from('whatsapp_history')
-        .select('*')
-        .eq('lead_id', activeThreadId)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (data) {
-        setLocalHistory(prev => {
-          const existingIds = new Set([...prev.map(m => m.id)]);
-          const newMsgs = data.filter(m => !existingIds.has(m.id));
-          return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev;
-        });
-      }
-    }, 15000);
 
     return () => {
       if (supabase) supabase.removeChannel(channel);
-      clearInterval(pollInterval);
     };
-  }, [tenantId, activeThreadId]);
+  }, [tenantId]);
 
 
-  // Aggregate active lead threads from whatsapp history & leads list
+  // Merge all messages: DataContext (DB) + localHistory (optimistic/realtime)
+  // This unified pool is used for BOTH thread list previews AND chat panel
+  const allMessages = React.useMemo(() => {
+    const dbIds = new Set(whatsappHistory.map(m => m.id));
+    const merged = [...whatsappHistory, ...localHistory.filter(m => !dbIds.has(m.id))];
+    return merged;
+  }, [whatsappHistory, localHistory]);
+
+  // Aggregate active lead threads from merged message pool
   const threads: Thread[] = React.useMemo(() => {
     const threadMap = new Map<string, Thread>();
 
-    // Initialise threads for leads with WhatsApp numbers
     leads.forEach(lead => {
       const targetPhone = lead.whatsapp_number || lead.phone || '';
       if (!targetPhone) return;
 
-      // Find all history for this lead
-      const leadHistory = whatsappHistory
+      // Find all messages for this lead from the unified merged pool
+      const leadHistory = allMessages
         .filter(h => h.lead_id === lead.id)
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
@@ -131,7 +130,7 @@ export const SharedInbox: React.FC = () => {
     });
 
     return Array.from(threadMap.values()).sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
-  }, [leads, whatsappHistory]);
+  }, [leads, allMessages]);
 
   // Filter threads
   const filteredThreads = threads.filter(t => {
@@ -150,15 +149,13 @@ export const SharedInbox: React.FC = () => {
 
   const activeLead = leads.find(l => l.id === activeThreadId);
 
-  // Merge DB history with locally-added messages (optimistic updates) and deduplicate by id
+  // Use the unified allMessages pool filtered to the active thread for the chat panel
   const activeChats = React.useMemo(() => {
     if (!activeThreadId) return [];
-    const dbMsgs = whatsappHistory.filter(c => c.lead_id === activeThreadId);
-    const localMsgs = localHistory.filter(c => c.lead_id === activeThreadId);
-    const dbIds = new Set(dbMsgs.map(m => m.id));
-    const merged = [...dbMsgs, ...localMsgs.filter(m => !dbIds.has(m.id))];
-    return merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  }, [activeThreadId, whatsappHistory, localHistory]);
+    return allMessages
+      .filter(m => m.lead_id === activeThreadId)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [activeThreadId, allMessages]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -244,15 +241,20 @@ export const SharedInbox: React.FC = () => {
         });
       }
 
-      // 5. Update local state immediately so message appears without refresh
-      setLocalHistory(prev => [...prev, {
-        id: newMsgId,
-        lead_id: activeThreadId,
-        direction: 'outgoing' as const,
-        message_text: messageContent || '[Attachment]',
-        status: 'sent',
-        created_at: new Date().toISOString()
-      }]);
+      // 5. Update local optimistic state immediately so message appears without refresh
+      setLocalHistory(prev => {
+        const optimistic = {
+          id: newMsgId,
+          lead_id: activeThreadId,
+          direction: 'outgoing' as const,
+          message_text: messageContent || '[Attachment]',
+          status: 'sent',
+          created_at: new Date().toISOString(),
+          tenant_id: tenantId
+        };
+        if (prev.some(m => m.id === newMsgId)) return prev;
+        return [...prev, optimistic];
+      });
 
       // Reset inputs
       setInputText('');
@@ -303,6 +305,10 @@ export const SharedInbox: React.FC = () => {
             <h2 className="text-sm font-extrabold tracking-wider uppercase text-slate-800 dark:text-white flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-emerald-500" /> WhatsApp Inbox
             </h2>
+            <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
+              Live
+            </span>
           </div>
           
           <div className="relative">
