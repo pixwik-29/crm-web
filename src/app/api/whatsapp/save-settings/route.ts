@@ -4,7 +4,7 @@ import { encryptToken } from '@/lib/messaging/crypto';
 
 export async function POST(req: NextRequest) {
   try {
-    const { phoneId, accountId, apiToken, autoResponse, tenantId } = await req.json();
+    const { phoneId, accountId, apiToken, autoResponse, welcomeTemplate, tenantId } = await req.json();
 
     if (!tenantId) {
       return NextResponse.json({ error: 'Tenant ID is required' }, { status: 400 });
@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       whatsapp_phone_id: phoneId || null,
       whatsapp_account_id: accountId || null,
       whatsapp_auto_response_template: autoResponse || null,
+      whatsapp_welcome_partner_template: welcomeTemplate || null,
     };
 
     // Only encrypt and save token if a new token was supplied
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
         whatsapp_phone_id: phoneId || null,
         whatsapp_account_id: accountId || null,
         whatsapp_auto_response_template: autoResponse || null,
+        whatsapp_welcome_partner_template: welcomeTemplate || null,
         whatsapp_api_token: apiToken && !apiToken.startsWith('••••') ? apiToken : undefined
       };
       

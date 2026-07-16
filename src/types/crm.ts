@@ -137,6 +137,7 @@ export interface CRMSettings {
   whatsapp_account_id: string;
   whatsapp_api_token: string;
   whatsapp_auto_response_template: string;
+  whatsapp_welcome_partner_template?: string;
   form_integration_strategy?: 'fixed' | 'dynamic';
   form_integration_fixed_course?: string;
   form_integration_dynamic_field?: string;

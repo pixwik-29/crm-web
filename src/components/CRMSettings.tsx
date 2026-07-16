@@ -72,6 +72,7 @@ export const CRMSettings: React.FC = () => {
   const [accountId, setAccountId] = useState(settings.whatsapp_account_id);
   const [whApiToken, setWhApiToken] = useState(settings.whatsapp_api_token ? '••••••••••••••••••••' : '');
   const [autoResponse, setAutoResponse] = useState(settings.whatsapp_auto_response_template);
+  const [welcomeTemplate, setWelcomeTemplate] = useState(settings.whatsapp_welcome_partner_template || '');
   const [formStrategy, setFormStrategy] = useState<'fixed' | 'dynamic'>(settings.form_integration_strategy || 'fixed');
   const [fixedCourse, setFixedCourse] = useState(settings.form_integration_fixed_course || 'MBBS');
   const [dynamicField, setDynamicField] = useState(settings.form_integration_dynamic_field || 'course');
@@ -704,6 +705,7 @@ export const CRMSettings: React.FC = () => {
           accountId,
           apiToken: whApiToken,
           autoResponse,
+          welcomeTemplate,
           tenantId
         })
       });
@@ -715,6 +717,7 @@ export const CRMSettings: React.FC = () => {
         whatsapp_account_id: accountId,
         whatsapp_api_token: whApiToken && !whApiToken.startsWith('••••') ? '••••••••••••••••••••' : whApiToken,
         whatsapp_auto_response_template: autoResponse,
+        whatsapp_welcome_partner_template: welcomeTemplate,
       });
       setSaveStatus('WhatsApp settings saved successfully!');
     } catch (err: any) {
@@ -1647,6 +1650,18 @@ async function submitEduPathLead(leadData) {
               <div className="md:col-span-2">
                 <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Auto-Response Template</label>
                 <textarea value={autoResponse} onChange={(e) => setAutoResponse(e.target.value)} disabled={!isAdmin} rows={3} placeholder="Message sent automatically when a new WhatsApp lead is received..." className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 disabled:opacity-60 resize-none" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Automated Welcome Message for New Partners (Onboarding)</label>
+                <select value={welcomeTemplate} onChange={(e) => setWelcomeTemplate(e.target.value)} disabled={!isAdmin} className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 disabled:opacity-60 font-bold">
+                  <option value="">No automated welcome message</option>
+                  {whatsappTemplates.map(t => (
+                    <option key={t.id} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-450 dark:text-zinc-500 mt-1.5 font-medium leading-relaxed">
+                  Select the approved WhatsApp template to dispatch automatically to new partner agencies when their profile status is updated to <strong>Active</strong>.
+                </p>
               </div>
             </div>
           </div>

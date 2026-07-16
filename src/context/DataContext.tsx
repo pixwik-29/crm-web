@@ -324,6 +324,7 @@ const DEFAULT_SETTINGS: CRMSettings = {
   whatsapp_account_id: '120938475647382',
   whatsapp_api_token: 'EAAG...whatsapp...token',
   whatsapp_auto_response_template: 'welcome',
+  whatsapp_welcome_partner_template: '',
   form_integration_strategy: 'fixed',
   form_integration_fixed_course: 'MBBS',
   form_integration_dynamic_field: 'course',
