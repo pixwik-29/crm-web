@@ -60,20 +60,12 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
             {
               type: 'body',
               parameters: options.variables.map((v, idx) => {
-                const paramName = placeholders[idx];
-                const isNumeric = paramName && /^\d+$/.test(paramName);
-                if (paramName && !isNumeric) {
-                  return {
-                    type: 'text',
-                    text: v,
-                    parameter_name: paramName
-                  };
-                } else {
-                  return {
-                    type: 'text',
-                    text: v
-                  };
-                }
+                const paramName = placeholders[idx] || String(idx + 1);
+                return {
+                  type: 'text',
+                  text: v,
+                  parameter_name: paramName
+                };
               })
             }
           ];
