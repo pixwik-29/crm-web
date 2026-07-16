@@ -15,6 +15,7 @@ interface Thread {
   lastMessageText: string;
   lastMessageTime: string;
   unread: boolean;
+  unreadCount: number;
 }
 
 export const SharedInbox: React.FC = () => {
@@ -32,6 +33,9 @@ export const SharedInbox: React.FC = () => {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [inboxFilter, setInboxFilter] = useState<'all' | 'me' | 'unassigned'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Track which thread IDs the user has opened (to clear unread badges)
+  const [readThreadIds, setReadThreadIds] = useState<Set<string>>(new Set());
   
   // Messaging input states
   const [inputText, setInputText] = useState('');
@@ -117,6 +121,11 @@ export const SharedInbox: React.FC = () => {
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       const lastMsg = leadHistory[0];
+      
+      // Count unread incoming messages (only count if thread hasn't been opened/read)
+      const isRead = readThreadIds.has(lead.id);
+      const unreadMsgs = leadHistory.filter(m => m.direction === 'incoming' && m.status !== 'read');
+      const unreadCount = isRead ? 0 : unreadMsgs.length;
 
       threadMap.set(lead.id, {
         leadId: lead.id,
@@ -125,12 +134,13 @@ export const SharedInbox: React.FC = () => {
         assignedTo: lead.assigned_counsellor_id || null,
         lastMessageText: lastMsg ? lastMsg.message_text : 'No conversations started yet',
         lastMessageTime: lastMsg ? lastMsg.created_at : lead.created_at,
-        unread: lastMsg ? (lastMsg.direction === 'incoming' && lastMsg.status !== 'read') : false
+        unread: unreadCount > 0,
+        unreadCount
       });
     });
 
     return Array.from(threadMap.values()).sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
-  }, [leads, allMessages]);
+  }, [leads, allMessages, readThreadIds]);
 
   // Filter threads
   const filteredThreads = threads.filter(t => {
@@ -148,6 +158,15 @@ export const SharedInbox: React.FC = () => {
   });
 
   const activeLead = leads.find(l => l.id === activeThreadId);
+  
+  // Total unread count across all threads (for header badge)
+  const totalUnread = threads.reduce((sum, t) => sum + t.unreadCount, 0);
+
+  // Mark thread as read when user opens it
+  const handleOpenThread = (leadId: string) => {
+    setActiveThreadId(leadId);
+    setReadThreadIds(prev => new Set([...prev, leadId]));
+  };
 
   // Use the unified allMessages pool filtered to the active thread for the chat panel
   const activeChats = React.useMemo(() => {
@@ -304,6 +323,11 @@ export const SharedInbox: React.FC = () => {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-extrabold tracking-wider uppercase text-slate-800 dark:text-white flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-emerald-500" /> WhatsApp Inbox
+              {totalUnread > 0 && (
+                <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center shadow-sm shadow-rose-500/40 animate-pulse">
+                  {totalUnread > 99 ? '99+' : totalUnread}
+                </span>
+              )}
             </h2>
             <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
@@ -329,20 +353,46 @@ export const SharedInbox: React.FC = () => {
             <div className="p-8 text-center text-xs text-slate-400">No conversations found</div>
           ) : (
             filteredThreads.map(thread => (
-              <button key={thread.leadId} onClick={() => setActiveThreadId(thread.leadId)} className={`w-full p-4 flex gap-3 text-left transition-all ${activeThreadId === thread.leadId ? 'bg-emerald-50/40 dark:bg-emerald-500/5 border-l-4 border-emerald-600' : 'hover:bg-slate-50 dark:hover:bg-zinc-900'}`}>
-                <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-950/40 rounded-full flex items-center justify-center text-emerald-700 font-bold text-xs uppercase flex-shrink-0">
-                  {thread.leadName.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-800 dark:text-white truncate">{thread.leadName}</span>
-                    <span className="text-[9px] text-slate-400">{new Date(thread.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <button
+                key={thread.leadId}
+                onClick={() => handleOpenThread(thread.leadId)}
+                className={`w-full p-4 flex gap-3 text-left transition-all ${
+                  activeThreadId === thread.leadId
+                    ? 'bg-emerald-50/40 dark:bg-emerald-500/5 border-l-4 border-emerald-600'
+                    : thread.unread
+                    ? 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/60 dark:hover:bg-rose-950/20 border-l-4 border-rose-500'
+                    : 'hover:bg-slate-50 dark:hover:bg-zinc-900 border-l-4 border-transparent'
+                }`}
+              >
+                {/* Avatar with unread dot overlay */}
+                <div className="relative flex-shrink-0">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs uppercase ${
+                    thread.unread
+                      ? 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400'
+                      : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700'
+                  }`}>
+                    {thread.leadName.charAt(0)}
                   </div>
-                  <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">{thread.lastMessageText}</p>
-                  
-                  {thread.unread && (
-                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-600"></span>
+                  {thread.unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center shadow shadow-rose-500/50 border border-white dark:border-zinc-950">
+                      {thread.unreadCount > 9 ? '9+' : thread.unreadCount}
+                    </span>
                   )}
+                </div>
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <div className="flex justify-between items-center">
+                    <span className={`text-xs truncate ${
+                      thread.unread ? 'font-extrabold text-slate-900 dark:text-white' : 'font-bold text-slate-800 dark:text-white'
+                    }`}>{thread.leadName}</span>
+                    <span className={`text-[9px] flex-shrink-0 ml-1 ${
+                      thread.unread ? 'text-rose-500 font-bold' : 'text-slate-400'
+                    }`}>{new Date(thread.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <p className={`text-[11px] truncate ${
+                    thread.unread
+                      ? 'text-slate-700 dark:text-zinc-200 font-semibold'
+                      : 'text-slate-500 dark:text-zinc-400'
+                  }`}>{thread.lastMessageText}</p>
                 </div>
               </button>
             ))

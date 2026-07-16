@@ -70,6 +70,11 @@ const DashboardContent: React.FC = () => {
   // Global lead source filter
   const [activeSourceFilter, setActiveSourceFilter] = useState<string>('All');
 
+  // Total unread WhatsApp messages for the nav tab badge
+  const totalInboxUnread = React.useMemo(() => {
+    return whatsappHistory.filter(m => m.direction === 'incoming' && m.status !== 'read').length;
+  }, [whatsappHistory]);
+
   // Derive unique sources from leads dynamically
   const allSources = ['All', ...Array.from(new Set(leads.map(l => l.lead_source).filter(Boolean)))];
 
@@ -330,13 +335,18 @@ const DashboardContent: React.FC = () => {
 
             <button
               onClick={() => setActiveView('inbox')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap relative ${
                 activeView === 'inbox'
                   ? 'bg-emerald-600 text-white shadow shadow-emerald-500/20'
                   : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5" /> Shared Inbox
+              {totalInboxUnread > 0 && activeView !== 'inbox' && (
+                <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center shadow shadow-rose-500/40 animate-pulse">
+                  {totalInboxUnread > 99 ? '99+' : totalInboxUnread}
+                </span>
+              )}
             </button>
 
             <button
