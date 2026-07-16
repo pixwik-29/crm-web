@@ -26,6 +26,7 @@ export interface WhatsAppTemplate {
   body: string;
   attachment_url?: string;
   attachment_name?: string;
+  headerImageUrl?: string;
   status?: 'APPROVED' | 'REJECTED' | 'PENDING' | 'PAUSED';
   category?: string;
   language?: string;

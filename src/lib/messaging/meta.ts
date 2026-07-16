@@ -41,14 +41,16 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
           name: options.templateName,
           language: { code: primaryLanguage }
         };
-        if (options.variables && options.variables.length > 0) {
+        {
           let bodyText = options.templateBody || '';
-          if (!bodyText && options.templateName) {
+          let headerImageUrl = '';
+          if (options.templateName) {
             try {
               const templates = await this.syncTemplates();
               const matched = templates.find(t => t.name === options.templateName);
               if (matched) {
-                bodyText = matched.body;
+                if (!bodyText) bodyText = matched.body;
+                headerImageUrl = matched.headerImageUrl || '';
               }
             } catch (e) {
               console.error('[MetaWhatsAppProvider] Failed to sync template body:', e);
@@ -56,8 +58,19 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
           }
           const placeholders = [...bodyText.matchAll(/\{\{([^}]+)\}\}/g)].map(m => m[1]);
 
-          body.template.components = [
-            {
+          const components: any[] = [];
+
+          // Include header image component if template has one
+          if (headerImageUrl) {
+            components.push({
+              type: 'header',
+              parameters: [{ type: 'image', image: { link: headerImageUrl } }]
+            });
+          }
+
+          // Include body component only if there are variables to pass
+          if (options.variables && options.variables.length > 0) {
+            components.push({
               type: 'body',
               parameters: options.variables.map((v, idx) => {
                 const paramName = placeholders[idx] || String(idx + 1);
@@ -67,8 +80,12 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
                   parameter_name: paramName
                 };
               })
-            }
-          ];
+            });
+          }
+
+          if (components.length > 0) {
+            body.template.components = components;
+          }
         }
         break;
 
@@ -172,12 +189,16 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
 
     const rawTemplates = resData.data || [];
     return rawTemplates.map((t: any) => {
-      // Find the body component to extract body text
+      // Find body and header components
       const bodyComp = t.components?.find((c: any) => c.type === 'BODY');
+      const headerComp = t.components?.find((c: any) => c.type === 'HEADER' && c.format === 'IMAGE');
+      // Extract header image URL from example handle if present
+      const headerImageUrl = headerComp?.example?.header_handle?.[0] || '';
       return {
         id: t.id || `temp-meta-${t.name}`,
         name: t.name,
         body: bodyComp?.text || '',
+        headerImageUrl,
         status: t.status,
         category: t.category,
         language: t.language,
