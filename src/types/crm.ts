@@ -208,6 +208,7 @@ export interface Partner {
   primary_contact_name: string;
   email: string;
   phone: string;
+  whatsapp_number?: string | null;
   status?: string;
   performance_score?: number;
 }
@@ -259,4 +260,14 @@ export interface RedirectLink {
   created_at: string;
   updated_at: string;
   tenant_id: string;
+}
+
+export interface PartnerUser {
+  id: string;
+  partner_id: string;
+  full_name: string;
+  email?: string | null;
+  role: string;
+  created_at: string;
+  updated_at?: string;
 }

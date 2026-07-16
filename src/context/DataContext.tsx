@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase as originalSupabase, isSupabaseConfigured as originalIsSupabaseConfigured } from '@/lib/supabase';
-import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess, Partner, PartnerStudent, PartnerUploadedDoc, RedirectLink } from '@/types/crm';
+import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess, Partner, PartnerStudent, PartnerUploadedDoc, RedirectLink, PartnerUser } from '@/types/crm';
 
 interface DataContextType {
   isConfigured: boolean;
@@ -46,6 +46,7 @@ interface DataContextType {
   partners: Partner[];
   partnerStudents: PartnerStudent[];
   partnerUploadedDocs: PartnerUploadedDoc[];
+  partnerUsers: PartnerUser[];
   connectLeadToPartnerStudent: (leadId: string, studentId: string) => Promise<void>;
   disconnectLeadFromPartnerStudent: (studentId: string) => Promise<void>;
   verifyPartnerDoc: (docId: string, status: 'verified' | 'rejected') => Promise<void>;
@@ -349,6 +350,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [partners, setPartners] = useState<Partner[]>([]);
   const [partnerStudents, setPartnerStudents] = useState<PartnerStudent[]>([]);
   const [partnerUploadedDocs, setPartnerUploadedDocs] = useState<PartnerUploadedDoc[]>([]);
+  const [partnerUsers, setPartnerUsers] = useState<PartnerUser[]>([]);
   const [colleges, setColleges] = useState<any[]>([]);
   const [redirectLinks, setRedirectLinks] = useState<RedirectLink[]>([]);
   
@@ -549,6 +551,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const { data: partUploadedDocsList } = await client.from('partner_uploaded_docs').select('*');
           if (partUploadedDocsList) setPartnerUploadedDocs(partUploadedDocsList as PartnerUploadedDoc[]);
  
+          const { data: partUsersList } = await client.from('partner_users').select('*');
+          if (partUsersList) setPartnerUsers(partUsersList as PartnerUser[]);
+
           const { data: collegesList } = await client.from('partner_colleges').select('*');
           if (collegesList) setColleges(collegesList);
 
@@ -797,6 +802,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 });
               }
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'partner_users' }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setPartnerUsers(prev => {
+                  if (prev.some(u => u.id === payload.new.id)) return prev;
+                  return [...prev, payload.new as PartnerUser];
+                });
+              } else if (payload.eventType === 'UPDATE') {
+                setPartnerUsers(prev => prev.map(u => u.id === payload.new.id ? (payload.new as PartnerUser) : u));
+              } else if (payload.eventType === 'DELETE') {
+                setPartnerUsers(prev => prev.filter(u => u.id !== payload.old.id));
+              }
+            })
             .subscribe();
         } catch (error) {
           console.error("Supabase data load error: ", error);
@@ -848,12 +865,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const storedPartners = localStorage.getItem(getLocalKey('crm_partners'));
         const storedPartnerStudents = localStorage.getItem(getLocalKey('crm_partner_students'));
         const storedPartnerUploadedDocs = localStorage.getItem(getLocalKey('crm_partner_uploaded_docs'));
+        const storedPartnerUsers = localStorage.getItem(getLocalKey('crm_partner_users'));
 
         let parsedPartners = storedPartners ? JSON.parse(storedPartners) : [];
         let parsedPartnerStudents = storedPartnerStudents ? JSON.parse(storedPartnerStudents) : [];
         let parsedPartnerUploadedDocs = storedPartnerUploadedDocs ? JSON.parse(storedPartnerUploadedDocs) : [];
+        let parsedPartnerUsers = storedPartnerUsers ? JSON.parse(storedPartnerUsers) : [];
 
         if (parsedPartners.length === 0 && tenantId === 'default') {
+          parsedPartnerUsers = [
+            { id: 'user-cons-1', partner_id: 'partner-1', full_name: 'Johnathan Doe', email: 'john@globaledu.com', role: 'consultant_agency', created_at: new Date().toISOString() },
+            { id: 'user-cons-2', partner_id: 'partner-1', full_name: 'Michael Chang', email: 'michael@globaledu.com', role: 'consultant_staff', created_at: new Date().toISOString() },
+            { id: 'user-cons-3', partner_id: 'partner-2', full_name: 'Sophia Williams', email: 'sophia@elitestudy.com', role: 'consultant_agency', created_at: new Date().toISOString() }
+          ];
+          localStorage.setItem(getLocalKey('crm_partner_users'), JSON.stringify(parsedPartnerUsers));
           parsedPartners = [
             { id: 'partner-1', business_name: 'Global Education Services', primary_contact_name: 'Sarah Jenkins', email: 'sarah@globaledu.com', phone: '+919876543220', status: 'active', performance_score: 92 },
             { id: 'partner-2', business_name: 'Elite Study Abroad', primary_contact_name: 'David Lee', email: 'david@elitestudy.com', phone: '+919876543221', status: 'active', performance_score: 85 }
@@ -942,11 +967,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem(getLocalKey('crm_partners'), JSON.stringify(parsedPartners));
           localStorage.setItem(getLocalKey('crm_partner_students'), JSON.stringify(parsedPartnerStudents));
           localStorage.setItem(getLocalKey('crm_partner_uploaded_docs'), JSON.stringify(parsedPartnerUploadedDocs));
+          localStorage.setItem(getLocalKey('crm_partner_users'), JSON.stringify(parsedPartnerUsers));
         }
  
         setPartners(parsedPartners);
         setPartnerStudents(parsedPartnerStudents);
         setPartnerUploadedDocs(parsedPartnerUploadedDocs);
+        setPartnerUsers(parsedPartnerUsers);
  
         const storedColleges = localStorage.getItem(getLocalKey('crm_colleges'));
         const collegesSeeded = localStorage.getItem(getLocalKey('crm_colleges_seeded'));
@@ -3632,6 +3659,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       partners,
       partnerStudents,
       partnerUploadedDocs,
+      partnerUsers,
       connectLeadToPartnerStudent,
       disconnectLeadFromPartnerStudent,
       verifyPartnerDoc,

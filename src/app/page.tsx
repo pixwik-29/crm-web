@@ -14,10 +14,11 @@ import { CRMSettings } from '@/components/CRMSettings';
 import { WebFormBuilder } from '@/components/WebFormBuilder';
 import { SharedInbox } from '@/components/SharedInbox';
 import { CampaignManager } from '@/components/CampaignManager';
+import { PartnerConsultants } from '@/components/PartnerConsultants';
 import { Footer } from '@/components/Footer';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
-  HelpCircle, User, ShieldCheck, Flame, Settings, Globe, Plane, ShieldAlert, Lock,
+  HelpCircle, User, Users, ShieldCheck, Flame, Settings, Globe, Plane, ShieldAlert, Lock,
   MessageSquare, Send, X
 } from 'lucide-react';
 
@@ -40,14 +41,14 @@ const DashboardContent: React.FC = () => {
   } = useData();
 
   // Navigation tab
-  const [activeView, setActiveView] = useState<'board' | 'list' | 'analytics' | 'settings' | 'forms' | 'inbox' | 'campaigns'>('board');
+  const [activeView, setActiveView] = useState<'board' | 'list' | 'analytics' | 'settings' | 'forms' | 'inbox' | 'campaigns' | 'consultants'>('board');
   
   // Handle redirect view search param (e.g. from fb oauth callback)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const view = params.get('view');
-      if (view && ['board', 'list', 'analytics', 'settings', 'forms', 'inbox', 'campaigns'].includes(view)) {
+      if (view && ['board', 'list', 'analytics', 'settings', 'forms', 'inbox', 'campaigns', 'consultants'].includes(view)) {
         setActiveView(view as any);
       }
     }
@@ -361,6 +362,17 @@ const DashboardContent: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setActiveView('consultants')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                activeView === 'consultants'
+                  ? 'bg-indigo-600 text-white shadow shadow-indigo-500/20'
+                  : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" /> Consultants Directory
+            </button>
+
+            <button
               onClick={() => setActiveView('settings')}
               className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                 activeView === 'settings'
@@ -437,6 +449,10 @@ const DashboardContent: React.FC = () => {
 
           {activeView === 'campaigns' && (
             <CampaignManager />
+          )}
+
+          {activeView === 'consultants' && (
+            <PartnerConsultants />
           )}
 
         </div>
