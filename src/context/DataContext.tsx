@@ -670,11 +670,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
-              if (payload.eventType === 'INSERT') setNotes(prev => [payload.new as Note, ...prev]);
+              if (payload.eventType === 'INSERT') {
+                // Deduplicate: skip if note already exists in state (optimistic add)
+                setNotes(prev => {
+                  if (prev.some(n => n.id === payload.new.id)) return prev;
+                  return [payload.new as Note, ...prev];
+                });
+              }
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
               if (payload.eventType === 'INSERT') {
-                setTasks(prev => [payload.new as Task, ...prev]);
+                // Deduplicate: skip if task already exists in state (optimistic add)
+                setTasks(prev => {
+                  if (prev.some(t => t.id === payload.new.id)) return prev;
+                  return [payload.new as Task, ...prev];
+                });
               } else if (payload.eventType === 'UPDATE') {
                 setTasks(prev => prev.map(t => t.id === payload.new.id ? (payload.new as Task) : t));
               }
