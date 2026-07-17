@@ -201,11 +201,24 @@ export async function POST(req: NextRequest) {
 
                         const pushRes = await fetch('https://exp.host/--/api/v2/push/send', {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'Accept-Encoding': 'gzip, deflate'
+                          },
                           body: JSON.stringify(pushMessages)
                         });
                         const pushData = await pushRes.json();
                         console.log('[Webhook Push] Dispatched WhatsApp push notification delivery log:', JSON.stringify(pushData));
+                        // Log per-token errors
+                        if (pushData?.data) {
+                          const results = Array.isArray(pushData.data) ? pushData.data : [pushData.data];
+                          results.forEach((r: any, i: number) => {
+                            if (r.status === 'error') {
+                              console.error(`[Webhook Push] Token ${i} error: ${r.message} (${r.details?.error})`);
+                            }
+                          });
+                        }
                       }
                     }
                   } catch (pushErr: any) {
