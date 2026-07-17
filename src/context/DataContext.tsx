@@ -1440,6 +1440,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (data) {
         setLeads(prev => [data as Lead, ...prev]);
+
+        // Send push notification to other CRM users about the new manually entered candidate
+        (async () => {
+          try {
+            const { data: crmUsers } = await supabase
+              .from('profiles')
+              .select('push_token, email')
+              .not('push_token', 'is', null);
+
+            if (crmUsers && crmUsers.length > 0) {
+              const targetUsers = crmUsers.filter(u => u.email !== currentUser?.email);
+              const tokens = targetUsers
+                .map(u => u.push_token)
+                .filter((t): t is string => typeof t === 'string' && (t.startsWith('ExponentPushToken') || t.startsWith('ExpoPushToken')));
+
+              if (tokens.length > 0) {
+                const pushMessages = tokens.map(token => ({
+                  to: token,
+                  sound: 'default',
+                  title: '🔥 New Lead Registered!',
+                  body: `${data.name} - NEET: ${data.neet_marks || 'N/A'} - Source: ${data.lead_source}`,
+                  data: { leadId: data.id }
+                }));
+
+                await fetch('https://exp.host/--/api/v2/push/send', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(pushMessages)
+                });
+              }
+            }
+          } catch (pushErr: any) {
+            console.error('[AddLead Push] Failed to dispatch push notification:', pushErr.message);
+          }
+        })();
       }
       return data as Lead;
     } else {

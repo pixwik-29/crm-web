@@ -175,6 +175,44 @@ export async function POST(req: NextRequest) {
                   tenant_id: resolvedTenantId
                 });
 
+                // Send Expo Mobile Push Notification to CRM users with shared inbox access
+                const pushPromise = (async () => {
+                  try {
+                    const { data: crmUsers } = await supabase
+                      .from('profiles')
+                      .select('push_token, role, has_shared_inbox_access')
+                      .not('push_token', 'is', null);
+
+                    if (crmUsers && crmUsers.length > 0) {
+                      const targetUsers = crmUsers.filter(u => u.role === 'admin' || u.has_shared_inbox_access === true);
+                      const tokens = targetUsers
+                        .map(u => u.push_token)
+                        .filter((t): t is string => typeof t === 'string' && (t.startsWith('ExponentPushToken') || t.startsWith('ExpoPushToken')));
+
+                      if (tokens.length > 0) {
+                        const leadName = senderName || "Candidate";
+                        const pushMessages = tokens.map(token => ({
+                          to: token,
+                          sound: 'default',
+                          title: `💬 New Message from ${leadName}`,
+                          body: messageText.substring(0, 100),
+                          data: { leadId }
+                        }));
+
+                        const pushRes = await fetch('https://exp.host/--/api/v2/push/send', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(pushMessages)
+                        });
+                        const pushData = await pushRes.json();
+                        console.log('[Webhook Push] Dispatched WhatsApp push notification delivery log:', JSON.stringify(pushData));
+                      }
+                    }
+                  } catch (pushErr: any) {
+                    console.error('[Webhook Push] Failed to dispatch WhatsApp push notification:', pushErr.message);
+                  }
+                })();
+
                 // Add activity log
                 await supabase.from('activity_logs').insert({
                   lead_id: leadId,
@@ -182,6 +220,8 @@ export async function POST(req: NextRequest) {
                   description: `WhatsApp Message Received: "${messageText.substring(0, 100)}${messageText.length > 100 ? '...' : ''}"`,
                   tenant_id: resolvedTenantId
                 });
+
+                await pushPromise;
 
                 // Trigger auto-response template if configured
                 if (whatsappApiToken && phoneId && autoResponseTemplate) {
