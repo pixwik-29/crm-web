@@ -63,6 +63,7 @@ interface DataContextType {
   logout: () => void;
   switchUser: (profile: Profile) => void;
   updateProfileRole: (profileId: string, role: UserRole) => Promise<void>;
+  updateProfileSharedInboxAccess: (profileId: string, hasAccess: boolean) => Promise<void>;
   createUserProfile: (email: string, role: UserRole, name: string, phone?: string, password?: string) => Promise<Profile>;
   deleteUserProfile: (profileId: string) => Promise<void>;
   resetUserProfilePassword: (profileId: string, newPassword: string) => Promise<void>;
@@ -1174,6 +1175,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await supabase
         .from('profiles')
         .update({ role })
+        .eq('id', profileId);
+    }
+  };
+
+  const updateProfileSharedInboxAccess = async (profileId: string, hasAccess: boolean) => {
+    const updated = profiles.map(p => p.id === profileId ? { ...p, has_shared_inbox_access: hasAccess } : p);
+    setProfiles(updated);
+    saveLocal('crm_profiles', updated);
+
+    if (currentUser && currentUser.id === profileId) {
+      const updatedUser = { ...currentUser, has_shared_inbox_access: hasAccess };
+      setCurrentUser(updatedUser as any);
+      localStorage.setItem(getStorageKey('crm_user'), JSON.stringify(updatedUser));
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      await supabase
+        .from('profiles')
+        .update({ has_shared_inbox_access: hasAccess })
         .eq('id', profileId);
     }
   };
@@ -3615,6 +3635,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout,
       switchUser,
       updateProfileRole,
+      updateProfileSharedInboxAccess,
       createUserProfile,
       deleteUserProfile,
       resetUserProfilePassword,

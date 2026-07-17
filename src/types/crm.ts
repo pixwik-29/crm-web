@@ -8,6 +8,7 @@ export interface Profile {
   email?: string;
   created_at: string;
   tenant_id?: string;
+  has_shared_inbox_access?: boolean;
 }
 
 export interface Lead {

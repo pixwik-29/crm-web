@@ -35,6 +35,7 @@ export const CRMSettings: React.FC = () => {
     settings, 
     updateSettings, 
     updateProfileRole,
+    updateProfileSharedInboxAccess,
     createUserProfile,
     deleteUserProfile,
     resetUserProfilePassword,
@@ -496,6 +497,14 @@ export const CRMSettings: React.FC = () => {
       await updateProfileRole(profileId, role);
     } catch (err: any) {
       console.error('Failed to change user role:', err);
+    }
+  };
+
+  const handleInboxAccessChange = async (profileId: string, hasAccess: boolean) => {
+    try {
+      await updateProfileSharedInboxAccess(profileId, hasAccess);
+    } catch (err: any) {
+      console.error('Failed to update shared inbox access:', err);
     }
   };
 
@@ -2078,6 +2087,17 @@ async function submitEduPathLead(leadData) {
                     <option value="manager">Manager</option>
                     <option value="counsellor">Counsellor</option>
                   </select>
+
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={!!(profile.has_shared_inbox_access || profile.role === 'admin')}
+                      disabled={!isAdmin || profile.role === 'admin'}
+                      onChange={(e) => handleInboxAccessChange(profile.id, e.target.checked)}
+                      className="rounded text-indigo-650 focus:ring-indigo-500 border-slate-300 dark:border-zinc-800 w-3.5 h-3.5 cursor-pointer"
+                    />
+                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Shared Inbox</span>
+                  </label>
 
                   {isAdmin && profile.id !== currentUser?.id && (
                     <>
