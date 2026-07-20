@@ -57,7 +57,14 @@ export const CRMSettings: React.FC = () => {
     redirectLinks,
     addRedirectLink,
     updateRedirectLink,
-    deleteRedirectLink
+    deleteRedirectLink,
+    teams,
+    teamMembers,
+    createTeam,
+    updateTeam,
+    deleteTeam,
+    addTeamMember,
+    removeTeamMember
   } = useData();
 
   const searchParams = useSearchParams();
@@ -155,7 +162,38 @@ export const CRMSettings: React.FC = () => {
 
   // ── Settings Tab Navigation ─────────────────────────────────────────────────
   const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'pipelines' | 'visa' | 'team' | 'account' | 'links'>('general');
+  const [teamSubTab, setTeamSubTab] = useState<'users' | 'groups'>('users');
+  const [newTeamName, setNewTeamName] = useState('');
+  const [newTeamDescription, setNewTeamDescription] = useState('');
+  const [editingTeamId, setEditingTeamId] = useState('');
+  const [editingTeamName, setEditingTeamName] = useState('');
+  const [editingTeamDesc, setEditingTeamDesc] = useState('');
   // ── End Settings Tab ─────────────────────────────────────────────────────────
+
+  const handleCreateTeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTeamName.trim()) return;
+    try {
+      await createTeam(newTeamName.trim(), newTeamDescription.trim());
+      setNewTeamName('');
+      setNewTeamDescription('');
+    } catch (err: any) {
+      alert(err.message || 'Failed to create team.');
+    }
+  };
+
+  const handleUpdateTeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTeamName.trim()) return;
+    try {
+      await updateTeam(editingTeamId, editingTeamName.trim(), editingTeamDesc.trim());
+      setEditingTeamId('');
+      setEditingTeamName('');
+      setEditingTeamDesc('');
+    } catch (err: any) {
+      alert(err.message || 'Failed to update team.');
+    }
+  };
 
   const handleAddConfigDoc = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -245,6 +283,8 @@ export const CRMSettings: React.FC = () => {
   const [campaignKeyInput, setCampaignKeyInput] = useState('');
   const [customNameInput, setCustomNameInput] = useState('');
   const [selectedWelcomeTemplate, setSelectedWelcomeTemplate] = useState('');
+  const [assignmentTargetType, setAssignmentTargetType] = useState<'individual' | 'team' | 'split' | 'none'>('none');
+  const [assignmentTargets, setAssignmentTargets] = useState<string[]>([]);
   const [editingConfigId, setEditingConfigId] = useState<string | null>(null);
   const [configStatus, setConfigStatus] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -671,7 +711,9 @@ export const CRMSettings: React.FC = () => {
           tenantId,
           campaignKey: finalKey,
           customName: customNameInput,
-          welcomeTemplateName: selectedWelcomeTemplate || null
+          welcomeTemplateName: selectedWelcomeTemplate || null,
+          assignmentTargetType: assignmentTargetType || 'none',
+          assignmentTargets: assignmentTargets || []
         })
       });
       const data = await res.json();
@@ -682,6 +724,8 @@ export const CRMSettings: React.FC = () => {
       setCustomKeyInput('');
       setCustomNameInput('');
       setSelectedWelcomeTemplate('');
+      setAssignmentTargetType('none');
+      setAssignmentTargets([]);
       setEditingConfigId(null);
       fetchCampaignConfigs();
       setTimeout(() => setConfigStatus(null), 4000);
@@ -1465,6 +1509,98 @@ async function submitEduPathLead(leadData) {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Auto-Assignment Routing</label>
+                <select 
+                  value={assignmentTargetType} 
+                  onChange={(e) => {
+                    const val = e.target.value as any;
+                    setAssignmentTargetType(val);
+                    setAssignmentTargets([]);
+                  }} 
+                  className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-855 dark:text-white outline-none focus:border-indigo-500 font-bold"
+                >
+                  <option value="none">No Auto-Routing (Leave Unassigned)</option>
+                  <option value="individual">Assign to Individual Counselor</option>
+                  <option value="team">Assign to Specific Team / Group</option>
+                  <option value="split">Split Auto-Assign (Round-Robin)</option>
+                </select>
+              </div>
+
+              {assignmentTargetType === 'individual' && (
+                <div className="md:col-span-3 animate-slide-down">
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Select Counselor</label>
+                  <select
+                    value={assignmentTargets[0] || ''}
+                    onChange={(e) => setAssignmentTargets(e.target.value ? [e.target.value] : [])}
+                    className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 font-bold"
+                  >
+                    <option value="">Choose counselor...</option>
+                    {profiles.map(p => (
+                      <option key={p.id} value={p.id}>{p.full_name} ({p.role})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {assignmentTargetType === 'team' && (
+                <div className="md:col-span-3 animate-slide-down">
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Select Team</label>
+                  <select
+                    value={assignmentTargets[0] || ''}
+                    onChange={(e) => setAssignmentTargets(e.target.value ? [e.target.value] : [])}
+                    className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500 font-bold"
+                  >
+                    <option value="">Choose team...</option>
+                    {teams.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {assignmentTargetType === 'split' && (
+                <div className="md:col-span-3 bg-slate-50 dark:bg-black/25 border border-slate-200/60 dark:border-zinc-900 rounded-2xl p-4 space-y-3 animate-slide-down">
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Select Split Targets (Leads will be distributed equally)</label>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="space-y-1.5">
+                      <span className="text-[9px] uppercase font-bold text-slate-400">Teams / Groups</span>
+                      {teams.length === 0 ? <p className="text-[10px] text-slate-400 italic">No teams created yet.</p> : teams.map(t => (
+                        <label key={t.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={assignmentTargets.includes(t.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setAssignmentTargets(prev => [...prev, t.id]);
+                              else setAssignmentTargets(prev => prev.filter(id => id !== t.id));
+                            }}
+                            className="rounded text-indigo-650 focus:ring-indigo-500 border-slate-300 w-3.5 h-3.5"
+                          />
+                          <span className="text-slate-700 dark:text-slate-300 font-semibold">{t.name} (Team)</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="space-y-1.5">
+                      <span className="text-[9px] uppercase font-bold text-slate-400">Individuals</span>
+                      {profiles.map(p => (
+                        <label key={p.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={assignmentTargets.includes(p.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setAssignmentTargets(prev => [...prev, p.id]);
+                              else setAssignmentTargets(prev => prev.filter(id => id !== p.id));
+                            }}
+                            className="rounded text-indigo-650 focus:ring-indigo-500 border-slate-300 w-3.5 h-3.5"
+                          />
+                          <span className="text-slate-700 dark:text-slate-300 font-semibold">{p.full_name} ({p.role})</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {selectedSourceType === 'custom' && (
                 <div className="md:col-span-3 animate-slide-down">
                   <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Enter Custom Campaign Key / UTM Campaign Name</label>
@@ -1538,6 +1674,8 @@ async function submitEduPathLead(leadData) {
                             setEditingConfigId(cfg.id);
                             setCustomNameInput(cfg.custom_name);
                             setSelectedWelcomeTemplate(cfg.welcome_template_name || '');
+                            setAssignmentTargetType(cfg.assignment_target_type || 'none');
+                            setAssignmentTargets(cfg.assignment_targets || []);
                             
                             // Determine if key matches a known loaded Meta Form, Web Form, or Active Campaign
                             const isMeta = metaForms.some(f => f.key === cfg.campaign_key);
@@ -2057,109 +2195,260 @@ async function submitEduPathLead(leadData) {
             <p className="text-[10px] text-slate-400 font-bold uppercase mt-1.5">Access control assignment center</p>
           </div>
 
-          {!isAdmin && (
-            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-xl p-3.5 flex gap-2 text-xs font-semibold items-center">
-              <ShieldAlert className="w-4 h-4 flex-shrink-0" />
-              <span>Only administrators can update counsellor roles.</span>
-            </div>
-          )}
-
-          <div className="divide-y divide-slate-100 dark:divide-zinc-900 space-y-4">
-            {profiles.map((profile) => (
-              <div key={profile.id} className="flex items-center justify-between pt-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-500 text-white flex items-center justify-center text-xs font-bold uppercase shadow-sm">
-                    {profile.full_name?.charAt(0) || '?'}
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-800 dark:text-white">{profile.full_name}</p>
-                    <p className="text-[10px] text-slate-400">{profile.email}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={profile.role}
-                    onChange={(e) => handleRoleChange(profile.id, e.target.value as any)}
-                    disabled={!isAdmin || profile.id === currentUser?.id}
-                    className="bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="manager">Manager</option>
-                    <option value="counsellor">Counsellor</option>
-                  </select>
-
-                  <label className="flex items-center gap-1.5 cursor-pointer select-none bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={!!(profile.has_shared_inbox_access || profile.role === 'admin')}
-                      disabled={!isAdmin || profile.role === 'admin'}
-                      onChange={(e) => handleInboxAccessChange(profile.id, e.target.checked)}
-                      className="rounded text-indigo-650 focus:ring-indigo-500 border-slate-300 dark:border-zinc-800 w-3.5 h-3.5 cursor-pointer"
-                    />
-                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Shared Inbox</span>
-                  </label>
-
-                  {isAdmin && profile.id !== currentUser?.id && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleResetPasswordClick(profile)}
-                        className="p-2 bg-slate-50 dark:bg-zinc-900 hover:bg-indigo-500/10 hover:text-indigo-500 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-zinc-800 rounded-xl transition-all shadow-sm cursor-pointer"
-                        title="Reset Password"
-                      >
-                        <Key className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteUserClick(profile)}
-                        className="p-2 bg-slate-50 dark:bg-zinc-900 hover:bg-rose-500/10 hover:text-rose-500 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-zinc-800 rounded-xl transition-all shadow-sm cursor-pointer"
-                        title="Delete User"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
+          {/* Sub-tab selection: Users or Groups */}
+          <div className="flex border-b border-slate-100 dark:border-zinc-900 pb-1 gap-4">
+            <button
+              onClick={() => setTeamSubTab('users')}
+              className={`pb-2 text-xs font-bold transition-all ${teamSubTab === 'users' ? 'border-b-2 border-indigo-650 text-indigo-650 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-650'}`}
+            >
+              Counsellor Roles
+            </button>
+            <button
+              onClick={() => setTeamSubTab('groups')}
+              className={`pb-2 text-xs font-bold transition-all ${teamSubTab === 'groups' ? 'border-b-2 border-indigo-650 text-indigo-650 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-650'}`}
+            >
+              Teams & Groups
+            </button>
           </div>
 
-          {isAdmin && (
-            <div className="border-t border-slate-100 dark:border-zinc-900 pt-6 space-y-4">
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Create New Team Member</h4>
-              {userCreateError && <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-semibold">⚠️ {userCreateError}</div>}
-              {userCreateStatus && <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">✓ {userCreateStatus}</div>}
-              <form onSubmit={handleAddUserSubmit} className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Full Name</label>
-                    <input type="text" required value={newUserFullName} onChange={(e) => setNewUserFullName(e.target.value)} placeholder="e.g. Rahul Sharma" className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Email Address</label>
-                    <input type="email" required value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="counsellor@agency.com" className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Phone Number</label>
-                    <input type="tel" required value={newUserPhone} onChange={(e) => setNewUserPhone(e.target.value)} placeholder="+91 98765 43210" className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Role</label>
-                    <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value as any)} className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-700 dark:text-slate-300 outline-none focus:border-indigo-500">
-                      <option value="counsellor">Counsellor</option>
-                      <option value="manager">Manager</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Temporary Password</label>
-                    <input type="password" required value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} placeholder="Set a temporary password..." className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
-                  </div>
+          {teamSubTab === 'users' ? (
+            <div className="space-y-6">
+              {!isAdmin && (
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-xl p-3.5 flex gap-2 text-xs font-semibold items-center">
+                  <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+                  <span>Only administrators can update counsellor roles.</span>
                 </div>
-                <button type="submit" disabled={isCreatingUser} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-lg text-[10px] uppercase transition-all disabled:opacity-50 mt-2">
-                  {isCreatingUser ? 'Creating Account...' : 'Create Account & Send Credentials Email'}
-                </button>
-              </form>
+              )}
+
+              <div className="divide-y divide-slate-100 dark:divide-zinc-900 space-y-4">
+                {profiles.map((profile) => (
+                  <div key={profile.id} className="flex items-center justify-between pt-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-500 text-white flex items-center justify-center text-xs font-bold uppercase shadow-sm">
+                        {profile.full_name?.charAt(0) || '?'}
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800 dark:text-white">{profile.full_name}</p>
+                        <p className="text-[10px] text-slate-400">{profile.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={profile.role}
+                        onChange={(e) => handleRoleChange(profile.id, e.target.value as any)}
+                        disabled={!isAdmin || profile.id === currentUser?.id}
+                        className="bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="manager">Manager</option>
+                        <option value="counsellor">Counsellor</option>
+                      </select>
+
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={!!(profile.has_shared_inbox_access || profile.role === 'admin')}
+                          disabled={!isAdmin || profile.role === 'admin'}
+                          onChange={(e) => handleInboxAccessChange(profile.id, e.target.checked)}
+                          className="rounded text-indigo-650 focus:ring-indigo-500 border-slate-300 dark:border-zinc-800 w-3.5 h-3.5 cursor-pointer"
+                        />
+                        <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Shared Inbox</span>
+                      </label>
+
+                      {isAdmin && profile.id !== currentUser?.id && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleResetPasswordClick(profile)}
+                            className="p-2 bg-slate-50 dark:bg-zinc-900 hover:bg-indigo-500/10 hover:text-indigo-500 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-zinc-800 rounded-xl transition-all shadow-sm cursor-pointer"
+                            title="Reset Password"
+                          >
+                            <Key className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUserClick(profile)}
+                            className="p-2 bg-slate-50 dark:bg-zinc-900 hover:bg-rose-500/10 hover:text-rose-500 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-zinc-800 rounded-xl transition-all shadow-sm cursor-pointer"
+                            title="Delete User"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {isAdmin && (
+                <div className="border-t border-slate-100 dark:border-zinc-900 pt-6 space-y-4">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Create New Team Member</h4>
+                  {userCreateError && <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-semibold">⚠️ {userCreateError}</div>}
+                  {userCreateStatus && <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">✓ {userCreateStatus}</div>}
+                  <form onSubmit={handleAddUserSubmit} className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Full Name</label>
+                        <input type="text" required value={newUserFullName} onChange={(e) => setNewUserFullName(e.target.value)} placeholder="e.g. Rahul Sharma" className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Email Address</label>
+                        <input type="email" required value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="counsellor@agency.com" className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Phone Number</label>
+                        <input type="tel" required value={newUserPhone} onChange={(e) => setNewUserPhone(e.target.value)} placeholder="+91 98765 43210" className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Role</label>
+                        <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value as any)} className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-700 dark:text-slate-300 outline-none focus:border-indigo-500">
+                          <option value="counsellor">Counsellor</option>
+                          <option value="manager">Manager</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Temporary Password</label>
+                        <input type="password" required value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} placeholder="Set a temporary password..." className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
+                      </div>
+                    </div>
+                    <button type="submit" disabled={isCreatingUser} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-lg text-[10px] uppercase transition-all disabled:opacity-50 mt-2">
+                      {isCreatingUser ? 'Creating Account...' : 'Create Account & Send Credentials Email'}
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* List Teams */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {teams.map(team => {
+                  const members = teamMembers.filter(tm => tm.team_id === team.id);
+                  const memberProfiles = profiles.filter(p => members.some(m => m.profile_id === p.id));
+                  const nonMembers = profiles.filter(p => !members.some(m => m.profile_id === p.id));
+
+                  return (
+                    <div key={team.id} className="bg-slate-50 dark:bg-black/40 border border-slate-150 dark:border-zinc-900/60 p-4 rounded-3xl space-y-4">
+                      {editingTeamId === team.id ? (
+                        <form onSubmit={handleUpdateTeam} className="space-y-3">
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Team Name</label>
+                            <input type="text" required value={editingTeamName} onChange={(e) => setEditingTeamName(e.target.value)} className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Description</label>
+                            <input type="text" value={editingTeamDesc} onChange={(e) => setEditingTeamDesc(e.target.value)} className="w-full bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <button type="button" onClick={() => setEditingTeamId('')} className="px-3 py-1.5 border border-slate-200 dark:border-zinc-800 rounded-lg text-[10px] font-bold text-slate-500">Cancel</button>
+                            <button type="submit" className="px-3 py-1.5 bg-indigo-650 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold">Save</button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-extrabold text-slate-800 dark:text-white text-xs">{team.name}</h4>
+                            {isAdmin && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingTeamId(team.id);
+                                    setEditingTeamName(team.name);
+                                    setEditingTeamDesc(team.description || '');
+                                  }}
+                                  className="text-[10px] font-bold text-indigo-650 dark:text-indigo-400 hover:underline cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm(`Delete team "${team.name}"?`)) deleteTeam(team.id);
+                                  }}
+                                  className="text-[10px] font-bold text-rose-500 hover:underline cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          {team.description && <p className="text-[10px] text-slate-400 dark:text-slate-500">{team.description}</p>}
+                        </div>
+                      )}
+
+                      {/* Members List */}
+                      <div className="space-y-2">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">Members ({memberProfiles.length})</span>
+                        {memberProfiles.length === 0 ? (
+                          <p className="text-[10px] text-slate-400 italic">No members in this team yet.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {memberProfiles.map(p => (
+                              <div key={p.id} className="flex items-center gap-1.5 bg-white dark:bg-zinc-900 border border-slate-150 dark:border-zinc-800/80 px-2 py-1 rounded-full text-[10px] font-bold text-slate-700 dark:text-slate-350">
+                                <span>{p.full_name}</span>
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeTeamMember(team.id, p.id)}
+                                    className="text-slate-400 hover:text-rose-500 font-bold ml-0.5 text-xs cursor-pointer"
+                                    title="Remove from team"
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Add Member Selector */}
+                      {isAdmin && nonMembers.length > 0 && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/50 dark:border-zinc-900/50">
+                          <select
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                addTeamMember(team.id, e.target.value);
+                                e.target.value = '';
+                              }
+                            }}
+                            className="bg-white dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-2.5 py-1 text-[10px] font-bold text-slate-650 dark:text-slate-300 outline-none flex-1"
+                          >
+                            <option value="">Add member...</option>
+                            {nonMembers.map(p => (
+                              <option key={p.id} value={p.id}>{p.full_name} ({p.role})</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Create Team Form */}
+              {isAdmin && (
+                <div className="border-t border-slate-100 dark:border-zinc-900 pt-6 space-y-4">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Create New Team / Group</h4>
+                  <form onSubmit={handleCreateTeam} className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Team Name</label>
+                        <input type="text" required value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} placeholder="e.g. Noida Office Team" className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Description</label>
+                        <input type="text" value={newTeamDescription} onChange={(e) => setNewTeamDescription(e.target.value)} placeholder="e.g. Handles Noida & NCR candidates" className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:border-indigo-500" />
+                      </div>
+                    </div>
+                    <button type="submit" className="w-full bg-indigo-650 hover:bg-indigo-500 text-white font-bold py-2 rounded-lg text-[10px] uppercase transition-all mt-2 cursor-pointer">
+                      Create Team
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
           )}
         </div>

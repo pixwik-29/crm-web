@@ -14,7 +14,7 @@ interface LeadsTableProps {
 }
 
 export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelectLead, onOpenAddModal }) => {
-  const { updateLead, deleteLead, deleteLeads, currentUser, settings, pipelines, pipelineAccess } = useData();
+  const { updateLead, deleteLead, deleteLeads, currentUser, settings, pipelines, pipelineAccess, notes } = useData();
   
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -483,6 +483,23 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ leads, profiles, onSelec
                     <td className="px-6 py-4">
                       <div className="font-semibold text-slate-800 dark:text-slate-200">{lead.name}</div>
                       <div className="text-xs text-slate-400 mt-0.5">{lead.phone}</div>
+                      {(() => {
+                        const leadNotes = notes.filter(n => n.lead_id === lead.id)
+                          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                        if (leadNotes.length === 0) return null;
+                        const originalContent = leadNotes[0].content;
+                        const isCallLog = originalContent.includes('[Call Log Note]');
+                        const cleanContent = originalContent.replace('[Call Log Note]', '').trim();
+                        const firstLine = cleanContent.split('\n')[0];
+                        return (
+                          <div 
+                            className="text-[10px] italic text-indigo-600 dark:text-indigo-400 mt-1 max-w-[200px] truncate"
+                            title={cleanContent}
+                          >
+                            {isCallLog ? '📞' : '📝'} {firstLine}
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* NEET Marks & score */}

@@ -28,7 +28,7 @@ const MAPPABLE_FIELDS = [
 ];
 
 export const CSVImportModal: React.FC<CSVImportModalProps> = ({ isOpen, onClose }) => {
-  const { bulkAddLeads, leads, profiles, pipelines, updateLead } = useData();
+  const { bulkAddLeads, leads, profiles, pipelines, updateLead, teams, teamMembers } = useData();
   
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [csvFileName, setCsvFileName] = useState('');
@@ -42,7 +42,9 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({ isOpen, onClose 
   const [duplicateStrategy, setDuplicateStrategy] = useState<'update' | 'skip'>('update');
   const [selectedPipelineId, setSelectedPipelineId] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
-  const [selectedCounsellorId, setSelectedCounsellorId] = useState('');
+  const [importAssignmentMode, setImportAssignmentMode] = useState<'unassigned' | 'individual' | 'split'>('unassigned');
+  const [importSelectedCounsellorId, setImportSelectedCounsellorId] = useState('');
+  const [importSplitTargets, setImportSplitTargets] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [importResult, setImportResult] = useState<{ imported: number; updated: number; skipped: number } | null>(null);
 
@@ -202,7 +204,9 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({ isOpen, onClose 
     if (!lead.lead_source) lead.lead_source = 'CSV Import';
     if (selectedPipelineId) lead.pipeline_id = selectedPipelineId;
     if (selectedStatus) lead.status = selectedStatus;
-    if (selectedCounsellorId) lead.assigned_counsellor_id = selectedCounsellorId;
+    if (importAssignmentMode === 'individual' && importSelectedCounsellorId) {
+      lead.assigned_counsellor_id = importSelectedCounsellorId;
+    }
 
     return lead;
   };
@@ -234,6 +238,21 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({ isOpen, onClose 
       let skippedCount = 0;
       let updatedCount = 0;
 
+      // Build target candidates list if in split mode
+      const eligibleCounselors = new Set<string>();
+      if (importAssignmentMode === 'split') {
+        importSplitTargets.forEach(tId => {
+          const isTeam = teams.some(t => t.id === tId);
+          if (isTeam) {
+            teamMembers.filter(tm => tm.team_id === tId).forEach(tm => eligibleCounselors.add(tm.profile_id));
+          } else {
+            eligibleCounselors.add(tId);
+          }
+        });
+      }
+      const candidates = Array.from(eligibleCounselors);
+      let candidateIndex = 0;
+
       csvRows.forEach(row => {
         const lead = getMappedLead(row);
         const validation = validateRow(row);
@@ -241,6 +260,18 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({ isOpen, onClose 
         if (!validation.isValid) {
           skippedCount++;
           return;
+        }
+
+        // Apply split round robin logic if applicable
+        if (importAssignmentMode === 'split' && candidates.length > 0) {
+          const assignedCounsellorId = candidates[candidateIndex % candidates.length];
+          lead.assigned_counsellor_id = assignedCounsellorId;
+          
+          const memberTeam = teamMembers.find(tm => tm.profile_id === assignedCounsellorId && importSplitTargets.includes(tm.team_id));
+          if (memberTeam) {
+            lead.assigned_team_id = memberTeam.team_id;
+          }
+          candidateIndex++;
         }
 
         // Check duplicates
@@ -497,21 +528,86 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({ isOpen, onClose 
                   </select>
                 </div>
 
-                {/* Default Counsellor */}
+                {/* Default Assignee Mode */}
                 <div>
-                  <label className="block text-slate-400 font-bold mb-2 uppercase tracking-wide">Default Assignee</label>
+                  <label className="block text-slate-400 font-bold mb-2 uppercase tracking-wide">Assignment Type</label>
                   <select
-                    value={selectedCounsellorId}
-                    onChange={(e) => setSelectedCounsellorId(e.target.value)}
+                    value={importAssignmentMode}
+                    onChange={(e) => {
+                      const mode = e.target.value as any;
+                      setImportAssignmentMode(mode);
+                      setImportSelectedCounsellorId('');
+                      setImportSplitTargets([]);
+                    }}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 outline-none"
                   >
-                    <option value="">Unassigned</option>
-                    {profiles.map(p => (
-                      <option key={p.id} value={p.id}>{p.full_name}</option>
-                    ))}
+                    <option value="unassigned">Unassigned</option>
+                    <option value="individual">Individual Counselor</option>
+                    <option value="split">Split Auto-Assign (Round-Robin)</option>
                   </select>
                 </div>
               </div>
+
+              {/* Assignment Target Selectors based on mode */}
+              {importAssignmentMode === 'individual' && (
+                <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-5 text-xs animate-slide-down">
+                  <label className="block text-slate-400 font-bold mb-2 uppercase tracking-wide">Select Target Counselor / Manager</label>
+                  <select
+                    value={importSelectedCounsellorId}
+                    onChange={(e) => setImportSelectedCounsellorId(e.target.value)}
+                    className="w-full md:w-1/2 bg-slate-900 border border-slate-700 rounded-xl p-2 outline-none"
+                  >
+                    <option value="">Choose counselor...</option>
+                    {profiles.map(p => (
+                      <option key={p.id} value={p.id}>{p.full_name} ({p.role})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {importAssignmentMode === 'split' && (
+                <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-5 text-xs space-y-3 animate-slide-down">
+                  <label className="block text-slate-400 font-bold uppercase tracking-wide">Select Split Targets (Imported leads will be divided equally round-robin)</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <span className="text-[10px] uppercase font-bold text-slate-500">Teams / Groups Available</span>
+                      {teams.length === 0 ? (
+                        <p className="text-[10px] text-slate-400 italic">No teams configured. Configure teams in CRM Settings.</p>
+                      ) : teams.map(t => (
+                        <label key={t.id} className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={importSplitTargets.includes(t.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setImportSplitTargets(prev => [...prev, t.id]);
+                              else setImportSplitTargets(prev => prev.filter(id => id !== t.id));
+                            }}
+                            className="rounded text-indigo-650 focus:ring-0 border-slate-700 w-3.5 h-3.5"
+                          />
+                          <span>{t.name} (Team)</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="space-y-2">
+                      <span className="text-[10px] uppercase font-bold text-slate-500">Individual Counselors / Managers</span>
+                      {profiles.map(p => (
+                        <label key={p.id} className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={importSplitTargets.includes(p.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setImportSplitTargets(prev => [...prev, p.id]);
+                              else setImportSplitTargets(prev => prev.filter(id => id !== p.id));
+                            }}
+                            className="rounded text-indigo-650 focus:ring-0 border-slate-700 w-3.5 h-3.5"
+                          />
+                          <span>{p.full_name} ({p.role})</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Preview table */}
               <div>

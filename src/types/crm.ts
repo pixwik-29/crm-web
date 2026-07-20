@@ -37,6 +37,7 @@ export interface Lead {
   landing_page_url?: string;
   status: string; // 1st followup, Discussion stage, Connected to manager, Documents collected, Closed Won, Closed Lost
   assigned_counsellor_id?: string | null;
+  assigned_team_id?: string | null;
   pipeline_id?: string | null;
   tags: string[];
   score: number;
@@ -77,7 +78,7 @@ export interface WhatsAppMessage {
   lead_id: string;
   direction: 'incoming' | 'outgoing';
   message_text: string;
-  status: 'sent' | 'delivered' | 'read' | 'failed';
+  status: 'sent' | 'delivered' | 'read' | 'failed' | 'unread';
   created_at: string;
 }
 
@@ -272,4 +273,29 @@ export interface PartnerUser {
   role: string;
   created_at: string;
   updated_at?: string;
+}
+
+export interface Team {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description?: string | null;
+  created_at: string;
+}
+
+export interface TeamMember {
+  team_id: string;
+  profile_id: string;
+  tenant_id: string;
+}
+
+export interface CampaignConfiguration {
+  id: string;
+  tenant_id: string;
+  campaign_key: string;
+  custom_name: string;
+  welcome_template_name?: string | null;
+  assignment_target_type?: 'individual' | 'team' | 'split' | 'none';
+  assignment_targets?: string[]; // IDs of selected teams/individuals
+  created_at: string;
 }

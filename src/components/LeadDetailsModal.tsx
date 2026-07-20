@@ -3,13 +3,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Lead, Profile, Note, Task, ActivityLog, WhatsAppMessage } from '@/types/crm';
 import { useData } from '@/context/DataContext';
-import { X, Send, Phone, MessageCircle, Mail, Plus, Check, Clock, User, FileText, Activity, AlertCircle, Edit, Calendar, Upload } from 'lucide-react';
+import { X, Send, Phone, MessageCircle, Mail, Plus, Check, Clock, User, FileText, Activity, AlertCircle, Edit, Calendar, Upload, Users } from 'lucide-react';
 
 interface LeadDetailsModalProps {
   lead: Lead | null;
   onClose: () => void;
   profiles: Profile[];
-  initialTab?: 'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist';
+  initialTab?: 'notes' | 'tasks' | 'timeline' | 'checklist';
 }
 
 const openWhatsAppLink = (phone: string, text: string = '') => {
@@ -68,10 +68,12 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
     uploadAdminPartnerDoc,
     visaRequiredDocs,
     colleges,
-    tenantId
+    tenantId,
+    teams,
+    teamMembers
   } = useData();
 
-  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist'>(initialTab || 'notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'timeline' | 'checklist'>(initialTab || 'notes');
   
   // Note Form
   const [newNote, setNewNote] = useState('');
@@ -98,6 +100,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const [editFather, setEditFather] = useState('');
   const [editMother, setEditMother] = useState('');
   const [editCounsellor, setEditCounsellor] = useState('');
+  const [editTeamId, setEditTeamId] = useState('');
   const [editExternalConsultant, setEditExternalConsultant] = useState('');
   const [editPipelineId, setEditPipelineId] = useState('');
 
@@ -188,6 +191,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
       setEditFather(lead.father_number || '');
       setEditMother(lead.mother_number || '');
       setEditCounsellor(lead.assigned_counsellor_id || '');
+      setEditTeamId(lead.assigned_team_id || '');
       setEditExternalConsultant(lead.external_consultant || '');
       setEditPipelineId(lead.pipeline_id || pipelines.find(p => p.is_default)?.id || '');
       setIsEditing(false);
@@ -216,12 +220,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const editPipelineObj = pipelines.find(p => p.id === editPipelineId) || pipelines.find(p => p.is_default);
   const editStages = editPipelineObj?.stages || [];
 
-  // Auto-scroll chat history to bottom
-  useEffect(() => {
-    if (activeTab === 'whatsapp' && chatBottomRef.current) {
-      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [activeTab, whatsappHistory]);
+
 
   if (!lead) return null;
 
@@ -232,6 +231,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
   const leadChats = whatsappHistory.filter(c => c.lead_id === lead.id).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
   const counselor = profiles.find(p => p.id === lead.assigned_counsellor_id);
+  const team = teams.find(t => t.id === lead.assigned_team_id);
 
   // Partner portal integration helper calculations
   const connectedStudent = partnerStudents.find(ps => ps.crm_lead_id === lead.id);
@@ -255,6 +255,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
         father_number: editFather || undefined,
         mother_number: editMother || undefined,
         assigned_counsellor_id: editCounsellor || null,
+        assigned_team_id: editTeamId || null,
         external_consultant: editExternalConsultant || undefined
       });
       setIsEditing(false);
@@ -380,15 +381,26 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
               <input type="text" value={editExternalConsultant} onChange={(e) => setEditExternalConsultant(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white" />
             </div>
             {(currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned Counsellor</label>
-                <select value={editCounsellor} onChange={(e) => setEditCounsellor(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white">
-                  <option value="">Unassigned</option>
-                  {profiles.map(c => (
-                    <option key={c.id} value={c.id}>{c.full_name} ({c.role})</option>
-                  ))}
-                </select>
-              </div>
+              <>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned Counsellor</label>
+                  <select value={editCounsellor} onChange={(e) => setEditCounsellor(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white">
+                    <option value="">Unassigned</option>
+                    {profiles.map(c => (
+                      <option key={c.id} value={c.id}>{c.full_name} ({c.role})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned Team / Group</label>
+                  <select value={editTeamId} onChange={(e) => setEditTeamId(e.target.value)} className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-zinc-900 rounded-xl p-2 text-xs text-slate-800 dark:text-white">
+                    <option value="">No Team</option>
+                    {teams.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
             )}
             <div className="md:col-span-2 flex justify-end gap-2 mt-2">
               <button onClick={() => setIsEditing(false)} className="px-4 py-2 border border-slate-200 dark:border-zinc-900 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800">Cancel</button>
@@ -577,6 +589,13 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
                 {counselor ? counselor.full_name : <span className="text-slate-400 italic">Unassigned</span>}
               </p>
             </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Team Assigned</p>
+              <p className="font-semibold text-slate-700 dark:text-slate-350 mt-1 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-slate-400" />
+                {team ? team.name : <span className="text-slate-400 italic">No Team</span>}
+              </p>
+            </div>
             <div className="col-span-2 sm:col-span-3 border-t border-slate-100 dark:border-zinc-900 pt-4">
               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">WhatsApp Marketing Groups</p>
               <div className="flex flex-wrap gap-2 items-center">
@@ -645,16 +664,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
         >
           <Clock className="w-4 h-4 text-slate-450 dark:text-slate-400" /> Tasks ({leadTasks.filter(t => !t.is_completed).length})
         </button>
-        <button
-          onClick={() => setActiveTab('whatsapp')}
-          className={`flex-1 flex-shrink-0 whitespace-nowrap px-4 py-3.5 flex items-center justify-center gap-2 border-b-2 transition-all ${
-            activeTab === 'whatsapp'
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
-              : 'border-transparent text-slate-400 hover:text-slate-800 dark:hover:text-white'
-          }`}
-        >
-          <MessageCircle className="w-4 h-4 text-slate-450 dark:text-slate-400" /> Send WhatsApp
-        </button>
+
         <button
           onClick={async () => {
             setActiveTab('checklist');
@@ -808,28 +818,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClos
           </div>
         )}
 
-        {/* TAB: WHATSAPP */}
-        {activeTab === 'whatsapp' && (
-          <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950/40 p-8 items-center justify-center min-h-[220px]">
-            <button
-              onClick={() => {
-                const targetPhone = lead.whatsapp_number || lead.phone;
-                if (targetPhone) {
-                  openWhatsAppLink(targetPhone, '');
-                }
-              }}
-              className="w-16 h-16 bg-emerald-500 hover:bg-emerald-450 active:scale-90 text-white rounded-full flex items-center justify-center transition-all shadow-lg shadow-emerald-500/30 border-4 border-white dark:border-zinc-900"
-              title="Open WhatsApp Chat"
-            >
-              <svg viewBox="0 0 24 24" className="w-8 h-8 fill-current">
-                <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.455L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.625 1.451 5.45.002 9.885-4.417 9.888-9.866.002-2.638-1.02-5.118-2.879-6.98-1.858-1.863-4.331-2.887-6.972-2.888-5.453 0-9.89 4.417-9.893 9.868-.001 1.503.393 2.973 1.14 4.301l.449.779-.997 3.642 3.734-.976.73.433zm11.233-7.234c-.267-.134-1.58-.779-1.825-.869-.245-.09-.423-.134-.6.134-.178.268-.69.869-.846 1.048-.156.179-.311.201-.578.067-.267-.134-1.127-.416-2.148-1.328-.795-.71-1.332-1.587-1.488-1.856-.156-.268-.017-.413.117-.547.12-.12.267-.313.4-.469.134-.156.178-.268.267-.446.09-.179.045-.335-.022-.469-.067-.134-.6-1.446-.822-1.982-.217-.521-.456-.45-.6-.457-.134-.005-.289-.006-.445-.006-.156 0-.411.058-.626.294-.216.236-.822.803-.822 1.959 0 1.157.842 2.277.96 2.434.118.157 1.658 2.531 4.015 3.548.56.242.998.387 1.34.496.564.18 1.077.154 1.482.094.452-.067 1.58-.647 1.802-1.272.223-.625.223-1.161.156-1.272-.067-.112-.245-.178-.512-.313z"/>
-              </svg>
-            </button>
-            <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400 text-center">
-              Chat with {lead.name}
-            </p>
-          </div>
-        )}
+
 
         {/* TAB: TIMELINE */}
         {activeTab === 'timeline' && (

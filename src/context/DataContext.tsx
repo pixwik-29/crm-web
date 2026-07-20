@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase as originalSupabase, isSupabaseConfigured as originalIsSupabaseConfigured } from '@/lib/supabase';
-import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess, Partner, PartnerStudent, PartnerUploadedDoc, RedirectLink, PartnerUser } from '@/types/crm';
+import { Profile, Lead, Note, Task, ActivityLog, WhatsAppMessage, WhatsAppTemplate, CRMSettings, PipelineStage, UserRole, VisaApplication, VisaRequiredDoc, VisaUploadedDoc, Pipeline, PipelineAccess, Partner, PartnerStudent, PartnerUploadedDoc, RedirectLink, PartnerUser, Team, TeamMember, CampaignConfiguration } from '@/types/crm';
 
 interface DataContextType {
   isConfigured: boolean;
@@ -69,6 +69,15 @@ interface DataContextType {
   resetUserProfilePassword: (profileId: string, newPassword: string) => Promise<void>;
   updateSettings: (newSettings: Partial<CRMSettings>) => Promise<void>;
 
+  // Teams & Groups Management
+  teams: Team[];
+  teamMembers: TeamMember[];
+  createTeam: (name: string, description?: string | null) => Promise<Team>;
+  updateTeam: (id: string, name: string, description?: string | null) => Promise<Team>;
+  deleteTeam: (id: string) => Promise<void>;
+  addTeamMember: (teamId: string, profileId: string) => Promise<void>;
+  removeTeamMember: (teamId: string, profileId: string) => Promise<void>;
+  resolveLeadAssignment: (campaignName: string, leadSource: string) => Promise<{ assigned_counsellor_id: string | null; assigned_team_id: string | null }>;
 
   // Lead Operations
   addLead: (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at'>) => Promise<Lead>;
@@ -343,6 +352,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [whatsappTemplates, setWhatsappTemplates] = useState<WhatsAppTemplate[]>(DEFAULT_TEMPLATES);
   const [settings, setSettings] = useState<CRMSettings>(DEFAULT_SETTINGS);
   
+  // Teams & Groups States
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+
   // Post-Closing States
   const [visaApplications, setVisaApplications] = useState<VisaApplication[]>([]);
   const [visaRequiredDocs, setVisaRequiredDocs] = useState<VisaRequiredDoc[]>([]);
@@ -558,6 +571,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           const { data: collegesList } = await client.from('partner_colleges').select('*');
           if (collegesList) setColleges(collegesList);
+
+          const { data: teamList } = await client.from('teams').select('*').eq('tenant_id', tenantId);
+          if (teamList) setTeams(teamList as Team[]);
+
+          const { data: memberList } = await client.from('team_members').select('*').eq('tenant_id', tenantId);
+          if (memberList) setTeamMembers(memberList as TeamMember[]);
 
           const { data: redirLinks } = await client.from('redirect_links').select('*').eq('tenant_id', tenantId);
           if (redirLinks) setRedirectLinks(redirLinks as RedirectLink[]);
@@ -816,6 +835,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setPartnerUsers(prev => prev.filter(u => u.id !== payload.old.id));
               }
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'teams', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setTeams(prev => [...prev, payload.new as Team]);
+              } else if (payload.eventType === 'UPDATE') {
+                setTeams(prev => prev.map(t => t.id === payload.new.id ? (payload.new as Team) : t));
+              } else if (payload.eventType === 'DELETE') {
+                setTeams(prev => prev.filter(t => t.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
+              if (payload.eventType === 'INSERT') {
+                setTeamMembers(prev => [...prev, payload.new as TeamMember]);
+              } else if (payload.eventType === 'DELETE') {
+                setTeamMembers(prev => prev.filter(tm => !(tm.team_id === payload.old.team_id && tm.profile_id === payload.old.profile_id)));
+              }
+            })
             .subscribe();
         } catch (error) {
           console.error("Supabase data load error: ", error);
@@ -841,6 +876,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let parsedWHist = storedWHist ? JSON.parse(storedWHist) : [];
         let parsedSettings = storedSettings ? JSON.parse(storedSettings) : { ...DEFAULT_SETTINGS, tenant_id: tenantId };
         let parsedWTemp = storedWTemp ? JSON.parse(storedWTemp) : DEFAULT_TEMPLATES;
+
+        const storedTeams = localStorage.getItem(getLocalKey('crm_teams'));
+        const storedTeamMembers = localStorage.getItem(getLocalKey('crm_team_members'));
+        let parsedTeams = storedTeams ? JSON.parse(storedTeams) : [];
+        let parsedTeamMembers = storedTeamMembers ? JSON.parse(storedTeamMembers) : [];
+        setTeams(parsedTeams);
+        setTeamMembers(parsedTeamMembers);
 
         setProfiles(parsedProfiles);
         setLeads(parsedLeads);
@@ -1404,11 +1446,215 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Teams CRUD & Groups Operations
+  const createTeam = async (name: string, description?: string | null): Promise<Team> => {
+    const newTeam: Team = {
+      id: isSupabaseConfigured && supabase ? '' : `team-${Date.now()}`,
+      tenant_id: tenantId,
+      name,
+      description: description || null,
+      created_at: new Date().toISOString()
+    };
+
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('teams')
+        .insert([{ tenant_id: tenantId, name, description }])
+        .select()
+        .single();
+      if (error) throw error;
+      return data as Team;
+    } else {
+      const updated = [...teams, newTeam];
+      setTeams(updated);
+      saveLocal('crm_teams', updated);
+      return newTeam;
+    }
+  };
+
+  const updateTeam = async (id: string, name: string, description?: string | null): Promise<Team> => {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('teams')
+        .update({ name, description })
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as Team;
+    } else {
+      const updated = teams.map(t => t.id === id ? { ...t, name, description: description || null } : t);
+      setTeams(updated);
+      saveLocal('crm_teams', updated);
+      return updated.find(t => t.id === id)!;
+    }
+  };
+
+  const deleteTeam = async (id: string): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('teams')
+        .delete()
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
+      if (error) throw error;
+    } else {
+      const updatedTeams = teams.filter(t => t.id !== id);
+      const updatedMembers = teamMembers.filter(tm => tm.team_id !== id);
+      setTeams(updatedTeams);
+      setTeamMembers(updatedMembers);
+      saveLocal('crm_teams', updatedTeams);
+      saveLocal('crm_team_members', updatedMembers);
+    }
+  };
+
+  const addTeamMember = async (teamId: string, profileId: string): Promise<void> => {
+    const newMember: TeamMember = {
+      team_id: teamId,
+      profile_id: profileId,
+      tenant_id: tenantId
+    };
+
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('team_members')
+        .insert([{ team_id: teamId, profile_id: profileId, tenant_id: tenantId }]);
+      if (error) throw error;
+    } else {
+      if (teamMembers.some(tm => tm.team_id === teamId && tm.profile_id === profileId)) return;
+      const updated = [...teamMembers, newMember];
+      setTeamMembers(updated);
+      saveLocal('crm_team_members', updated);
+    }
+  };
+
+  const removeTeamMember = async (teamId: string, profileId: string): Promise<void> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('team_members')
+        .delete()
+        .eq('team_id', teamId)
+        .eq('profile_id', profileId)
+        .eq('tenant_id', tenantId);
+      if (error) throw error;
+    } else {
+      const updated = teamMembers.filter(tm => !(tm.team_id === teamId && tm.profile_id === profileId));
+      setTeamMembers(updated);
+      saveLocal('crm_team_members', updated);
+    }
+  };
+
+  const resolveLeadAssignment = async (campaignName: string, leadSource: string): Promise<{ assigned_counsellor_id: string | null; assigned_team_id: string | null }> => {
+    const lookupKey = campaignName || leadSource || '';
+    if (!lookupKey) return { assigned_counsellor_id: null, assigned_team_id: null };
+
+    let config: CampaignConfiguration | null = null;
+
+    if (isSupabaseConfigured && supabase) {
+      const { data } = await supabase
+        .from('campaign_configurations')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('campaign_key', lookupKey)
+        .maybeSingle();
+      if (data) config = data as CampaignConfiguration;
+    } else {
+      const storedConfigs = localStorage.getItem(getStorageKey('crm_campaign_configs'));
+      const parsedConfigs: CampaignConfiguration[] = storedConfigs ? JSON.parse(storedConfigs) : [];
+      config = parsedConfigs.find(c => c.campaign_key === lookupKey) || null;
+    }
+
+    if (!config || !config.assignment_target_type || config.assignment_target_type === 'none') {
+      return { assigned_counsellor_id: null, assigned_team_id: null };
+    }
+
+    const type = config.assignment_target_type;
+    const targets = config.assignment_targets || [];
+
+    if (targets.length === 0) {
+      return { assigned_counsellor_id: null, assigned_team_id: null };
+    }
+
+    if (type === 'individual') {
+      return { assigned_counsellor_id: targets[0], assigned_team_id: null };
+    }
+
+    if (type === 'team') {
+      const targetTeamId = targets[0];
+      const members = teamMembers.filter(tm => tm.team_id === targetTeamId).map(tm => tm.profile_id);
+      if (members.length === 0) {
+        return { assigned_counsellor_id: null, assigned_team_id: targetTeamId };
+      }
+      let bestMember = members[0];
+      let minCount = Infinity;
+      members.forEach(mId => {
+        const count = leads.filter(l => l.assigned_counsellor_id === mId).length;
+        if (count < minCount) {
+          minCount = count;
+          bestMember = mId;
+        }
+      });
+      return { assigned_counsellor_id: bestMember, assigned_team_id: targetTeamId };
+    }
+
+    if (type === 'split') {
+      const allCounselors = new Set<string>();
+      let primaryTeamId: string | null = null;
+
+      targets.forEach(tId => {
+        const isTeam = teams.some(t => t.id === tId);
+        if (isTeam) {
+          if (!primaryTeamId) primaryTeamId = tId;
+          teamMembers.filter(tm => tm.team_id === tId).forEach(tm => allCounselors.add(tm.profile_id));
+        } else {
+          allCounselors.add(tId);
+        }
+      });
+
+      const members = Array.from(allCounselors);
+      if (members.length === 0) {
+        return { assigned_counsellor_id: null, assigned_team_id: primaryTeamId };
+      }
+
+      let bestMember = members[0];
+      let minCount = Infinity;
+      members.forEach(mId => {
+        const count = leads.filter(l => l.assigned_counsellor_id === mId).length;
+        if (count < minCount) {
+          minCount = count;
+          bestMember = mId;
+        }
+      });
+
+      const memberTeam = teamMembers.find(tm => tm.profile_id === bestMember && targets.includes(tm.team_id));
+
+      return { 
+        assigned_counsellor_id: bestMember, 
+        assigned_team_id: memberTeam ? memberTeam.team_id : primaryTeamId 
+      };
+    }
+
+    return { assigned_counsellor_id: null, assigned_team_id: null };
+  };
+
   // Lead Operations
   const addLead = async (leadData: Omit<Lead, 'id' | 'created_at' | 'updated_at'>): Promise<Lead> => {
     const defaultPipelineId = leadData.pipeline_id || activePipeline?.id || pipelines.find(p => p.is_default)?.id || null;
+    
+    let assignedCounsellorId = leadData.assigned_counsellor_id;
+    let assignedTeamId = leadData.assigned_team_id;
+
+    if (!assignedCounsellorId && !assignedTeamId) {
+      const routing = await resolveLeadAssignment(leadData.campaign_name || '', leadData.lead_source || '');
+      assignedCounsellorId = routing.assigned_counsellor_id;
+      assignedTeamId = routing.assigned_team_id;
+    }
+
     const newLeadItem = {
       ...leadData,
+      assigned_counsellor_id: assignedCounsellorId,
+      assigned_team_id: assignedTeamId,
       pipeline_id: defaultPipelineId,
       id: `lead-${Date.now()}`,
       created_at: new Date().toISOString(),
@@ -1420,6 +1666,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('leads')
         .insert([{
           ...leadData,
+          assigned_counsellor_id: assignedCounsellorId,
+          assigned_team_id: assignedTeamId,
           pipeline_id: defaultPipelineId,
           tags: leadData.tags || [],
           score: leadData.score || 0,
@@ -3653,6 +3901,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       deleteUserProfile,
       resetUserProfilePassword,
       updateSettings,
+      teams,
+      teamMembers,
+      createTeam,
+      updateTeam,
+      deleteTeam,
+      addTeamMember,
+      removeTeamMember,
+      resolveLeadAssignment,
       addLead,
       updateLead,
       deleteLead,

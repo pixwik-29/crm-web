@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
                   lead_id: leadId,
                   direction: 'incoming',
                   message_text: messageText,
-                  status: 'read',
+                  status: 'unread',
                   tenant_id: resolvedTenantId
                 });
 
@@ -181,6 +181,7 @@ export async function POST(req: NextRequest) {
                     const { data: crmUsers } = await supabase
                       .from('profiles')
                       .select('push_token, role, has_shared_inbox_access')
+                      .eq('tenant_id', resolvedTenantId)
                       .not('push_token', 'is', null);
 
                     if (crmUsers && crmUsers.length > 0) {
@@ -807,12 +808,34 @@ async function sendNewLeadNotifications(lead: any) {
     }
     console.log('[Notifications] Starting notification dispatch for lead:', lead.id);
 
-    // 1. Fetch all admins, managers, and assigned counselors belonging to the same tenant
+    // 1. Fetch all admins, managers, assigned counselors, and team members belonging to the same tenant
+    const recipientIds = new Set<string>();
+
+    if (lead.assigned_team_id) {
+      const { data: tmList } = await supabase
+        .from('team_members')
+        .select('profile_id')
+        .eq('team_id', lead.assigned_team_id);
+      if (tmList) {
+        tmList.forEach((tm: any) => recipientIds.add(tm.profile_id));
+      }
+    }
+
+    if (lead.assigned_counsellor_id) {
+      recipientIds.add(lead.assigned_counsellor_id);
+    }
+
+    let queryFilter = `role.eq.admin,role.eq.manager`;
+    if (recipientIds.size > 0) {
+      const idsString = Array.from(recipientIds).map(id => `id.eq.${id}`).join(',');
+      queryFilter += `,${idsString}`;
+    }
+
     const { data: recipients, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('tenant_id', lead.tenant_id || 'default')
-      .or(`role.eq.admin,role.eq.manager${lead.assigned_counsellor_id ? `,id.eq.${lead.assigned_counsellor_id}` : ''}`);
+      .or(queryFilter);
 
     if (error) {
       console.error('[Notifications] Error fetching notification recipients:', error.message);

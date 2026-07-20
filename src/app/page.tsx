@@ -40,6 +40,8 @@ const DashboardContent: React.FC = () => {
     setNewLeadAlert
   } = useData();
 
+  const hasInboxAccess = currentUser?.role === 'admin' || !!currentUser?.has_shared_inbox_access;
+
   // Navigation tab
   const [activeView, setActiveView] = useState<'board' | 'list' | 'analytics' | 'settings' | 'forms' | 'inbox' | 'campaigns' | 'consultants'>('board');
   
@@ -49,10 +51,14 @@ const DashboardContent: React.FC = () => {
       const params = new URLSearchParams(window.location.search);
       const view = params.get('view');
       if (view && ['board', 'list', 'analytics', 'settings', 'forms', 'inbox', 'campaigns', 'consultants'].includes(view)) {
-        setActiveView(view as any);
+        if (view === 'inbox' && !hasInboxAccess) {
+          setActiveView('board');
+        } else {
+          setActiveView(view as any);
+        }
       }
     }
-  }, []);
+  }, [hasInboxAccess]);
 
   // Theme state
   const [darkMode, setDarkMode] = useState(true);
@@ -61,9 +67,9 @@ const DashboardContent: React.FC = () => {
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isPendingTasksOpen, setIsPendingTasksOpen] = useState(false);
-  const [leadDetailsTab, setLeadDetailsTab] = useState<'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist'>('notes');
+  const [leadDetailsTab, setLeadDetailsTab] = useState<'notes' | 'tasks' | 'timeline' | 'checklist'>('notes');
 
-  const handleSelectLead = (lead: any, tab: 'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist' = 'notes') => {
+  const handleSelectLead = (lead: any, tab: 'notes' | 'tasks' | 'timeline' | 'checklist' = 'notes') => {
     setLeadDetailsTab(tab);
     setSelectedLead(lead);
   };
@@ -73,7 +79,7 @@ const DashboardContent: React.FC = () => {
 
   // Total unread WhatsApp messages for the nav tab badge
   const totalInboxUnread = React.useMemo(() => {
-    return whatsappHistory.filter(m => m.direction === 'incoming' && m.status !== 'read').length;
+    return whatsappHistory.filter(m => m.direction === 'incoming' && m.status === 'unread').length;
   }, [whatsappHistory]);
 
   // Derive unique sources from leads dynamically
@@ -334,21 +340,23 @@ const DashboardContent: React.FC = () => {
               <Globe className="w-3.5 h-3.5" /> Web Forms
             </button>
 
-            <button
-              onClick={() => setActiveView('inbox')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap relative ${
-                activeView === 'inbox'
-                  ? 'bg-emerald-600 text-white shadow shadow-emerald-500/20'
-                  : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" /> Shared Inbox
-              {totalInboxUnread > 0 && activeView !== 'inbox' && (
-                <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center shadow shadow-rose-500/40 animate-pulse">
-                  {totalInboxUnread > 99 ? '99+' : totalInboxUnread}
-                </span>
-              )}
-            </button>
+            {hasInboxAccess && (
+              <button
+                onClick={() => setActiveView('inbox')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap relative ${
+                  activeView === 'inbox'
+                    ? 'bg-emerald-600 text-white shadow shadow-emerald-500/20'
+                    : 'bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-900'
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5" /> Shared Inbox
+                {totalInboxUnread > 0 && activeView !== 'inbox' && (
+                  <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center shadow shadow-rose-500/40 animate-pulse">
+                    {totalInboxUnread > 99 ? '99+' : totalInboxUnread}
+                  </span>
+                )}
+              </button>
+            )}
 
             <button
               onClick={() => setActiveView('campaigns')}
@@ -443,7 +451,7 @@ const DashboardContent: React.FC = () => {
             </div>
           )}
 
-          {activeView === 'inbox' && (
+          {activeView === 'inbox' && hasInboxAccess && (
             <SharedInbox />
           )}
 

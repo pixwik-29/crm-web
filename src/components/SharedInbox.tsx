@@ -131,6 +131,22 @@ export const SharedInbox: React.FC = () => {
         }
         return next;
       });
+
+      // Update in Supabase: mark all unread incoming messages for this lead as read
+      const markAsRead = async () => {
+        try {
+          if (!supabase) return;
+          await supabase
+            .from('whatsapp_history')
+            .update({ status: 'read' })
+            .eq('lead_id', activeThreadId)
+            .eq('direction', 'incoming')
+            .eq('status', 'unread');
+        } catch (err: any) {
+          console.error('[Inbox Web] Failed to mark as read:', err.message);
+        }
+      };
+      markAsRead();
     }
   }, [activeThreadId, activeChats.length]);
 
@@ -149,11 +165,10 @@ export const SharedInbox: React.FC = () => {
 
       const lastMsg = leadHistory[0];
       
-      // Count unread incoming messages (only count if they are newer than the last seen time)
-      const lastSeen = lastSeenMap[lead.id] || '1970-01-01T00:00:00.000Z';
+      // Count unread incoming messages using database status
       const unreadMsgs = leadHistory.filter(m => 
         m.direction === 'incoming' && 
-        new Date(m.created_at).getTime() > new Date(lastSeen).getTime()
+        m.status === 'unread'
       );
       const unreadCount = activeThreadId === lead.id ? 0 : unreadMsgs.length;
 
@@ -195,6 +210,23 @@ export const SharedInbox: React.FC = () => {
   // Mark thread as read when user opens it
   const handleOpenThread = (leadId: string) => {
     setActiveThreadId(leadId);
+    
+    // Update in Supabase: mark all unread incoming messages for this lead as read
+    const markAsRead = async () => {
+      try {
+        if (!supabase) return;
+        await supabase
+          .from('whatsapp_history')
+          .update({ status: 'read' })
+          .eq('lead_id', leadId)
+          .eq('direction', 'incoming')
+          .eq('status', 'unread');
+      } catch (err: any) {
+        console.error('[Inbox Web] Failed to mark as read:', err.message);
+      }
+    };
+    markAsRead();
+
     const nowStr = new Date().toISOString();
     setLastSeenMap(prev => {
       const next = { ...prev, [leadId]: nowStr };

@@ -8,7 +8,7 @@ import { X, Check, Clock, User, AlertCircle, Search, CheckCircle } from 'lucide-
 interface PendingTasksModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectLead: (lead: Lead, tab?: 'notes' | 'tasks' | 'whatsapp' | 'timeline' | 'checklist') => void;
+  onSelectLead: (lead: Lead, tab?: 'notes' | 'tasks' | 'timeline' | 'checklist') => void;
 }
 
 export const PendingTasksModal: React.FC<PendingTasksModalProps> = ({
