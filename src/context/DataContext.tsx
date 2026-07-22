@@ -1662,19 +1662,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } as Lead;
 
     if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
+      const payload: any = {
+        ...leadData,
+        assigned_counsellor_id: assignedCounsellorId,
+        assigned_team_id: assignedTeamId,
+        pipeline_id: defaultPipelineId,
+        tags: leadData.tags || [],
+        score: leadData.score || 0,
+        tenant_id: tenantId
+      };
+
+      let { data, error } = await supabase
         .from('leads')
-        .insert([{
-          ...leadData,
-          assigned_counsellor_id: assignedCounsellorId,
-          assigned_team_id: assignedTeamId,
-          pipeline_id: defaultPipelineId,
-          tags: leadData.tags || [],
-          score: leadData.score || 0,
-          tenant_id: tenantId
-        }])
+        .insert([payload])
         .select()
         .single();
+
+      if (error && (error.message?.includes('assigned_team_id') || error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
+        console.warn("[addLead] Database missing assigned_team_id column, falling back without assigned_team_id...");
+        delete payload.assigned_team_id;
+        const fallbackRes = await supabase
+          .from('leads')
+          .insert([payload])
+          .select()
+          .single();
+        data = fallbackRes.data;
+        error = fallbackRes.error;
+      }
+
       if (error) throw error;
       
       // Log Action
@@ -1732,16 +1747,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   const updateLead = async (id: string, updates: Partial<Lead>): Promise<Lead> => {
     if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
+      const payload: any = {
+        ...updates,
+        updated_at: new Date().toISOString()
+      };
+
+      let { data, error } = await supabase
         .from('leads')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
+        .update(payload)
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .select()
         .single();
+
+      if (error && (error.message?.includes('assigned_team_id') || error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
+        console.warn("[updateLead] Database missing assigned_team_id column, falling back without assigned_team_id...");
+        delete payload.assigned_team_id;
+        const fallbackRes = await supabase
+          .from('leads')
+          .update(payload)
+          .eq('id', id)
+          .eq('tenant_id', tenantId)
+          .select()
+          .single();
+        data = fallbackRes.data;
+        error = fallbackRes.error;
+      }
+
       if (error) throw error;
 
       // Sync status change to partner portal — use server-side API to bypass RLS
