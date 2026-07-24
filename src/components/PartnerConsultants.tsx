@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useData } from '@/context/DataContext';
 import { 
   Search, Users, MessageSquare, Send, CheckCircle2, AlertCircle, 
-  Phone, Mail, Award, ShieldAlert, Check, Play, Filter, X 
+  Phone, Mail, Award, ShieldAlert, Check, Play, Filter, X, ChevronDown, ChevronUp, ChevronRight
 } from 'lucide-react';
 
 export const PartnerConsultants: React.FC = () => {
@@ -21,6 +21,15 @@ export const PartnerConsultants: React.FC = () => {
 
   // Multi-select State
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+
+  // Accordion expansion state for parent consultant agency rows
+  const [expandedAgencyIds, setExpandedAgencyIds] = useState<string[]>([]);
+
+  const toggleAgencyExpand = (partnerId: string) => {
+    setExpandedAgencyIds(prev => 
+      prev.includes(partnerId) ? prev.filter(id => id !== partnerId) : [...prev, partnerId]
+    );
+  };
 
   // Bulk Broadcast Modal State
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
@@ -51,33 +60,73 @@ export const PartnerConsultants: React.FC = () => {
     }
   };
 
-  // Filtered consultants list
-  const filteredConsultants = useMemo(() => {
-    return partnerUsers.filter(user => {
+  // Separate staff users and primary consultant users
+  const staffUsers = useMemo(() => {
+    return partnerUsers.filter(u => u.role === 'consultant_staff');
+  }, [partnerUsers]);
+
+  const staffByPartnerId = useMemo(() => {
+    const map = new Map<string, typeof partnerUsers>();
+    staffUsers.forEach(staff => {
+      const existing = map.get(staff.partner_id) || [];
+      existing.push(staff);
+      map.set(staff.partner_id, existing);
+    });
+    return map;
+  }, [staffUsers]);
+
+  const primaryConsultants = useMemo(() => {
+    return partnerUsers.filter(u => u.role !== 'consultant_staff');
+  }, [partnerUsers]);
+
+  // Filtered primary consultants list (also matching if search query matches any nested staff)
+  const filteredPrimaryConsultants = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+
+    return primaryConsultants.filter(user => {
       const agency = agencyMap.get(user.partner_id);
       const agencyName = agency?.business_name || '';
+      const partnerStaff = staffByPartnerId.get(user.partner_id) || [];
       
+      const matchesStaffSearch = query ? partnerStaff.some(s => 
+        s.full_name.toLowerCase().includes(query) || 
+        (s.email && s.email.toLowerCase().includes(query)) ||
+        (s.phone && s.phone.includes(query))
+      ) : false;
+
       const matchesSearch = 
-        user.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (user.email && user.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        agencyName.toLowerCase().includes(searchQuery.toLowerCase());
+        !query ||
+        user.full_name.toLowerCase().includes(query) ||
+        (user.email && user.email.toLowerCase().includes(query)) ||
+        agencyName.toLowerCase().includes(query) ||
+        matchesStaffSearch;
 
       const matchesAgency = selectedAgencyId === 'all' || user.partner_id === selectedAgencyId;
       const matchesRole = selectedRole === 'all' || user.role === selectedRole;
 
       return matchesSearch && matchesAgency && matchesRole;
     });
-  }, [partnerUsers, agencyMap, searchQuery, selectedAgencyId, selectedRole]);
+  }, [primaryConsultants, agencyMap, staffByPartnerId, searchQuery, selectedAgencyId, selectedRole]);
+
+  // All selectable users (primary consultants + matching staff under expanded/filtered primary consultants)
+  const allSelectableUsers = useMemo(() => {
+    const users: typeof partnerUsers = [...filteredPrimaryConsultants];
+    filteredPrimaryConsultants.forEach(p => {
+      const staff = staffByPartnerId.get(p.partner_id) || [];
+      users.push(...staff);
+    });
+    return users;
+  }, [filteredPrimaryConsultants, staffByPartnerId]);
 
   // Selected consultants details for the broadcast modal
   const selectedConsultantsInfo = useMemo(() => {
-    return filteredConsultants.filter(u => selectedUserIds.includes(u.id));
-  }, [filteredConsultants, selectedUserIds]);
+    return partnerUsers.filter(u => selectedUserIds.includes(u.id));
+  }, [partnerUsers, selectedUserIds]);
 
   // Checkbox handlers
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      setSelectedUserIds(filteredConsultants.map(u => u.id));
+      setSelectedUserIds(allSelectableUsers.map(u => u.id));
     } else {
       setSelectedUserIds([]);
     }
@@ -280,99 +329,168 @@ export const PartnerConsultants: React.FC = () => {
                   <th className="p-4 w-12 text-center">
                     <input 
                       type="checkbox"
-                      checked={filteredConsultants.length > 0 && selectedUserIds.length === filteredConsultants.length}
+                      checked={allSelectableUsers.length > 0 && selectedUserIds.length === allSelectableUsers.length}
                       onChange={handleSelectAll}
                       className="cursor-pointer"
                     />
                   </th>
-                  <th className="p-4">Consultant / Staff</th>
+                  <th className="p-4">Consultant / Agency</th>
                   <th className="p-4">Partner Agency</th>
                   <th className="p-4">Role</th>
                   <th className="p-4">Agency Contact</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-zinc-900 text-xs">
-                {filteredConsultants.length === 0 ? (
+                {filteredPrimaryConsultants.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-8 text-center text-slate-400 italic">
                       No consultants found in directory. Ensure they are invited or registered on the partner portal.
                     </td>
                   </tr>
                 ) : (
-                  filteredConsultants.map(user => {
+                  filteredPrimaryConsultants.map(user => {
                     const agency = agencyMap.get(user.partner_id);
                     const isSelected = selectedUserIds.includes(user.id);
                     const contactPhone = agency?.whatsapp_number || agency?.phone || '--';
+                    const partnerStaff = staffByPartnerId.get(user.partner_id) || [];
+                    const isExpanded = expandedAgencyIds.includes(user.partner_id) || (searchQuery.trim() !== '' && partnerStaff.some(s => s.full_name.toLowerCase().includes(searchQuery.toLowerCase()) || (s.email && s.email.toLowerCase().includes(searchQuery.toLowerCase()))));
 
                     return (
-                      <tr 
-                        key={user.id} 
-                        className={`hover:bg-slate-50/30 dark:hover:bg-zinc-900/20 transition-all ${
-                          isSelected ? 'bg-indigo-50/10 dark:bg-indigo-950/5' : ''
-                        }`}
-                      >
-                        <td className="p-4 text-center">
-                          <input 
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleSelectUser(user.id)}
-                            className="cursor-pointer"
-                          />
-                        </td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 font-extrabold flex items-center justify-center text-xs border border-indigo-100/50 dark:border-indigo-900/50 uppercase">
-                              {user.full_name.charAt(0)}
+                      <React.Fragment key={user.id}>
+                        <tr 
+                          className={`hover:bg-slate-50/30 dark:hover:bg-zinc-900/20 transition-all ${
+                            isSelected ? 'bg-indigo-50/10 dark:bg-indigo-950/5' : ''
+                          }`}
+                        >
+                          <td className="p-4 text-center">
+                            <input 
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleSelectUser(user.id)}
+                              className="cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 font-extrabold flex items-center justify-center text-xs border border-indigo-100/50 dark:border-indigo-900/50 uppercase flex-shrink-0">
+                                {user.full_name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="font-extrabold text-slate-800 dark:text-white leading-normal">{user.full_name}</p>
+                                {user.email && (
+                                  <p className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono mt-0.5 flex items-center gap-1">
+                                    <Mail className="w-3 h-3 text-slate-350" /> {user.email}
+                                  </p>
+                                )}
+                                {partnerStaff.length > 0 && (
+                                  <button 
+                                    onClick={() => toggleAgencyExpand(user.partner_id)}
+                                    className="mt-1 px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-md font-bold text-[10px] inline-flex items-center gap-1 border border-indigo-100 dark:border-indigo-900/40 cursor-pointer transition-all"
+                                  >
+                                    <Users className="w-3 h-3" />
+                                    <span>{partnerStaff.length} Staff Member{partnerStaff.length === 1 ? '' : 's'}</span>
+                                    {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-extrabold text-slate-800 dark:text-white leading-normal">{user.full_name}</p>
-                              {user.email && (
-                                <p className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono mt-0.5 flex items-center gap-1">
-                                  <Mail className="w-3 h-3 text-slate-350" /> {user.email}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          {agency ? (
-                            <div>
-                              <span className="font-bold text-slate-700 dark:text-zinc-300 block">{agency.business_name}</span>
-                              <span className={`inline-block text-[9px] font-extrabold px-1.5 py-0.5 rounded-full mt-1 border ${
-                                agency.status === 'active' 
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30'
-                                  : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30'
-                              }`}>
-                                {agency.status || 'Pending'}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 italic">No Agency Mapped</span>
-                          )}
-                        </td>
-                        <td className="p-4">
-                          <span className="inline-flex items-center gap-1 bg-slate-50 dark:bg-black/30 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded-md border border-slate-200/60 dark:border-zinc-800/40 font-bold text-[10px]">
-                            <Award className="w-3.5 h-3.5 text-indigo-400" />
-                            {formatRole(user.role)}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          {contactPhone !== '--' ? (
-                            <div className="space-y-1">
-                              <span className="font-semibold text-slate-700 dark:text-zinc-350 block flex items-center gap-1">
-                                <Phone className="w-3.5 h-3.5 text-emerald-500" /> {contactPhone}
-                              </span>
-                              {agency?.whatsapp_number && (
-                                <span className="text-[9px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 px-1.5 py-0.5 rounded-md inline-block">
-                                  WhatsApp Active
+                          </td>
+                          <td className="p-4">
+                            {agency ? (
+                              <div>
+                                <span className="font-bold text-slate-700 dark:text-zinc-300 block">{agency.business_name}</span>
+                                <span className={`inline-block text-[9px] font-extrabold px-1.5 py-0.5 rounded-full mt-1 border ${
+                                  agency.status === 'active' 
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30'
+                                    : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30'
+                                }`}>
+                                  {agency.status || 'Pending'}
                                 </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 italic">No phone configured</span>
-                          )}
-                        </td>
-                      </tr>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic">No Agency Mapped</span>
+                            )}
+                          </td>
+                          <td className="p-4">
+                            <span className="inline-flex items-center gap-1 bg-slate-50 dark:bg-black/30 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded-md border border-slate-200/60 dark:border-zinc-800/40 font-bold text-[10px]">
+                              <Award className="w-3.5 h-3.5 text-indigo-400" />
+                              {formatRole(user.role)}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            {contactPhone !== '--' ? (
+                              <div className="space-y-1">
+                                <span className="font-semibold text-slate-700 dark:text-zinc-355 block flex items-center gap-1">
+                                  <Phone className="w-3.5 h-3.5 text-emerald-500" /> {contactPhone}
+                                </span>
+                                {agency?.whatsapp_number && (
+                                  <span className="text-[9px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 px-1.5 py-0.5 rounded-md inline-block">
+                                    WhatsApp Active
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic">No phone configured</span>
+                            )}
+                          </td>
+                        </tr>
+
+                        {isExpanded && partnerStaff.length > 0 && (
+                          <tr key={`staff-nest-${user.id}`}>
+                            <td colSpan={5} className="bg-slate-50/50 dark:bg-zinc-950/60 p-3 border-b border-slate-200/60 dark:border-zinc-900">
+                              <div className="bg-white dark:bg-zinc-900 p-3.5 rounded-xl border border-slate-200 dark:border-zinc-800 space-y-2.5 shadow-sm">
+                                <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-zinc-800/60">
+                                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Users className="w-3.5 h-3.5 text-indigo-500" /> Staff & Team Members under {agency?.business_name || user.full_name}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-400">
+                                    {partnerStaff.length} Onboarded Account{partnerStaff.length === 1 ? '' : 's'}
+                                  </span>
+                                </div>
+                                <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
+                                  {partnerStaff.map(staff => {
+                                    const isStaffSelected = selectedUserIds.includes(staff.id);
+                                    return (
+                                      <div key={staff.id} className="py-2 flex items-center justify-between gap-3 text-xs">
+                                        <div className="flex items-center gap-2.5">
+                                          <input 
+                                            type="checkbox"
+                                            checked={isStaffSelected}
+                                            onChange={() => handleSelectUser(staff.id)}
+                                            className="cursor-pointer"
+                                          />
+                                          <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 font-bold flex items-center justify-center text-[10px] uppercase">
+                                            {staff.full_name.charAt(0)}
+                                          </div>
+                                          <div>
+                                            <span className="font-bold text-slate-800 dark:text-white block">{staff.full_name}</span>
+                                            {staff.email && (
+                                              <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono block">{staff.email}</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[9px] font-extrabold bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded border border-slate-200/50 dark:border-zinc-700/50">
+                                            Consultant Staff
+                                          </span>
+                                          <span className="text-[9px] font-extrabold bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded border border-rose-100/50 dark:border-rose-900/30">
+                                            Commissions (Hidden)
+                                          </span>
+                                          {staff.phone && (
+                                            <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+                                              <Phone className="w-3 h-3 text-slate-400" /> {staff.phone}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })
                 )}
