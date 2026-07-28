@@ -88,11 +88,12 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
             });
           }
 
-          // 2. Include body component whenever variables are passed
+          // 2. Include body component whenever variables are passed, strictly capping to expected parameter count
           if (options.variables && options.variables.length > 0) {
-            const paramCount = placeholders.length > 0
-              ? Math.min(options.variables.length, placeholders.length)
-              : options.variables.length;
+            const expectedCount = (matched?.namedParams && matched.namedParams.length > 0)
+              ? matched.namedParams.length
+              : (placeholders.length > 0 ? placeholders.length : options.variables.length);
+            const paramCount = Math.min(options.variables.length, expectedCount);
             const paramList = options.variables.slice(0, paramCount);
             if (paramList.length > 0) {
               components.push({
