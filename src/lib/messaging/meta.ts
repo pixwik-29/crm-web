@@ -53,32 +53,36 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
         };
         {
           let bodyText = options.templateBody || '';
-          let headerImageUrl = '';
+          let matched: WhatsAppTemplate | undefined = undefined;
           if (options.templateName) {
             try {
               const templates = await this.syncTemplates();
-              const matched = templates.find(t => t.name === options.templateName);
-              if (matched) {
-                if (!bodyText) bodyText = matched.body;
-                headerImageUrl = matched.headerImageUrl || '';
+              matched = templates.find(t => t.name === options.templateName);
+              if (matched && !bodyText) {
+                bodyText = matched.body;
               }
             } catch (e) {
               console.error('[MetaWhatsAppProvider] Failed to sync template body:', e);
             }
           }
           const placeholders = [...bodyText.matchAll(/\{\{([^}]+)\}\}/g)].map(m => m[1]);
-
           const components: any[] = [];
 
-          // Include header image component if template has one
-          if (headerImageUrl) {
+          // 1. Include header image component if template has format === IMAGE or headerImageUrl/mediaUrl
+          if (matched?.hasImageHeader || matched?.headerImageUrl || options.mediaUrl) {
+            const headerUrl = options.mediaUrl || matched?.headerImageUrl || 'https://gkayyfwadwwsucpqeefw.supabase.co/storage/v1/object/public/college-images/ps_banner.png';
             components.push({
               type: 'header',
-              parameters: [{ type: 'image', image: { link: headerImageUrl } }]
+              parameters: [
+                {
+                  type: 'image',
+                  image: { link: headerUrl }
+                }
+              ]
             });
           }
 
-          // Include body component whenever variables are passed
+          // 2. Include body component whenever variables are passed
           if (options.variables && options.variables.length > 0) {
             const paramCount = placeholders.length > 0
               ? Math.min(options.variables.length, placeholders.length)
@@ -87,10 +91,14 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
             if (paramList.length > 0) {
               components.push({
                 type: 'body',
-                parameters: paramList.map((v) => ({
-                  type: 'text',
-                  text: String(v ?? '')
-                }))
+                parameters: paramList.map((v, idx) => {
+                  const paramName = matched?.namedParams?.[idx] || placeholders[idx] || String(idx + 1);
+                  return {
+                    type: 'text',
+                    text: String(v ?? ''),
+                    parameter_name: paramName
+                  };
+                })
               });
             }
           }
@@ -208,14 +216,19 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     const templates: WhatsAppTemplate[] = rawTemplates.map((t: any) => {
       // Find body and header components
       const bodyComp = t.components?.find((c: any) => c.type === 'BODY');
-      const headerComp = t.components?.find((c: any) => c.type === 'HEADER' && c.format === 'IMAGE');
+      const headerComp = t.components?.find((c: any) => c.type === 'HEADER');
+      const hasImageHeader = headerComp?.format === 'IMAGE';
       // Extract header image URL from example handle if present
       const headerImageUrl = headerComp?.example?.header_handle?.[0] || '';
+      const namedParams = bodyComp?.example?.body_text_named_params?.map((p: any) => p.param_name) || [];
+
       return {
         id: t.id || `temp-meta-${t.name}`,
         name: t.name,
         body: bodyComp?.text || '',
+        hasImageHeader,
         headerImageUrl,
+        namedParams,
         status: t.status,
         category: t.category,
         language: t.language,
