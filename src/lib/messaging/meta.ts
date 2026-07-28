@@ -24,10 +24,16 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
   async sendMessage(options: SendMessageOptions): Promise<{ messageId: string; status: string }> {
     const url = `https://graph.facebook.com/v19.0/${this.phoneId}/messages`;
 
-    // Sanitize recipient phone number (E.164 without leading '+')
-    let cleanTo = (options.to || '').replace(/[^0-9+]/g, '');
-    if (cleanTo.startsWith('+')) {
+    // Sanitize recipient phone number for Meta WhatsApp Cloud API (E.164 format)
+    let cleanTo = String(options.to || '').replace(/[^0-9]/g, '');
+    if (cleanTo.startsWith('00')) {
+      cleanTo = cleanTo.substring(2);
+    }
+    if (cleanTo.startsWith('0') && cleanTo.length === 11) {
       cleanTo = cleanTo.substring(1);
+    }
+    if (cleanTo.length === 10 && /^[6-9]/.test(cleanTo)) {
+      cleanTo = '91' + cleanTo;
     }
 
     let body: any = {
