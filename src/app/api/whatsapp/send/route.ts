@@ -4,7 +4,7 @@ import { MessagingService } from '@/lib/messaging/service';
 // POST /api/whatsapp/send — sends a single WhatsApp message to one lead
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId, to, type = 'text', message, templateName, variables = [] } = await req.json();
+    const { tenantId, to, type = 'text', message, text, templateName, variables = [] } = await req.json();
 
     if (!tenantId) return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
     if (!to) return NextResponse.json({ error: 'to (phone number) is required' }, { status: 400 });
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     const { messageId, status } = await provider.sendMessage({
       to,
       type: type as any,
-      text: message,       // SendMessageOptions uses 'text', not 'message'
+      text: text || message,
       templateName,
       variables,
     });

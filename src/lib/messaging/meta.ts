@@ -4,6 +4,9 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
   private apiToken: string;
   private phoneId: string;
   private accountId: string;
+  private cachedTemplates: WhatsAppTemplate[] | null = null;
+  private lastSyncTime: number = 0;
+  private CACHE_TTL_MS: number = 5 * 60 * 1000; // 5 minute cache
 
   constructor(apiToken: string, phoneId: string, accountId: string) {
     this.apiToken = apiToken;
@@ -20,10 +23,17 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
 
   async sendMessage(options: SendMessageOptions): Promise<{ messageId: string; status: string }> {
     const url = `https://graph.facebook.com/v19.0/${this.phoneId}/messages`;
+
+    // Sanitize recipient phone number (E.164 without leading '+')
+    let cleanTo = (options.to || '').replace(/[^0-9+]/g, '');
+    if (cleanTo.startsWith('+')) {
+      cleanTo = cleanTo.substring(1);
+    }
+
     let body: any = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to: options.to
+      to: cleanTo
     };
 
     const primaryLanguage = options.templateName === 'hello_world' ? 'en_US' : 'en';
@@ -68,19 +78,21 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
             });
           }
 
-          // Include body component only if there are variables to pass and placeholders expected
-          if (options.variables && options.variables.length > 0 && placeholders.length > 0) {
-            components.push({
-              type: 'body',
-              parameters: options.variables.slice(0, placeholders.length).map((v, idx) => {
-                const paramName = placeholders[idx] || String(idx + 1);
-                return {
+          // Include body component whenever variables are passed
+          if (options.variables && options.variables.length > 0) {
+            const paramCount = placeholders.length > 0
+              ? Math.min(options.variables.length, placeholders.length)
+              : options.variables.length;
+            const paramList = options.variables.slice(0, paramCount);
+            if (paramList.length > 0) {
+              components.push({
+                type: 'body',
+                parameters: paramList.map((v) => ({
                   type: 'text',
-                  text: v,
-                  parameter_name: paramName
-                };
-              })
-            });
+                  text: String(v ?? '')
+                }))
+              });
+            }
           }
 
           if (components.length > 0) {
@@ -140,7 +152,7 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
         throw new Error(`Unsupported message type: ${options.type}`);
     }
 
-    console.log(`[MetaWhatsAppProvider] Sending ${options.type} message to ${options.to}`);
+    console.log(`[MetaWhatsAppProvider] Sending ${options.type} message to ${cleanTo}`);
     const response = await fetch(url, {
       method: 'POST',
       headers: this.getHeaders(),
@@ -173,7 +185,12 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     };
   }
 
-  async syncTemplates(): Promise<WhatsAppTemplate[]> {
+  async syncTemplates(forceRefresh = false): Promise<WhatsAppTemplate[]> {
+    const now = Date.now();
+    if (!forceRefresh && this.cachedTemplates && (now - this.lastSyncTime < this.CACHE_TTL_MS)) {
+      return this.cachedTemplates;
+    }
+
     const url = `https://graph.facebook.com/v19.0/${this.accountId}/message_templates?fields=name,status,category,language,components`;
     console.log(`[MetaWhatsAppProvider] Syncing templates for account: ${this.accountId}`);
     
@@ -188,7 +205,7 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     }
 
     const rawTemplates = resData.data || [];
-    return rawTemplates.map((t: any) => {
+    const templates: WhatsAppTemplate[] = rawTemplates.map((t: any) => {
       // Find body and header components
       const bodyComp = t.components?.find((c: any) => c.type === 'BODY');
       const headerComp = t.components?.find((c: any) => c.type === 'HEADER' && c.format === 'IMAGE');
@@ -205,6 +222,10 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
         created_at: new Date().toISOString()
       };
     });
+
+    this.cachedTemplates = templates;
+    this.lastSyncTime = now;
+    return templates;
   }
 
   async createTemplate(template: Omit<WhatsAppTemplate, 'id' | 'created_at'>): Promise<WhatsAppTemplate> {
