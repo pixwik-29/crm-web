@@ -143,25 +143,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Process immediately in background
+    // Process campaign dispatch synchronously to prevent serverless container termination mid-loop
     console.log(`[Campaign API] Triggering direct campaign dispatch for ${targets.length} targets`);
     
-    // Resolve provider first to fail fast if config is broken
-    await MessagingService.getProviderForTenant(tenantId);
-    
-    waitUntil(
-      processCampaignBroadcast({
-        targets,
-        templateName,
-        variables,
-        tenantId
-      })
-    );
+    const results = await processCampaignBroadcast({
+      targets,
+      templateName,
+      variables,
+      tenantId
+    });
 
     return NextResponse.json({ 
       success: true, 
       targetsCount: targets.length, 
-      message: 'Campaign broadcast dispatch started successfully in background.' 
+      sentCount: results.sentCount,
+      failedCount: results.failedCount,
+      message: `Campaign broadcast completed! Sent: ${results.sentCount}, Failed: ${results.failedCount}` 
     });
   } catch (error: any) {
     console.error('[Campaign API] Error launching campaign:', error.message);
@@ -169,13 +166,16 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Background worker thread logic to deliver template messages to filtered leads
+// Worker function to deliver template messages to filtered leads
 async function processCampaignBroadcast({ targets, templateName, variables, tenantId }: {
   targets: any[];
   templateName: string;
   variables: string[];
   tenantId: string;
-}) {
+}): Promise<{ sentCount: number; failedCount: number }> {
+  let sentCount = 0;
+  let failedCount = 0;
+
   try {
     const provider = await MessagingService.getProviderForTenant(tenantId);
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -193,9 +193,13 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
     console.log(`[Campaign worker] Dispatching WhatsApp messages to ${targets.length} leads...`);
 
     for (const lead of targets) {
+      let compiledText = '';
       try {
         const phone = lead.whatsapp_number || lead.phone;
-        if (!phone) continue;
+        if (!phone) {
+          failedCount++;
+          continue;
+        }
 
         // Build parameters values array based on variable selection mappings
         const paramValues: string[] = [];
@@ -211,11 +215,11 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         // Compile display text for log history
         let messageText = templateBodyRaw;
         paramValues.forEach((val, idx) => {
-          // Replace both standard {{1}} and named placeholders in history text
           const keyName = variables[idx] || '';
           const cleanKey = keyName.startsWith('custom:') ? 'custom_val' : keyName;
           messageText = messageText.replace(new RegExp(`\\{\\{(${idx + 1}|${cleanKey})\\}\\}`, 'gi'), val);
         });
+        compiledText = messageText;
 
         // Send message via provider
         const { messageId, status } = await provider.sendMessage({
@@ -230,7 +234,7 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         await supabase.from('whatsapp_history').insert({
           lead_id: lead.id,
           direction: 'outgoing',
-          message_text: messageText || `[Sent template: ${templateName}]`,
+          message_text: compiledText || `[Sent template: ${templateName}]`,
           status: status as any,
           tenant_id: tenantId
         });
@@ -243,24 +247,29 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
           tenant_id: tenantId
         });
 
+        sentCount++;
+
         // Throttle slightly to respect Meta Cloud API rate limits (e.g. 50ms per message)
         await new Promise(resolve => setTimeout(resolve, 50));
       } catch (sendErr: any) {
         console.error(`[Campaign worker] Failed message to lead ${lead.id}:`, sendErr.message);
+        failedCount++;
         
-        // Log failure state
+        // Log detailed failure state in history
         await supabase.from('whatsapp_history').insert({
           lead_id: lead.id,
           direction: 'outgoing',
-          message_text: `[Failed broadcast template: ${templateName}]`,
+          message_text: compiledText ? `${compiledText}\n\n[Error: ${sendErr.message}]` : `[Failed broadcast template: ${templateName} - ${sendErr.message}]`,
           status: 'failed',
           tenant_id: tenantId
         });
       }
     }
 
-    console.log(`[Campaign worker] Broadcast campaign finished for ${targets.length} targets`);
+    console.log(`[Campaign worker] Broadcast campaign finished: ${sentCount} sent, ${failedCount} failed`);
   } catch (err: any) {
     console.error('[Campaign worker] Critical error in campaign execution thread:', err.message);
   }
+
+  return { sentCount, failedCount };
 }
