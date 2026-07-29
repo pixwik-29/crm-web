@@ -1160,6 +1160,16 @@ async function triggerWelcomeWhatsAppMessage({
 }
 
 /**
+ * Formats Markdown text into native WhatsApp formatting (e.g. *bold* instead of **bold**)
+ */
+function formatForWhatsApp(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '*$1*') // **text** -> *text*
+    .replace(/\[(.*?)\]\((.*?)\)/g, '$1: $2'); // [label](url) -> label: url
+}
+
+/**
  * Worker function to dispatch Chitra (AI Counselor) auto-replies to incoming WhatsApp chats
  */
 async function dispatchWhatsAppAiCounselorReply({
@@ -1182,42 +1192,64 @@ async function dispatchWhatsAppAiCounselorReply({
   try {
     if (!supabase) return;
 
-    // Fetch conversation history for this lead (up to 6 recent messages)
+    // Fetch conversation history for this lead
     const { data: history } = await supabase
       .from('whatsapp_history')
-      .select('direction, message_text')
+      .select('direction, message_text, created_at')
       .eq('lead_id', leadId)
       .order('created_at', { ascending: true })
-      .limit(6);
+      .limit(10);
 
-    const messagesPayload = (history || []).map(h => ({
-      role: h.direction === 'incoming' ? 'user' : 'assistant',
-      content: h.message_text
-    }));
-
-    if (messagesPayload.length === 0) {
-      messagesPayload.push({ role: 'user', content: messageText });
-    }
-
-    // Generate Chitra's Counselor Response directly in-memory
+    const isFirstMessage = !history || history.length <= 1; // 1 because the incoming message was just inserted
     const queryLower = messageText.toLowerCase();
     let aiReply = '';
 
+    // RULE 1: STRICT PROCESSING FEE DISCLOSURE BLOCK (Applies to all turns)
     if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
-      aiReply = `Hello! 😊 Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail.\n\nCould you please share your Name and email ID so I can arrange a quick call with our team?`;
-    } else if (queryLower.includes('how to choose') || queryLower.includes('how do i select') || queryLower.includes('which country is best') || queryLower.includes('which college is best') || queryLower.includes('suggest me') || queryLower.includes('how to decide')) {
-      aiReply = `Choosing the right medical university is a crucial decision! As a counselor, here are the key factors I recommend keeping in mind:\n\n1. **Recognition**: Ensure WHO, NMC (India), & ECFMG accreditation.\n2. **Total Budget**: Compare annual tuition + hostel & living costs.\n3. **Academic & FMGE Pass Rate**: Look for strong track records.\n4. **Clinical Exposure**: Multi-specialty teaching hospital availability.\n\nWhat is your 12th PCB percentage or NEET score? I can suggest the top 3 matching options for you!`;
-    } else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('batumi') || queryLower.includes('alte') || queryLower.includes('seu')) {
-      aiReply = `🇬🇪 **Georgia** is a fantastic choice! Top universities like **SEU Georgian National University** (~$4,800/yr) and **Alte University** (~$5,500/yr) offer European standards with 100% English medium instruction.\n\nWould you like me to have our senior team send you the complete fee brochure and checklist for Georgia?`;
-    } else if (queryLower.includes('uzbekistan') || queryLower.includes('andijan') || queryLower.includes('tashkent') || queryLower.includes('fergana')) {
-      aiReply = `🇺🇿 **Uzbekistan** offers excellent government medical institutes like **Andijan State Medical Institute** (~$3,500/yr) and **Tashkent State Medical University** (~$3,800/yr) with very affordable living costs.\n\nWould you like us to check your NEET eligibility for Uzbekistan?`;
-    } else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('gullas') || queryLower.includes('brokenshire')) {
-      aiReply = `🇵🇭 **Philippines** offers American-pattern MD curriculum with a high FMGE pass rate! Top colleges like **Davao Medical School Foundation** and **Gullas College of Medicine** are great options.\n\nWould you like us to send you the direct admission checklist for Philippines?`;
-    } else if (queryLower.includes('eligibility') || queryLower.includes('neet') || queryLower.includes('marks')) {
-      aiReply = `📋 **General MBBS Abroad Eligibility**:\n• **NEET UG**: Must be NEET qualified (135+ General, 107+ Reserved).\n• **12th PCB**: Minimum 50% aggregate in Physics, Chemistry & Biology.\n• **Age**: 17+ years.\n\nWhat is your 12th PCB percentage or NEET score?`;
-    } else {
-      aiReply = `Hello ${senderName || 'there'}! 👋 I'm **Chitra**, Senior Admission Counselor at Perfect Scholar.\n\nThank you for reaching out! We guide students to top accredited medical universities in **Georgia 🇬🇪, Philippines 🇵🇭, Uzbekistan 🇺🇿, Hungary 🇭🇺, and Egypt 🇪🇬**.\n\nHow can I help guide you today?\n• Ask for university suggestions based on your budget\n• Check your NEET & 12th eligibility\n\nPlease feel free to share your **12th PCB %** or **NEET Score** so I can suggest the best matching options for you!`;
+      aiReply = `Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail.\n\nCould you please share your Name and email ID so I can arrange a quick call for you?`;
+    } 
+    // RULE 2: HOW TO CHOOSE SUGGESTIONS
+    else if (queryLower.includes('how to choose') || queryLower.includes('how do i select') || queryLower.includes('which country is best') || queryLower.includes('which college is best') || queryLower.includes('suggest me') || queryLower.includes('how to decide')) {
+      aiReply = `Choosing the right medical university is a crucial decision! Here are the key factors I recommend keeping in mind:\n\n1. *Recognition*: Ensure WHO, NMC (India), & ECFMG accreditation.\n2. *Total Budget*: Compare annual tuition + hostel & living costs.\n3. *Academic & FMGE Pass Rate*: Look for strong track records.\n4. *Clinical Exposure*: Multi-specialty teaching hospital availability.\n\nWhat is your 12th PCB percentage or NEET score? I can suggest the top 3 matching options for you!`;
     }
+    // RULE 3: SCORE / MARKS / NEET PROVIDED
+    else if (queryLower.match(/\b\d{3}\b/) || queryLower.includes('neet') || queryLower.includes('score') || queryLower.includes('pcb') || queryLower.includes('percentage') || queryLower.includes('%')) {
+      aiReply = `That's great! With your profile, you are eligible for top accredited universities in *Georgia* and *Uzbekistan* like SEU Georgian National or Tashkent State Medical University.\n\nWould you like me to have our senior team send you the complete fee brochure and eligibility checklist on WhatsApp?`;
+    }
+    // RULE 4: HOSTEL / FOOD / SAFETY
+    else if (queryLower.includes('hostel') || queryLower.includes('food') || queryLower.includes('safety') || queryLower.includes('accommodation') || queryLower.includes('mess') || queryLower.includes('living')) {
+      aiReply = `Hostel facilities at our partner universities are very safe with 24/7 campus security, separate hostels for male & female students, and an Indian food mess serving both veg and non-veg options.\n\nWould you like details on living costs for a specific country like Georgia or Uzbekistan?`;
+    }
+    // RULE 5: GEORGIA
+    else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('batumi') || queryLower.includes('alte') || queryLower.includes('seu')) {
+      aiReply = `*Georgia* is a fantastic choice! Top universities like *SEU Georgian National University* (~$4,800/yr) and *Alte University* (~$5,500/yr) offer European standards with 100% English medium instruction.\n\nWould you like me to send you the detailed fee brochure for Georgia?`;
+    }
+    // RULE 6: UZBEKISTAN
+    else if (queryLower.includes('uzbekistan') || queryLower.includes('andijan') || queryLower.includes('tashkent') || queryLower.includes('fergana')) {
+      aiReply = `*Uzbekistan* offers excellent government medical institutes like *Andijan State Medical Institute* (~$3,500/yr) and *Tashkent State Medical University* (~$3,800/yr) with very affordable living costs.\n\nWould you like us to check your NEET eligibility for Uzbekistan?`;
+    }
+    // RULE 7: PHILIPPINES
+    else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('gullas') || queryLower.includes('brokenshire')) {
+      aiReply = `*Philippines* offers American-pattern MD curriculum with a high FMGE pass rate! Top colleges like *Davao Medical School Foundation* and *Gullas College of Medicine* are great options.\n\nShall I send you the direct admission checklist for Philippines?`;
+    }
+    // RULE 8: ELIGIBILITY
+    else if (queryLower.includes('eligibility') || queryLower.includes('requirements') || queryLower.includes('doc')) {
+      aiReply = `📋 *General MBBS Abroad Eligibility*:\n• *NEET UG*: Must be NEET qualified (135+ General, 107+ Reserved).\n• *12th PCB*: Minimum 50% aggregate in Physics, Chemistry & Biology.\n• *Age*: 17+ years.\n\nWhat is your 12th PCB percentage or NEET score?`;
+    }
+    // RULE 9: CONTACT INFO PROVIDED
+    else if (queryLower.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b[6-9]\d{9}\b/) || queryLower.includes('name is') || queryLower.includes('my number')) {
+      aiReply = `Thank you so much! 🎉 I have noted your details.\n\nI am Chitra, and I have assigned one of our senior medical admission counselors to connect with you directly on WhatsApp / Call shortly to guide you step-by-step.\n\nFeel free to ask if you have any questions in the meantime!`;
+    }
+    // MULTI-TURN HUMAN CONVERSATIONAL FOLLOW-UP (NEVER repeat welcome message)
+    else if (!isFirstMessage) {
+      aiReply = `I understand! I'd be happy to guide you further.\n\nAre you looking for universities within a specific budget range, or interested in a particular country like *Georgia, Philippines, or Uzbekistan*?`;
+    }
+    // FIRST MESSAGE ONLY: Warm Counselor Welcome
+    else {
+      aiReply = `Hello ${senderName && senderName !== 'WhatsApp Contact' ? senderName : 'there'}! 👋 I'm *Chitra*, Senior Admission Counselor at Perfect Scholar.\n\nThank you for reaching out! We guide students to top accredited medical universities in *Georgia 🇬🇪, Philippines 🇵🇭, Uzbekistan 🇺🇿, Hungary 🇭🇺, and Egypt 🇪🇬*.\n\nHow can I help guide you today?\n• Ask for university suggestions based on your budget\n• Check your NEET & 12th eligibility\n\nPlease feel free to share your *12th PCB %* or *NEET Score* so I can suggest the best matching options for you!`;
+    }
+
+    const formattedReply = formatForWhatsApp(aiReply);
 
     // Send AI reply text to prospect via Meta WhatsApp Cloud API
     const cleanPhone = to.replace(/\D/g, '');
@@ -1234,7 +1266,7 @@ async function dispatchWhatsAppAiCounselorReply({
         recipient_type: 'individual',
         to: formattedPhone,
         type: 'text',
-        text: { body: aiReply }
+        text: { body: formattedReply }
       })
     });
 
@@ -1246,7 +1278,7 @@ async function dispatchWhatsAppAiCounselorReply({
       await supabase.from('whatsapp_history').insert({
         lead_id: leadId,
         direction: 'outgoing',
-        message_text: aiReply,
+        message_text: formattedReply,
         status: 'sent',
         tenant_id: tenantId
       });
