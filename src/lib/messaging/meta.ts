@@ -75,8 +75,11 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
           const components: any[] = [];
 
           // 1. Include header image component if template has format === IMAGE or headerImageUrl/mediaUrl
-          if (matched?.hasImageHeader || matched?.headerImageUrl || options.mediaUrl) {
-            const headerUrl = options.mediaUrl || matched?.headerImageUrl || 'https://gkayyfwadwwsucpqeefw.supabase.co/storage/v1/object/public/college-images/ps_banner.png';
+          if (matched?.hasImageHeader || (matched?.headerImageUrl && !matched.headerImageUrl.includes('scontent.whatsapp.net')) || options.mediaUrl) {
+            const rawHeader = options.mediaUrl || matched?.headerImageUrl || '';
+            const headerUrl = (rawHeader && !rawHeader.includes('scontent.whatsapp.net'))
+              ? rawHeader
+              : 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800';
             components.push({
               type: 'header',
               parameters: [
