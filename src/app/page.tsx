@@ -16,6 +16,7 @@ import { SharedInbox } from '@/components/SharedInbox';
 import { CampaignManager } from '@/components/CampaignManager';
 import { PartnerConsultants } from '@/components/PartnerConsultants';
 import { Footer } from '@/components/Footer';
+import AIChatWidget from '@/components/AIChatWidget';
 import { 
   Sparkles, Sun, Moon, LogOut, RefreshCw, Layers, Table, BarChart3, 
   HelpCircle, User, Users, ShieldCheck, Flame, Settings, Globe, Plane, ShieldAlert, Lock,
@@ -534,6 +535,9 @@ const DashboardContent: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Floating AI Chat Assistant Widget */}
+      <AIChatWidget tenantId={tenantId} />
 
     </div>
   );
