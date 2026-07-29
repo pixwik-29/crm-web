@@ -16,7 +16,7 @@ export default function AIChatWidget({ tenantId = 'nash-pixwik-admin' }: { tenan
     {
       id: 'welcome-1',
       role: 'assistant',
-      content: 'Hi! 👋 Welcome to **Perfect Scholar**. I am your AI Medical Education Assistant.\n\nAsk me anything about MBBS abroad tuition fees, eligibility, intake dates, or admission steps in **Georgia 🇬🇪, Philippines 🇵🇭, Uzbekistan 🇺🇿**, and more!',
+      content: 'Hello! 👋 I\'m **Chitra**, Senior Admission Counselor at Perfect Scholar.\n\nI am here to help guide you through accredited MBBS options in **Georgia 🇬🇪, Philippines 🇵🇭, Uzbekistan 🇺🇿**, and more.\n\nFeel free to ask for university suggestions or check your NEET eligibility!',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -126,7 +126,7 @@ export default function AIChatWidget({ tenantId = 'nash-pixwik-admin' }: { tenan
           </span>
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
-            <span className="font-extrabold text-sm tracking-wide">Ask AI Assistant</span>
+            <span className="font-extrabold text-sm tracking-wide">Chat with Chitra (Counselor)</span>
           </div>
         </button>
       )}
@@ -142,12 +142,12 @@ export default function AIChatWidget({ tenantId = 'nash-pixwik-admin' }: { tenan
               </div>
               <div>
                 <h3 className="font-extrabold text-sm flex items-center gap-1.5">
-                  Perfect Scholar AI
+                  Chitra • Senior Counselor
                   <Sparkles className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
                 </h3>
                 <p className="text-[11px] text-indigo-200 font-medium flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  Instant Database RAG Knowledge
+                  Online • Perfect Scholar Admissions
                 </p>
               </div>
             </div>

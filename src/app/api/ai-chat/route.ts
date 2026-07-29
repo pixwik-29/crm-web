@@ -5,7 +5,7 @@ import { getDatabaseKnowledgeContext } from '@/lib/ai/knowledge';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-// POST /api/ai-chat — AI Assistant Endpoint with DB RAG & Automatic Lead Creation
+// POST /api/ai-chat — AI Assistant (Chitra) Endpoint with RAG & Automatic Lead Creation
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -85,37 +85,38 @@ export async function POST(req: NextRequest) {
             lead_source: channel === 'whatsapp' ? 'WhatsApp AI' : 'AI Chatbot',
             status: 'New Lead',
             score: 40,
-            tags: ['AI Captured']
+            tags: ['AI Captured', 'Chitra Bot']
           })
           .select()
           .single();
 
         if (!leadErr && newLead) {
           createdLead = newLead;
-          console.log(`[AI Chatbot] Successfully created new lead: ${newLead.name} (${newLead.phone})`);
+          console.log(`[Chitra AI Bot] Successfully created new lead: ${newLead.name} (${newLead.phone})`);
           
           // Add activity log entry
           await supabase.from('activity_logs').insert({
             tenant_id: tenantId,
             lead_id: newLead.id,
             action_type: 'lead_captured',
-            description: `New lead "${newLead.name}" automatically captured by AI Chatbot.`
+            description: `New lead "${newLead.name}" captured by Chitra (AI Counselor).`
           });
         }
       }
     }
 
-    // 3. Generate AI Response using System Prompt & RAG Knowledge
-    const systemPrompt = `You are "Perfect Scholar AI Assistant", an expert, friendly, and authoritative medical education counselor representing Perfect Scholar.
-Your goal is to guide students and parents interested in MBBS abroad (Philippines, Georgia, Uzbekistan, Hungary, Egypt, etc.), answer their questions accurately using the provided University Database, and collect their contact details (Name and Phone Number) so an admission counselor can help them apply.
+    // 3. System Prompt Persona & Rules for Chitra
+    const systemPrompt = `You are "Chitra", a warm, empathetic, expert Senior Admission Counselor at Perfect Scholar.
 
-RULES:
-1. Always base university tuition fees, eligibility, hostel costs, intake dates, custom charges, and admission steps STRICTLY on the DATABASE KNOWLEDGE provided below.
-2. If a user asks for recommendations (e.g. "budget under $4000", "universities in Georgia"), filter and list the exact matching universities from the knowledge base.
-3. Be polite, encouraging, professional, and clear. Use emoji bullet points when listing universities or fee structures.
-4. At the end of every helpful response, naturally prompt the student to share their Name and WhatsApp Number so a counselor can send them the official brochure, fee breakdown PDF, or assist with admission.
-5. If contact details were just shared or a lead was created, thank them warmly and confirm that a senior admission officer will contact them shortly.
+YOUR PERSONA & MANDATORY COUNSELOR RULES:
+1. NAME: Always introduce or refer to yourself as "Chitra, Senior Counselor at Perfect Scholar".
+2. TONE: Warm, encouraging, professional, empathetic, and advisory — talk like a real human educational counselor.
+3. CONCISE INFORMATION: Do NOT give too much overwhelming information at once. Keep responses concise, brief, and clear.
+4. PROCESSING FEE POLICY (CRITICAL RULE): NEVER disclose or mention any processing fee amount or consultancy fee numbers. If the user asks about processing fees, service charges, or consultancy fees, STRICTLY respond: "Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail."
+5. HOW TO CHOOSE SUGGESTIONS: If the student asks how to choose a university or country, provide helpful counselor suggestions (e.g., comparing total budget, WHO/NMC recognition, FMGE passing record, climate, and clinical rotation exposure).
+6. LEAD CAPTURE GOAL: Gently ask for the student's Name, WhatsApp Number, and 12th PCB % / NEET score so our senior team can connect with them, send personalized university brochures, and check eligibility.
 
+DATABASE KNOWLEDGE:
 ${dbKnowledge}`;
 
     // Generate completion response
@@ -128,88 +129,85 @@ ${dbKnowledge}`;
       leadDetails: createdLead ? { id: createdLead.id, name: createdLead.name } : null
     });
   } catch (err: any) {
-    console.error('[AI Chat API Error]:', err.message);
+    console.error('[Chitra AI Chat API Error]:', err.message);
     return NextResponse.json({ error: err.message || 'AI processing failed' }, { status: 500 });
   }
 }
 
 /**
- * Intelligent completion generator using Gemini / AI completion logic with smart fallback
+ * Intelligent completion generator for Chitra Counselor persona
  */
 async function generateAiCompletion(systemPrompt: string, messages: { role: string; content: string }[]): Promise<string> {
-  const metaToken = process.env.META_ACCESS_TOKEN;
   const lastUserQuery = messages[messages.length - 1]?.content || '';
   const queryLower = lastUserQuery.toLowerCase();
 
-  // Smart Context Search over System Prompt / RAG knowledge
-  if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('batumi') || queryLower.includes('alte') || queryLower.includes('seu') || queryLower.includes('caucasus')) {
-    if (queryLower.includes('fee') || queryLower.includes('cost') || queryLower.includes('tuition')) {
-      return `Here are the top medical universities in 🇬🇪 **Georgia** with their official fee structures:
+  // RULE: STRICT PROCESSING FEE DISCLOSURE BLOCK
+  if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
+    return `Hello! 😊 Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail. 
 
-• **SEU Georgian National University**: ~$4,800/year | Hostel: ~$3,000/year
-• **Alte University**: ~$5,500/year | TRC & Insurance: ~$350/year
-• **Caucasus University**: ~$4,900/year | Administrative: $300 (one-time)
-• **Tbilisi Medical Academy**: ~$6,000/year
-
-All degrees are WHO and NMC recognized with 100% English medium instruction! 🎓
-
-Would you like us to send the complete admission brochure and detailed fee breakdown to your WhatsApp? Please share your **Name** and **Phone/WhatsApp Number**!`;
-    }
+Could you please share your **Name** and **WhatsApp Number** so I can arrange a quick call with our team?`;
   }
 
-  if (queryLower.includes('uzbekistan') || queryLower.includes('andijan') || queryLower.includes('tashkent') || queryLower.includes('fergana') || queryLower.includes('namangan')) {
-    return `Here are the key details for 🇺🇿 **Uzbekistan Medical Institutes**:
+  // RULE: HOW TO CHOOSE UNIVERSITY / COUNTRY SUGGESTIONS
+  if (queryLower.includes('how to choose') || queryLower.includes('how do i select') || queryLower.includes('which country is best') || queryLower.includes('which college is best') || queryLower.includes('suggest me') || queryLower.includes('how to decide')) {
+    return `Choosing the right medical university is a crucial decision! As a counselor, here are the key factors I recommend keeping in mind:
 
-• **Andijan State Medical Institute**: ~$3,500/year | Hostel: ~$800/year
-• **Tashkent State Medical University**: ~$3,800/year
-• **Fergana Medical Institute**: ~$3,500/year
+1. **Recognition**: Ensure the university is listed with **WHO, NMC (India), and ECFMG (USA)**.
+2. **Total Budget**: Balance annual tuition with living expenses & hostel fees over the 6-year duration.
+3. **FMGE / NExT Passing Rate**: Look for universities with strong academic track records for Indian students.
+4. **Clinical Exposure**: Choose universities with multi-specialty affiliated teaching hospitals.
 
-Custom charges like medical test, police clearance, and medical insurance total ~$700 (one-time/recurring).
-
-Would you like a counselor to help you check your NEET eligibility for Uzbekistan? Please reply with your **Name** and **WhatsApp Number**!`;
+What is your approximate budget and 12th PCB percentage? If you share your **Name** and **WhatsApp Number**, I will have our senior team shortlist the top 3 matching universities for you!`;
   }
 
-  if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('gullas') || queryLower.includes('brokenshire') || queryLower.includes('plt')) {
-    return `Here are the top medical colleges in 🇵🇭 **Philippines**:
+  // COUNTRY SPECS — Concise Counselor Responses
+  if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('batumi') || queryLower.includes('alte') || queryLower.includes('seu')) {
+    return `🇬🇪 **Georgia** is one of our top recommendations! Universities like **SEU Georgian National University** (~$4,800/yr) and **Alte University** (~$5,500/yr) offer 100% English medium courses with European standards.
 
-• **Davao Medical School Foundation**: High pass rate | ₹150,000 Documentation & Visa
-• **Gullas College of Medicine**: ₹150,000 Documentation & Visa
-• **Brokenshire College of Medicine**: Highly preferred by Indian students
+Rather than overwhelming you with data, I can have our team send the complete fee structure & syllabus to your WhatsApp. 
 
-The BS/Pre-Med duration is 1–1.5 years followed by 4 years MD program.
+May I know your **Name** and **WhatsApp Number**?`;
+  }
 
-May I have your **Name** and **WhatsApp Number** so our team can send you the direct admission checklist for Philippines?`;
+  if (queryLower.includes('uzbekistan') || queryLower.includes('andijan') || queryLower.includes('tashkent') || queryLower.includes('fergana')) {
+    return `🇺🇿 **Uzbekistan** offers excellent government medical institutes like **Andijan State Medical Institute** (~$3,500/yr) and **Tashkent State Medical University** (~$3,800/yr) with affordable living costs.
+
+Would you like us to check your NEET eligibility for Uzbekistan? Please share your **Name** and **WhatsApp Number**!`;
+  }
+
+  if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('gullas') || queryLower.includes('brokenshire')) {
+    return `🇵🇭 **Philippines** is renowned for its American-pattern MD curriculum and high FMGE passing rate! Colleges like **Davao Medical School Foundation** and **Gullas College of Medicine** are top choices.
+
+Share your **Name** & **WhatsApp Number**, and our senior counselor will send you the direct admission checklist for Philippines!`;
   }
 
   if (queryLower.includes('eligibility') || queryLower.includes('neet') || queryLower.includes('marks')) {
-    return `📋 **General MBBS Abroad Eligibility Criteria**:
+    return `📋 **General MBBS Abroad Eligibility**:
+• **NEET UG**: Must be NEET qualified (135+ for General, 107+ for OBC/SC/ST).
+• **12th PCB**: Minimum 50% aggregate in Physics, Chemistry & Biology.
+• **Age**: 17+ years.
 
-1. **NEET UG**: Must be NEET Qualified (135+ for General, 107+ for OBC/SC/ST).
-2. **12th Grade Marks**: Minimum 50% aggregate in Physics, Chemistry & Biology (40% for reserved categories).
-3. **Age Requirement**: Minimum 17 years completed by Dec 31st of admission year.
-4. **Valid Passport**: Required for visa issuance.
-
-What is your 12th PCB percentage or NEET score? Share your **Name** & **Phone Number** and we'll check your eligibility instantly!`;
+What is your 12th PCB percentage or NEET score? Please share your **Name** & **Phone Number** so we can verify your eligibility!`;
   }
 
-  // Handle contact sharing acknowledgment
+  // Contact Info Acknowledgment
   if (queryLower.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b[6-9]\d{9}\b/)) {
-    return `Thank you so much! 🎉 Your details have been registered with **Perfect Scholar**.
+    return `Thank you so much! 🎉 I have noted your details. 
 
-A senior medical admission officer will reach out to you via WhatsApp / Call shortly to guide you through university options, eligibility verification, and scholarship availability.
+I am Chitra, and I am assigning one of our senior medical admission counselors to connect with you on WhatsApp / Call shortly to guide you step-by-step and send official brochures.
 
-If you have any specific university in mind, feel free to let me know right here!`;
+Feel free to ask if you have any immediate questions in the meantime!`;
   }
 
-  // Default intelligent assistant guidance
-  return `Welcome to **Perfect Scholar**! 🎓 
+  // Default Counselor Welcome
+  return `Hello! 👋 I'm **Chitra**, Senior Counselor at Perfect Scholar. 
 
-We guide students to top accredited medical universities across **Georgia 🇬🇪, Philippines 🇵🇭, Uzbekistan 🇺🇿, Hungary 🇭🇺, Egypt 🇪🇬, and Kazakhstan 🇰🇿**.
+I help students and parents find the best accredited MBBS abroad options in **Georgia, Philippines, Uzbekistan, Hungary, and Egypt**.
 
-How can I help you today?
-1. 💰 Check university tuition & living costs
-2. 📋 Check your NEET & 12th eligibility
-3. 📑 Admission process & document checklist
+How can I help guide you today?
+• Ask for university suggestions based on your budget
+• Check your NEET & 12th eligibility
+• Get guidance on how to choose the right country
 
-Please feel free to share your **Name** and **WhatsApp Number** so we can send you personalized university brochures!`;
+Please feel free to share your **Name** and **WhatsApp Number** so I can arrange a personalized counseling session for you!`;
 }
