@@ -7,8 +7,9 @@ import { useData } from '@/context/DataContext';
 import { 
   Users, Webhook, MessageSquare, ShieldAlert, Check, Copy, 
   Settings, Key, Shuffle, RefreshCw, PlusCircle, Trash2, Wifi, WifiOff,
-  Plus, FileText, Plane, Link as LinkIcon, ExternalLink
+  Plus, FileText, Plane, Link as LinkIcon, ExternalLink, Sparkles
 } from 'lucide-react';
+import { AIKnowledgeManager } from './AIKnowledgeManager';
 
 import { PipelineStage, PartnerRoutingRule } from '@/types/crm';
 import Link from 'next/link';
@@ -161,7 +162,7 @@ export const CRMSettings: React.FC = () => {
   // ── End Partner Routing States ─────────────────────────────────────────────
 
   // ── Settings Tab Navigation ─────────────────────────────────────────────────
-  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'pipelines' | 'visa' | 'team' | 'account' | 'links'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'pipelines' | 'visa' | 'team' | 'account' | 'links' | 'ai_knowledge'>('general');
   const [teamSubTab, setTeamSubTab] = useState<'users' | 'groups'>('users');
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamDescription, setNewTeamDescription] = useState('');
@@ -1164,6 +1165,7 @@ async function submitEduPathLead(leadData) {
           { id: 'team'         as const, Icon: Users,          label: 'Team'         },
           { id: 'account'      as const, Icon: Key,            label: 'Account'      },
           { id: 'links'        as const, Icon: LinkIcon,        label: 'Dynamic Links'},
+          { id: 'ai_knowledge' as const, Icon: Sparkles,        label: 'AI Knowledge' },
 
         ]).map(({ id, Icon, label }) => (
           <button
@@ -2732,6 +2734,11 @@ async function submitEduPathLead(leadData) {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── AI KNOWLEDGE TAB ─────────────────────────────────────────────── */}
+      {settingsTab === 'ai_knowledge' && (
+        <AIKnowledgeManager tenantId={tenantId} />
       )}
 
       {/* Reset Password Modal */}

@@ -99,6 +99,22 @@ export async function getDatabaseKnowledgeContext(forceRefresh = false): Promise
       lines.push(''); // Blank line between colleges
     });
 
+    // Append Custom Uploaded Knowledge Base Items (FAQs, Visa Guidelines, Scholarships, Documents)
+    try {
+      const { fetchCustomKnowledgeItems } = await import('@/app/api/ai-knowledge/route');
+      const customItems = await fetchCustomKnowledgeItems();
+      if (customItems && customItems.length > 0) {
+        lines.push('\n=== ADDITIONAL CUSTOM KNOWLEDGE & FAQS (VISA, SCHOLARSHIPS, POLICIES) ===\n');
+        customItems.forEach((item, i) => {
+          lines.push(`${i + 1}. [${item.category.toUpperCase()}] ${item.title}`);
+          lines.push(`   ${item.content.replace(/\n/g, '\n   ')}`);
+          lines.push('');
+        });
+      }
+    } catch (e) {
+      console.warn('[AI Knowledge] Could not append custom knowledge items:', e);
+    }
+
     cachedKnowledge = lines.join('\n');
     lastFetchTime = now;
     return cachedKnowledge;
