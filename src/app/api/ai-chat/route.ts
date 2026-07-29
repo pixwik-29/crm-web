@@ -135,20 +135,52 @@ ${dbKnowledge}`;
 }
 
 /**
- * Intelligent completion generator for Chitra Counselor persona
+ * Intelligent completion generator for Chitra Counselor persona using Gemini API with smart fallback
  */
 async function generateAiCompletion(systemPrompt: string, messages: { role: string; content: string }[]): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
   const lastUserQuery = messages[messages.length - 1]?.content || '';
   const queryLower = lastUserQuery.toLowerCase();
 
-  // RULE: STRICT PROCESSING FEE DISCLOSURE BLOCK
+  // RULE 1: STRICT PROCESSING FEE DISCLOSURE BLOCK (Applies ALWAYS)
   if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
-    return `Hello! 😊 Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail. 
-
-Could you please share your **Name** and **WhatsApp Number** so I can arrange a quick call with our team?`;
+    return `Hello! 😊 Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail.\n\nCould you please share your **Name** and **WhatsApp Number** so I can arrange a quick call with our team?`;
   }
 
-  // RULE: HOW TO CHOOSE UNIVERSITY / COUNTRY SUGGESTIONS
+  // Attempt Gemini AI Call if API key is provided
+  if (apiKey) {
+    try {
+      const contentsPayload = messages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.content }]
+      }));
+
+      // Prepend system prompt context
+      contentsPayload.unshift({
+        role: 'user',
+        parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }]
+      }, {
+        role: 'model',
+        parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will guide the student warmly, concisely, and accurately according to your instructions.' }]
+      });
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: contentsPayload })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) return text;
+      }
+    } catch (err: any) {
+      console.warn('[Gemini API Call Exception - Using Fallback]:', err.message);
+    }
+  }
+
+  // Smart Fallback Logic for Chitra Counselor Persona
   if (queryLower.includes('how to choose') || queryLower.includes('how do i select') || queryLower.includes('which country is best') || queryLower.includes('which college is best') || queryLower.includes('suggest me') || queryLower.includes('how to decide')) {
     return `Choosing the right medical university is a crucial decision! As a counselor, here are the key factors I recommend keeping in mind:
 
@@ -160,7 +192,6 @@ Could you please share your **Name** and **WhatsApp Number** so I can arrange a 
 What is your approximate budget and 12th PCB percentage? If you share your **Name** and **WhatsApp Number**, I will have our senior team shortlist the top 3 matching universities for you!`;
   }
 
-  // COUNTRY SPECS — Concise Counselor Responses
   if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('batumi') || queryLower.includes('alte') || queryLower.includes('seu')) {
     return `🇬🇪 **Georgia** is one of our top recommendations! Universities like **SEU Georgian National University** (~$4,800/yr) and **Alte University** (~$5,500/yr) offer 100% English medium courses with European standards.
 
@@ -190,7 +221,6 @@ Share your **Name** & **WhatsApp Number**, and our senior counselor will send yo
 What is your 12th PCB percentage or NEET score? Please share your **Name** & **Phone Number** so we can verify your eligibility!`;
   }
 
-  // Contact Info Acknowledgment
   if (queryLower.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b[6-9]\d{9}\b/)) {
     return `Thank you so much! 🎉 I have noted your details. 
 
@@ -199,7 +229,6 @@ I am Chitra, and I am assigning one of our senior medical admission counselors t
 Feel free to ask if you have any immediate questions in the meantime!`;
   }
 
-  // Default Counselor Welcome
   return `Hello! 👋 I'm **Chitra**, Senior Counselor at Perfect Scholar. 
 
 I help students and parents find the best accredited MBBS abroad options in **Georgia, Philippines, Uzbekistan, Hungary, and Egypt**.
