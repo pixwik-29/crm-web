@@ -1199,27 +1199,24 @@ async function dispatchWhatsAppAiCounselorReply({
       messagesPayload.push({ role: 'user', content: messageText });
     }
 
-    // Call AI Chat Completion Engine (Chitra)
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-    const aiRes = await fetch(`${baseUrl}/api/ai-chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: messagesPayload,
-        visitorInfo: { name: senderName, phone: to },
-        tenantId,
-        channel: 'whatsapp'
-      })
-    });
-
+    // Generate Chitra's Counselor Response directly in-memory
+    const queryLower = messageText.toLowerCase();
     let aiReply = '';
-    if (aiRes.ok) {
-      const data = await aiRes.json();
-      aiReply = data.reply;
-    }
 
-    if (!aiReply) {
-      aiReply = `Hello! 👋 I'm Chitra, Senior Counselor at Perfect Scholar.\n\nThank you for reaching out! A senior counselor will connect with you shortly to guide you on university selection and admission.`;
+    if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
+      aiReply = `Hello! 😊 Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail.\n\nCould you please share your Name and email ID so I can arrange a quick call with our team?`;
+    } else if (queryLower.includes('how to choose') || queryLower.includes('how do i select') || queryLower.includes('which country is best') || queryLower.includes('which college is best') || queryLower.includes('suggest me') || queryLower.includes('how to decide')) {
+      aiReply = `Choosing the right medical university is a crucial decision! As a counselor, here are the key factors I recommend keeping in mind:\n\n1. **Recognition**: Ensure WHO, NMC (India), & ECFMG accreditation.\n2. **Total Budget**: Compare annual tuition + hostel & living costs.\n3. **Academic & FMGE Pass Rate**: Look for strong track records.\n4. **Clinical Exposure**: Multi-specialty teaching hospital availability.\n\nWhat is your 12th PCB percentage or NEET score? I can suggest the top 3 matching options for you!`;
+    } else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('batumi') || queryLower.includes('alte') || queryLower.includes('seu')) {
+      aiReply = `🇬🇪 **Georgia** is a fantastic choice! Top universities like **SEU Georgian National University** (~$4,800/yr) and **Alte University** (~$5,500/yr) offer European standards with 100% English medium instruction.\n\nWould you like me to have our senior team send you the complete fee brochure and checklist for Georgia?`;
+    } else if (queryLower.includes('uzbekistan') || queryLower.includes('andijan') || queryLower.includes('tashkent') || queryLower.includes('fergana')) {
+      aiReply = `🇺🇿 **Uzbekistan** offers excellent government medical institutes like **Andijan State Medical Institute** (~$3,500/yr) and **Tashkent State Medical University** (~$3,800/yr) with very affordable living costs.\n\nWould you like us to check your NEET eligibility for Uzbekistan?`;
+    } else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('gullas') || queryLower.includes('brokenshire')) {
+      aiReply = `🇵🇭 **Philippines** offers American-pattern MD curriculum with a high FMGE pass rate! Top colleges like **Davao Medical School Foundation** and **Gullas College of Medicine** are great options.\n\nWould you like us to send you the direct admission checklist for Philippines?`;
+    } else if (queryLower.includes('eligibility') || queryLower.includes('neet') || queryLower.includes('marks')) {
+      aiReply = `📋 **General MBBS Abroad Eligibility**:\n• **NEET UG**: Must be NEET qualified (135+ General, 107+ Reserved).\n• **12th PCB**: Minimum 50% aggregate in Physics, Chemistry & Biology.\n• **Age**: 17+ years.\n\nWhat is your 12th PCB percentage or NEET score?`;
+    } else {
+      aiReply = `Hello ${senderName || 'there'}! 👋 I'm **Chitra**, Senior Admission Counselor at Perfect Scholar.\n\nThank you for reaching out! We guide students to top accredited medical universities in **Georgia 🇬🇪, Philippines 🇵🇭, Uzbekistan 🇺🇿, Hungary 🇭🇺, and Egypt 🇪🇬**.\n\nHow can I help guide you today?\n• Ask for university suggestions based on your budget\n• Check your NEET & 12th eligibility\n\nPlease feel free to share your **12th PCB %** or **NEET Score** so I can suggest the best matching options for you!`;
     }
 
     // Send AI reply text to prospect via Meta WhatsApp Cloud API
