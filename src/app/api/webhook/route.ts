@@ -237,13 +237,16 @@ export async function POST(req: NextRequest) {
 
                 await pushPromise;
 
-                // Trigger auto-response template if configured
-                if (whatsappApiToken && phoneId && autoResponseTemplate) {
-                  waitUntil(sendWhatsAppAutoResponse({
+                // Trigger WhatsApp AI Counselor (Chitra) auto-responder
+                if (whatsappApiToken && phoneId) {
+                  waitUntil(dispatchWhatsAppAiCounselorReply({
                     phoneId,
                     apiToken: whatsappApiToken,
                     to: senderPhone,
-                    templateName: autoResponseTemplate
+                    leadId,
+                    messageText,
+                    senderName,
+                    tenantId: resolvedTenantId
                   }));
                 }
               }
@@ -1153,5 +1156,105 @@ async function triggerWelcomeWhatsAppMessage({
 
   } catch (err: any) {
     console.error('[Webhook Welcome] Error executing welcome message trigger:', err.message);
+  }
+}
+
+/**
+ * Worker function to dispatch Chitra (AI Counselor) auto-replies to incoming WhatsApp chats
+ */
+async function dispatchWhatsAppAiCounselorReply({
+  phoneId,
+  apiToken,
+  to,
+  leadId,
+  messageText,
+  senderName,
+  tenantId
+}: {
+  phoneId: string;
+  apiToken: string;
+  to: string;
+  leadId: string;
+  messageText: string;
+  senderName: string;
+  tenantId: string;
+}) {
+  try {
+    if (!supabase) return;
+
+    // Fetch conversation history for this lead (up to 6 recent messages)
+    const { data: history } = await supabase
+      .from('whatsapp_history')
+      .select('direction, message_text')
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: true })
+      .limit(6);
+
+    const messagesPayload = (history || []).map(h => ({
+      role: h.direction === 'incoming' ? 'user' : 'assistant',
+      content: h.message_text
+    }));
+
+    if (messagesPayload.length === 0) {
+      messagesPayload.push({ role: 'user', content: messageText });
+    }
+
+    // Call AI Chat Completion Engine (Chitra)
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const aiRes = await fetch(`${baseUrl}/api/ai-chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: messagesPayload,
+        visitorInfo: { name: senderName, phone: to },
+        tenantId,
+        channel: 'whatsapp'
+      })
+    });
+
+    let aiReply = '';
+    if (aiRes.ok) {
+      const data = await aiRes.json();
+      aiReply = data.reply;
+    }
+
+    if (!aiReply) {
+      aiReply = `Hello! 👋 I'm Chitra, Senior Counselor at Perfect Scholar.\n\nThank you for reaching out! A senior counselor will connect with you shortly to guide you on university selection and admission.`;
+    }
+
+    // Send AI reply text to prospect via Meta WhatsApp Cloud API
+    const cleanPhone = to.replace(/\D/g, '');
+    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+
+    const res = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: formattedPhone,
+        type: 'text',
+        text: { body: aiReply }
+      })
+    });
+
+    const data = await res.json();
+    console.log(`[WhatsApp AI Auto-Responder] Sent Chitra AI reply to ${formattedPhone}, status: ${res.status}`);
+
+    if (res.ok) {
+      // Save outgoing AI reply in whatsapp_history
+      await supabase.from('whatsapp_history').insert({
+        lead_id: leadId,
+        direction: 'outgoing',
+        message_text: aiReply,
+        status: 'sent',
+        tenant_id: tenantId
+      });
+    }
+  } catch (err: any) {
+    console.error('[WhatsApp AI Auto-Responder Error]:', err.message);
   }
 }
