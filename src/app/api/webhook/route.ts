@@ -1179,6 +1179,25 @@ function formatForWhatsApp(text: string): string {
     .replace(/\[(.*?)\]\((.*?)\)/g, '$1: $2'); // [label](url) -> label: url
 }
 
+function extractNameFromText(text: string): string {
+  if (!text) return '';
+  let cleaned = text.trim()
+    .replace(/^my name is\s+/i, '')
+    .replace(/^i am\s+/i, '')
+    .replace(/^iam\s+/i, '')
+    .replace(/^this is\s+/i, '')
+    .replace(/^it is\s+/i, '')
+    .replace(/^it's\s+/i, '')
+    .replace(/[^a-zA-Z\s]/g, '')
+    .trim();
+  
+  const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+  if (words.length > 0 && words.length <= 4) {
+    return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  }
+  return '';
+}
+
 /**
  * Worker function to dispatch Chitra (AI Counselor) auto-replies to incoming WhatsApp chats
  */
@@ -1208,10 +1227,22 @@ async function dispatchWhatsAppAiCounselorReply({
       .select('direction, message_text, created_at')
       .eq('lead_id', leadId)
       .order('created_at', { ascending: true })
-      .limit(10);
+      .limit(15);
 
-    const isFirstMessage = !history || history.length <= 1; // 1 because the incoming message was just inserted
     const queryLower = messageText.toLowerCase();
+
+    // Fetch lead record to check name and onboarding status
+    const { data: leadRecord } = await supabase
+      .from('leads')
+      .select('id, name')
+      .eq('id', leadId)
+      .maybeSingle();
+
+    const currentLeadName = leadRecord?.name || '';
+    const isUnknownLead = !currentLeadName || currentLeadName === 'WhatsApp Contact' || currentLeadName.startsWith('Meta Lead');
+
+    const incomingMessages = history ? history.filter((h: any) => h.direction === 'incoming') : [];
+    const incomingCount = incomingMessages.length; // Includes current incoming message
 
     // 1. Fetch live university database knowledge from Supabase
     let dbKnowledge = '';
@@ -1221,58 +1252,56 @@ async function dispatchWhatsAppAiCounselorReply({
       console.warn('[WhatsApp AI Auto-Responder] Knowledge fetch warning:', dbErr.message);
     }
 
-    const systemPrompt = `You are Chitra, a warm, natural, human Senior Admission Counselor at Perfect Scholar.
+    let aiReply = '';
+
+    // STEP 1: FIRST MESSAGE FROM UNKNOWN NUMBER -> Warm Welcome
+    if (incomingCount === 1) {
+      aiReply = 'Hi! I am Chitra, Senior Counselor at Perfect Scholar. How can I help guide you today?';
+    }
+    // STEP 2: SECOND MESSAGE (User states query) -> Assurance + Ask for Name
+    else if (incomingCount === 2 && isUnknownLead) {
+      aiReply = 'I would be happy to help guide you with that! May I know your name please so I can assist you better?';
+    }
+    // STEP 3: THIRD MESSAGE (User provides name) -> Update Lead Name in DB, Give Info & Connect to Senior Counselor
+    else if (incomingCount === 3 && isUnknownLead) {
+      const extractedName = extractNameFromText(messageText) || (senderName !== 'WhatsApp Contact' ? senderName : 'Student');
+      
+      if (extractedName && extractedName !== 'Student') {
+        await supabase.from('leads').update({ name: extractedName }).eq('id', leadId);
+        await supabase.from('activity_logs').insert({
+          lead_id: leadId,
+          action_type: 'lead_updated',
+          description: `Lead name updated to "${extractedName}" via WhatsApp conversation`,
+          tenant_id: tenantId
+        });
+      }
+
+      const prevQuery = incomingMessages[0]?.message_text || messageText;
+
+      const systemPromptHandoff = `You are Chitra, a warm, natural, human Senior Admission Counselor at Perfect Scholar.
 
 CRITICAL FORMATTING & STYLE RULES:
 1. STRICTLY NO EMOJIS: Do NOT use any emojis, icons, flags, or face symbols anywhere in your response. Absolute zero emojis.
-2. STRICTLY NO ASTERISKS OR BOLD MARKDOWN: Do NOT use asterisks (*) or bold markdown formatting anywhere. Write plain text words with standard capitalization. Never write *Georgia*, *SEU*, *NEET*, etc.
-3. NATURAL HUMAN COUNSELOR TONE: Speak like a real, friendly human admission counselor chatting on WhatsApp. Keep your responses warm, concise, and natural. Do NOT use bullet points, numbered lists, dash lists, or long structured lectures. Speak in 2-3 natural sentences as if you are typing directly on WhatsApp.
-4. ACCURATE DATABASE KNOWLEDGE: Rely strictly on the official database context below for all university tuition fees, living costs, durations, and eligibility details. If a specific detail is missing, offer to have a senior counselor share the complete brochure on WhatsApp.
-5. STRICT PROCESSING FEE POLICY: NEVER mention or disclose any processing fee, service fee, or consultancy fee numbers. If asked about processing fees, service charges, or consultancy fees, respond: "Our senior admission counselor will call you directly and explain our complete service and processing fee structure in detail."
-6. COUNSELOR GOAL: Gently invite the student to share their name, 12th PCB percentage, or NEET score so you can guide them to the best matching universities.
+2. STRICTLY NO ASTERISKS OR BOLD MARKDOWN: Do NOT use asterisks (*) or bold markdown formatting anywhere. Write plain text words with standard capitalization.
+3. NATURAL HUMAN COUNSELOR TONE: Speak in 2-3 warm, natural sentences.
+4. YOUR EXACT HANDOFF TASK:
+   - Address the student by name: "Thank you ${extractedName}!"
+   - Answer their query (${prevQuery}) briefly using the database knowledge below.
+   - Conclude with: "I have also connected you with one of our senior medical admission counselors who will call you directly to assist you further. Feel free to ask if you have any questions in the meantime!"
 
 DATABASE KNOWLEDGE:
 ${dbKnowledge}`;
 
-    let aiReply = '';
-    const apiKey = process.env.GEMINI_API_KEY || Buffer.from('QVEuQWI4Uk42SXlxZ3kteUFKR0hDTjBWaEIzY1lOQ2lpZXlLdFJjTGdfYWVHNll5Y0FiNmc=', 'base64').toString('utf8');
-
-    // Try Gemini API models in fallback order
-    if (apiKey) {
-      const modelsToTry = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
-      for (const modelName of modelsToTry) {
+      const apiKey = process.env.GEMINI_API_KEY || Buffer.from('QVEuQWI4Uk42SXlxZ3kteUFKR0hDTjBWaEIzY1lOQ2lpZXlLdFJjTGdfYWVHNll5Y0FiNmc=', 'base64').toString('utf8');
+      if (apiKey) {
         try {
-          // Construct payload with strict user/model role alternation
-          const contentsPayload: any[] = [
-            { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }] },
-            { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will reply accurately based on official database knowledge in a warm, natural human tone without emojis and without asterisks.' }] }
+          const contentsPayload = [
+            { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPromptHandoff}` }] },
+            { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will reply in a natural human tone without emojis and without asterisks.' }] },
+            { role: 'user', parts: [{ text: `My name is ${extractedName}. My query is: ${prevQuery}` }] }
           ];
 
-          let lastRole = 'model';
-          if (history && history.length > 0) {
-            for (const h of history) {
-              if (!h.message_text) continue;
-              const msgRole = h.direction === 'incoming' ? 'user' : 'model';
-              if (msgRole !== lastRole) {
-                contentsPayload.push({
-                  role: msgRole,
-                  parts: [{ text: h.message_text }]
-                });
-                lastRole = msgRole;
-              }
-            }
-          }
-
-          if (lastRole !== 'user') {
-            contentsPayload.push({
-              role: 'user',
-              parts: [{ text: messageText }]
-            });
-          } else {
-            contentsPayload[contentsPayload.length - 1].parts[0].text += `\n${messageText}`;
-          }
-
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contents: contentsPayload })
@@ -1283,40 +1312,104 @@ ${dbKnowledge}`;
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text && text.trim().length > 0) {
               aiReply = text;
-              console.log(`[WhatsApp AI Auto-Responder] Gemini model ${modelName} returned response successfully.`);
-              break;
             }
-          } else {
-            const errData = await res.text();
-            console.warn(`[WhatsApp AI Auto-Responder] Model ${modelName} HTTP ${res.status}:`, errData.slice(0, 150));
           }
         } catch (e: any) {
-          console.warn(`[WhatsApp AI Auto-Responder] Model ${modelName} error:`, e.message);
+          console.warn('[WhatsApp AI Auto-Responder] Handoff AI error:', e.message);
         }
       }
-    }
 
-    // Human Fallback Logic (if AI is offline or rate limited)
-    if (!aiReply) {
-      if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
-        aiReply = 'Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail. Could you please share your Name and email ID so I can arrange a quick call for you?';
-      } else if (queryLower.includes('fee') || queryLower.includes('fees') || queryLower.includes('cost') || queryLower.includes('tuition') || queryLower.includes('how much') || queryLower.includes('rate')) {
-        aiReply = 'Tuition fees vary by university and country. In Georgia, SEU Georgian National is 5900 USD per year and Alte University is 5950 USD per year. In Philippines, fees are in pesos around 220000 PHP per year for Brokenshire. In Uzbekistan, fees start around 3500 USD per year. Which university or country would you like detailed fee structures for?';
-      } else if (queryLower.includes('hungary')) {
-        aiReply = 'Hungary is a fantastic European destination for medical education with 100 percent English medium programs recognized across Europe and WHO/NMC. Would you like details on tuition fees and admission requirements for universities in Hungary?';
-      } else if (queryLower.includes('other country') || queryLower.includes('another country') || queryLower.includes('other options') || queryLower.includes('where else')) {
-        aiReply = 'Besides Georgia, Philippines, and Uzbekistan, we also guide students for MBBS in Hungary and Egypt. Which country or climate preference do you have in mind?';
-      } else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('seu')) {
-        aiReply = 'Georgia is a great choice for medicine with European standard education taught completely in English. Top options like SEU Georgian National University (5900 USD per year) and Alte University (5950 USD per year) offer high quality medical education. Would you like me to share the detailed fee brochure and eligibility checklist for Georgia with you?';
-      } else if (queryLower.includes('uzbekistan') || queryLower.includes('tashkent') || queryLower.includes('andijan')) {
-        aiReply = 'Uzbekistan offers government medical institutes with affordable tuition starting around 3500 USD per year and low living expenses. Would you like us to check your NEET eligibility and send fee details for Uzbekistan?';
-      } else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('brokenshire')) {
-        aiReply = 'The Philippines follows an American MD curriculum with clinical training in campus teaching hospitals. Top institutions like Brokenshire College of Medicine and Davao Medical School Foundation are very popular. Shall I send you the direct admission checklist for Philippines?';
-      } else if (!isFirstMessage) {
-        aiReply = 'Could you please share your 12th PCB percentage or NEET score? That will help me recommend the exact matching universities and fee structures for you.';
-      } else {
-        const displayName = senderName && senderName !== 'WhatsApp Contact' ? senderName : 'there';
-        aiReply = `Hello ${displayName}! I am Chitra, Senior Admission Counselor at Perfect Scholar. We assist students with direct admissions to top accredited medical universities in Georgia, Philippines, Uzbekistan, and Hungary. How can I help guide you today?`;
+      if (!aiReply) {
+        aiReply = `Thank you ${extractedName}! We offer top accredited MBBS programs in Georgia, Philippines, Uzbekistan, and Hungary with English medium instruction. I have connected you with one of our senior medical admission counselors who will call you directly to guide you step by step. Feel free to ask if you have any questions in the meantime!`;
+      }
+    }
+    // STEP 4+: ONGOING CONVERSATION TURN
+    else {
+      const systemPrompt = `You are Chitra, a warm, natural, human Senior Admission Counselor at Perfect Scholar.
+
+CRITICAL FORMATTING & STYLE RULES:
+1. STRICTLY NO EMOJIS: Do NOT use any emojis, icons, flags, or face symbols anywhere in your response. Absolute zero emojis.
+2. STRICTLY NO ASTERISKS OR BOLD MARKDOWN: Do NOT use asterisks (*) or bold markdown formatting anywhere. Write plain text words with standard capitalization.
+3. NATURAL HUMAN COUNSELOR TONE: Speak like a real, friendly human admission counselor chatting on WhatsApp. Keep your responses warm, concise, and natural in 2-3 sentences.
+4. ACCURATE DATABASE KNOWLEDGE: Rely strictly on the official database context below.
+5. STRICT PROCESSING FEE POLICY: NEVER mention or disclose any processing fee numbers. State that senior counselor will call them directly to explain.
+
+DATABASE KNOWLEDGE:
+${dbKnowledge}`;
+
+      const apiKey = process.env.GEMINI_API_KEY || Buffer.from('QVEuQWI4Uk42SXlxZ3kteUFKR0hDTjBWaEIzY1lOQ2lpZXlLdFJjTGdfYWVHNll5Y0FiNmc=', 'base64').toString('utf8');
+
+      if (apiKey) {
+        const modelsToTry = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+        for (const modelName of modelsToTry) {
+          try {
+            const contentsPayload: any[] = [
+              { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }] },
+              { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will reply accurately based on official database knowledge in a warm, natural human tone without emojis and without asterisks.' }] }
+            ];
+
+            let lastRole = 'model';
+            if (history && history.length > 0) {
+              for (const h of history) {
+                if (!h.message_text) continue;
+                const msgRole = h.direction === 'incoming' ? 'user' : 'model';
+                if (msgRole !== lastRole) {
+                  contentsPayload.push({
+                    role: msgRole,
+                    parts: [{ text: h.message_text }]
+                  });
+                  lastRole = msgRole;
+                }
+              }
+            }
+
+            if (lastRole !== 'user') {
+              contentsPayload.push({
+                role: 'user',
+                parts: [{ text: messageText }]
+              });
+            } else {
+              contentsPayload[contentsPayload.length - 1].parts[0].text += `\n${messageText}`;
+            }
+
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: contentsPayload })
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text && text.trim().length > 0) {
+                aiReply = text;
+                break;
+              }
+            }
+          } catch (e: any) {
+            console.warn(`[WhatsApp AI Auto-Responder] Model ${modelName} error:`, e.message);
+          }
+        }
+      }
+
+      if (!aiReply) {
+        if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
+          aiReply = 'Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail. Could you please share your Name and email ID so I can arrange a quick call for you?';
+        } else if (queryLower.includes('fee') || queryLower.includes('fees') || queryLower.includes('cost') || queryLower.includes('tuition') || queryLower.includes('how much') || queryLower.includes('rate')) {
+          aiReply = 'Tuition fees vary by university and country. In Georgia, SEU Georgian National is 5900 USD per year and Alte University is 5950 USD per year. In Philippines, fees are in pesos around 220000 PHP per year for Brokenshire. In Uzbekistan, fees start around 3500 USD per year. Which university or country would you like detailed fee structures for?';
+        } else if (queryLower.includes('hungary')) {
+          aiReply = 'Hungary is a fantastic European destination for medical education with 100 percent English medium programs recognized across Europe and WHO/NMC. Would you like details on tuition fees and admission requirements for universities in Hungary?';
+        } else if (queryLower.includes('other country') || queryLower.includes('another country') || queryLower.includes('other options') || queryLower.includes('where else')) {
+          aiReply = 'Besides Georgia, Philippines, and Uzbekistan, we also guide students for MBBS in Hungary and Egypt. Which country or climate preference do you have in mind?';
+        } else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('seu')) {
+          aiReply = 'Georgia is a great choice for medicine with European standard education taught completely in English. Top options like SEU Georgian National University (5900 USD per year) and Alte University (5950 USD per year) offer high quality medical education. Would you like me to share the detailed fee brochure and eligibility checklist for Georgia with you?';
+        } else if (queryLower.includes('uzbekistan') || queryLower.includes('tashkent') || queryLower.includes('andijan')) {
+          aiReply = 'Uzbekistan offers government medical institutes with affordable tuition starting around 3500 USD per year and low living expenses. Would you like us to check your NEET eligibility and send fee details for Uzbekistan?';
+        } else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('brokenshire')) {
+          aiReply = 'The Philippines follows an American MD curriculum with clinical training in campus teaching hospitals. Top institutions like Brokenshire College of Medicine and Davao Medical School Foundation are very popular. Shall I send you the direct admission checklist for Philippines?';
+        } else {
+          aiReply = 'Could you please share your 12th PCB percentage or NEET score? That will help me recommend the exact matching universities and fee structures for you.';
+        }
       }
     }
 
