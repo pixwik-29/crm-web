@@ -3,6 +3,16 @@ import { createClient } from '@supabase/supabase-js';
 import { waitUntil } from '@vercel/functions';
 import nodemailer from 'nodemailer';
 import { decryptToken } from '@/lib/messaging/crypto';
+import { getDatabaseKnowledgeContext } from '@/lib/ai/knowledge';
+
+function sanitizeWhatsAppText(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\*/g, '')
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{203C}\u{2049}\u{2122}\u{2139}\u{2194}-\u{2199}\u{21A9}-\u{21AA}\u{231A}-\u{231B}\u{2328}\u{23CF}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{24C2}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2600}-\u{2604}\u{260E}\u{2611}\u{2614}-\u{2615}\u{2618}\u{261D}\u{2620}\u{2622}-\u{2623}\u{2626}\u{262A}\u{262E}-\u{262F}\u{2638}-\u{263A}\u{2640}\u{2642}\u{2648}-\u{2653}\u{2660}\u{2663}\u{2665}-\u{2666}\u{2668}\u{267B}\u{267F}\u{2692}-\u{2697}\u{2699}\u{269B}-\u{269C}\u{26A0}-\u{26A1}\u{26AA}-\u{26AB}\u{26B0}-\u{26B1}\u{26BD}-\u{26BE}\u{26C4}-\u{26C5}\u{26C8}\u{26CE}-\u{26CF}\u{26D1}\u{26D3}-\u{26D4}\u{26E9}-\u{26EA}\u{26F0}-\u{26F5}\u{26F7}-\u{26FA}\u{26FD}\u{2702}\u{2705}\u{2708}-\u{270D}\u{270F}\u{2712}\u{2714}\u{2716}\u{271D}\u{2721}\u{2728}\u{2733}-\u{2734}\u{2744}\u{2747}\u{274C}\u{274E}\u{2753}-\u{2755}\u{2757}\u{2763}-\u{2764}\u{2795}-\u{2797}\u{27A1}\u{27B0}\u{27BF}\u{2934}-\u{2935}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]/gu, '')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -1202,54 +1212,102 @@ async function dispatchWhatsAppAiCounselorReply({
 
     const isFirstMessage = !history || history.length <= 1; // 1 because the incoming message was just inserted
     const queryLower = messageText.toLowerCase();
+
+    // 1. Fetch live university database knowledge from Supabase
+    let dbKnowledge = '';
+    try {
+      dbKnowledge = await getDatabaseKnowledgeContext();
+    } catch (dbErr: any) {
+      console.warn('[WhatsApp AI Auto-Responder] Knowledge fetch warning:', dbErr.message);
+    }
+
+    const systemPrompt = `You are Chitra, a warm, natural, human Senior Admission Counselor at Perfect Scholar.
+
+CRITICAL FORMATTING & STYLE RULES:
+1. STRICTLY NO EMOJIS: Do NOT use any emojis, icons, flags, or face symbols anywhere in your response. Absolute zero emojis.
+2. STRICTLY NO ASTERISKS OR BOLD MARKDOWN: Do NOT use asterisks (*) or bold markdown formatting anywhere. Write plain text words with standard capitalization. Never write *Georgia*, *SEU*, *NEET*, etc.
+3. NATURAL HUMAN COUNSELOR TONE: Speak like a real, friendly human admission counselor chatting on WhatsApp. Keep your responses warm, concise, and natural. Do NOT use bullet points, numbered lists, dash lists, or long structured lectures. Speak in 2-3 natural sentences as if you are typing directly on WhatsApp.
+4. ACCURATE DATABASE KNOWLEDGE: Rely strictly on the official database context below for all university tuition fees, living costs, durations, and eligibility details. If a specific detail is missing, offer to have a senior counselor share the complete brochure on WhatsApp.
+5. STRICT PROCESSING FEE POLICY: NEVER mention or disclose any processing fee, service fee, or consultancy fee numbers. If asked about processing fees, service charges, or consultancy fees, respond: "Our senior admission counselor will call you directly and explain our complete service and processing fee structure in detail."
+6. COUNSELOR GOAL: Gently invite the student to share their name, 12th PCB percentage, or NEET score so you can guide them to the best matching universities.
+
+DATABASE KNOWLEDGE:
+${dbKnowledge}`;
+
     let aiReply = '';
+    const apiKey = process.env.GEMINI_API_KEY;
 
-    // RULE 1: STRICT PROCESSING FEE DISCLOSURE BLOCK (Applies to all turns)
-    if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
-      aiReply = `Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail.\n\nCould you please share your Name and email ID so I can arrange a quick call for you?`;
-    } 
-    // RULE 2: HOW TO CHOOSE SUGGESTIONS
-    else if (queryLower.includes('how to choose') || queryLower.includes('how do i select') || queryLower.includes('which country is best') || queryLower.includes('which college is best') || queryLower.includes('suggest me') || queryLower.includes('how to decide')) {
-      aiReply = `Choosing the right medical university is a crucial decision! Here are the key factors I recommend keeping in mind:\n\n1. *Recognition*: Ensure WHO, NMC (India), & ECFMG accreditation.\n2. *Total Budget*: Compare annual tuition + hostel & living costs.\n3. *Academic & FMGE Pass Rate*: Look for strong track records.\n4. *Clinical Exposure*: Multi-specialty teaching hospital availability.\n\nWhat is your 12th PCB percentage or NEET score? I can suggest the top 3 matching options for you!`;
+    // Format previous messages for Gemini API
+    const formattedMessages: { role: string; content: string }[] = [];
+    if (history && history.length > 0) {
+      history.forEach((h: any) => {
+        if (h.message_text) {
+          formattedMessages.push({
+            role: h.direction === 'incoming' ? 'user' : 'model',
+            content: h.message_text
+          });
+        }
+      });
     }
-    // RULE 3: SCORE / MARKS / NEET PROVIDED
-    else if (queryLower.match(/\b\d{3}\b/) || queryLower.includes('neet') || queryLower.includes('score') || queryLower.includes('pcb') || queryLower.includes('percentage') || queryLower.includes('%')) {
-      aiReply = `That's great! With your profile, you are eligible for top accredited universities in *Georgia* and *Uzbekistan* like SEU Georgian National or Tashkent State Medical University.\n\nWould you like me to have our senior team send you the complete fee brochure and eligibility checklist on WhatsApp?`;
-    }
-    // RULE 4: HOSTEL / FOOD / SAFETY
-    else if (queryLower.includes('hostel') || queryLower.includes('food') || queryLower.includes('safety') || queryLower.includes('accommodation') || queryLower.includes('mess') || queryLower.includes('living')) {
-      aiReply = `Hostel facilities at our partner universities are very safe with 24/7 campus security, separate hostels for male & female students, and an Indian food mess serving both veg and non-veg options.\n\nWould you like details on living costs for a specific country like Georgia or Uzbekistan?`;
-    }
-    // RULE 5: GEORGIA
-    else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('batumi') || queryLower.includes('alte') || queryLower.includes('seu')) {
-      aiReply = `*Georgia* is a fantastic choice! Top universities like *SEU Georgian National University* (~$4,800/yr) and *Alte University* (~$5,500/yr) offer European standards with 100% English medium instruction.\n\nWould you like me to send you the detailed fee brochure for Georgia?`;
-    }
-    // RULE 6: UZBEKISTAN
-    else if (queryLower.includes('uzbekistan') || queryLower.includes('andijan') || queryLower.includes('tashkent') || queryLower.includes('fergana')) {
-      aiReply = `*Uzbekistan* offers excellent government medical institutes like *Andijan State Medical Institute* (~$3,500/yr) and *Tashkent State Medical University* (~$3,800/yr) with very affordable living costs.\n\nWould you like us to check your NEET eligibility for Uzbekistan?`;
-    }
-    // RULE 7: PHILIPPINES
-    else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('gullas') || queryLower.includes('brokenshire')) {
-      aiReply = `*Philippines* offers American-pattern MD curriculum with a high FMGE pass rate! Top colleges like *Davao Medical School Foundation* and *Gullas College of Medicine* are great options.\n\nShall I send you the direct admission checklist for Philippines?`;
-    }
-    // RULE 8: ELIGIBILITY
-    else if (queryLower.includes('eligibility') || queryLower.includes('requirements') || queryLower.includes('doc')) {
-      aiReply = `📋 *General MBBS Abroad Eligibility*:\n• *NEET UG*: Must be NEET qualified (135+ General, 107+ Reserved).\n• *12th PCB*: Minimum 50% aggregate in Physics, Chemistry & Biology.\n• *Age*: 17+ years.\n\nWhat is your 12th PCB percentage or NEET score?`;
-    }
-    // RULE 9: CONTACT INFO PROVIDED
-    else if (queryLower.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b[6-9]\d{9}\b/) || queryLower.includes('name is') || queryLower.includes('my number')) {
-      aiReply = `Thank you so much! 🎉 I have noted your details.\n\nI am Chitra, and I have assigned one of our senior medical admission counselors to connect with you directly on WhatsApp / Call shortly to guide you step-by-step.\n\nFeel free to ask if you have any questions in the meantime!`;
-    }
-    // MULTI-TURN HUMAN CONVERSATIONAL FOLLOW-UP (NEVER repeat welcome message)
-    else if (!isFirstMessage) {
-      aiReply = `I understand! I'd be happy to guide you further.\n\nAre you looking for universities within a specific budget range, or interested in a particular country like *Georgia, Philippines, or Uzbekistan*?`;
-    }
-    // FIRST MESSAGE ONLY: Warm Counselor Welcome
-    else {
-      aiReply = `Hello ${senderName && senderName !== 'WhatsApp Contact' ? senderName : 'there'}! 👋 I'm *Chitra*, Senior Admission Counselor at Perfect Scholar.\n\nThank you for reaching out! We guide students to top accredited medical universities in *Georgia 🇬🇪, Philippines 🇵🇭, Uzbekistan 🇺🇿, Hungary 🇭🇺, and Egypt 🇪🇬*.\n\nHow can I help guide you today?\n• Ask for university suggestions based on your budget\n• Check your NEET & 12th eligibility\n\nPlease feel free to share your *12th PCB %* or *NEET Score* so I can suggest the best matching options for you!`;
+    if (formattedMessages.length === 0 || formattedMessages[formattedMessages.length - 1].content !== messageText) {
+      formattedMessages.push({ role: 'user', content: messageText });
     }
 
-    const formattedReply = formatForWhatsApp(aiReply);
+    // Try Gemini API models in fallback order
+    if (apiKey) {
+      const modelsToTry = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+      for (const modelName of modelsToTry) {
+        try {
+          const contentsPayload = [
+            { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }] },
+            { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will reply in a natural human tone without emojis and without asterisks.' }] },
+            ...formattedMessages.map(m => ({
+              role: m.role === 'user' ? 'user' : 'model',
+              parts: [{ text: m.content }]
+            }))
+          ];
+
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: contentsPayload })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text && text.trim().length > 0) {
+              aiReply = text;
+              console.log(`[WhatsApp AI Auto-Responder] Gemini model ${modelName} returned response.`);
+              break;
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[WhatsApp AI Auto-Responder] Model ${modelName} error:`, e.message);
+        }
+      }
+    }
+
+    // Human Fallback Logic (if AI is offline or rate limited)
+    if (!aiReply) {
+      if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
+        aiReply = 'Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail. Could you please share your Name and email ID so I can arrange a quick call for you?';
+      } else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('seu')) {
+        aiReply = 'Georgia is a great choice for medicine with European standard education taught completely in English. Top options like SEU Georgian National University have annual tuition around 4800 USD per year. Would you like me to share the detailed eligibility checklist with you?';
+      } else if (queryLower.includes('uzbekistan') || queryLower.includes('tashkent') || queryLower.includes('andijan')) {
+        aiReply = 'Uzbekistan offers government medical institutes with very affordable tuition starting around 3500 USD per year and low living expenses. Would you like us to check your NEET eligibility for Uzbekistan?';
+      } else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('brokenshire')) {
+        aiReply = 'The Philippines follows an American MD curriculum with clinical training in campus teaching hospitals. Top institutions like Brokenshire College of Medicine and Davao Medical School Foundation are very popular. Shall I send you the direct admission checklist?';
+      } else if (!isFirstMessage) {
+        aiReply = 'I am happy to guide you further. Are you looking for universities within a specific budget, or do you have a preference for Georgia, Philippines, or Uzbekistan?';
+      } else {
+        const displayName = senderName && senderName !== 'WhatsApp Contact' ? senderName : 'there';
+        aiReply = `Hello ${displayName}! I am Chitra, Senior Admission Counselor at Perfect Scholar. We assist students with direct admissions to top accredited medical universities in Georgia, Philippines, and Uzbekistan. How can I help guide you today?`;
+      }
+    }
+
+    // Sanitize final text: ZERO emojis, ZERO asterisks, clean plain text
+    const finalFormattedReply = sanitizeWhatsAppText(aiReply);
 
     // Send AI reply text to prospect via Meta WhatsApp Cloud API
     const cleanPhone = to.replace(/\D/g, '');
@@ -1266,7 +1324,7 @@ async function dispatchWhatsAppAiCounselorReply({
         recipient_type: 'individual',
         to: formattedPhone,
         type: 'text',
-        text: { body: formattedReply }
+        text: { body: finalFormattedReply }
       })
     });
 
@@ -1278,7 +1336,7 @@ async function dispatchWhatsAppAiCounselorReply({
       await supabase.from('whatsapp_history').insert({
         lead_id: leadId,
         direction: 'outgoing',
-        message_text: formattedReply,
+        message_text: finalFormattedReply,
         status: 'sent',
         tenant_id: tenantId
       });

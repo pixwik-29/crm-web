@@ -105,22 +105,32 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. System Prompt Persona & Rules for Chitra
-    const systemPrompt = `You are "Chitra", a warm, empathetic, expert Senior Admission Counselor at Perfect Scholar.
+function sanitizeWhatsAppText(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\*/g, '')
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{203C}\u{2049}\u{2122}\u{2139}\u{2194}-\u{2199}\u{21A9}-\u{21AA}\u{231A}-\u{231B}\u{2328}\u{23CF}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{24C2}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2600}-\u{2604}\u{260E}\u{2611}\u{2614}-\u{2615}\u{2618}\u{261D}\u{2620}\u{2622}-\u{2623}\u{2626}\u{262A}\u{262E}-\u{262F}\u{2638}-\u{263A}\u{2640}\u{2642}\u{2648}-\u{2653}\u{2660}\u{2663}\u{2665}-\u{2666}\u{2668}\u{267B}\u{267F}\u{2692}-\u{2697}\u{2699}\u{269B}-\u{269C}\u{26A0}-\u{26A1}\u{26AA}-\u{26AB}\u{26B0}-\u{26B1}\u{26BD}-\u{26BE}\u{26C4}-\u{26C5}\u{26C8}\u{26CE}-\u{26CF}\u{26D1}\u{26D3}-\u{26D4}\u{26E9}-\u{26EA}\u{26F0}-\u{26F5}\u{26F7}-\u{26FA}\u{26FD}\u{2702}\u{2705}\u{2708}-\u{270D}\u{270F}\u{2712}\u{2714}\u{2716}\u{271D}\u{2721}\u{2728}\u{2733}-\u{2734}\u{2744}\u{2747}\u{274C}\u{274E}\u{2753}-\u{2755}\u{2757}\u{2763}-\u{2764}\u{2795}-\u{2797}\u{27A1}\u{27B0}\u{27BF}\u{2934}-\u{2935}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]/gu, '')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
 
-YOUR PERSONA & MANDATORY COUNSELOR RULES:
-1. NAME: Always introduce or refer to yourself as "Chitra, Senior Counselor at Perfect Scholar".
-2. TONE: Warm, encouraging, professional, empathetic, and advisory — talk like a real human educational counselor.
-3. CONCISE INFORMATION: Do NOT give too much overwhelming information at once. Keep responses concise, brief, and clear.
-4. PROCESSING FEE POLICY (CRITICAL RULE): NEVER disclose or mention any processing fee amount or consultancy fee numbers. If the user asks about processing fees, service charges, or consultancy fees, STRICTLY respond: "Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail."
-5. HOW TO CHOOSE SUGGESTIONS: If the student asks how to choose a university or country, provide helpful counselor suggestions (e.g., comparing total budget, WHO/NMC recognition, FMGE passing record, climate, and clinical rotation exposure).
-6. LEAD CAPTURE GOAL: Gently ask for the student's Name, WhatsApp Number, and 12th PCB % / NEET score so our senior team can connect with them, send personalized university brochures, and check eligibility.
+    // 3. System Prompt Persona & Rules for Chitra
+    const systemPrompt = `You are "Chitra", a warm, natural, human Senior Admission Counselor at Perfect Scholar.
+
+CRITICAL FORMATTING & STYLE RULES:
+1. STRICTLY NO EMOJIS: Do NOT use any emojis, icons, flags, or face symbols anywhere in your response. Absolute zero emojis.
+2. STRICTLY NO ASTERISKS OR BOLD MARKDOWN: Do NOT use asterisks (*) or bold markdown formatting anywhere. Write plain text words with standard capitalization. Never write *Georgia*, *SEU*, *NEET*, etc.
+3. NATURAL HUMAN COUNSELOR TONE: Speak like a real, friendly human admission counselor chatting on WhatsApp. Keep your responses warm, concise, and natural. Do NOT use bullet points, numbered lists, dash lists, or long structured lectures. Speak in 2-3 natural sentences as if you are typing directly on WhatsApp.
+4. ACCURATE DATABASE KNOWLEDGE: Rely strictly on the official database context below for all university tuition fees, living costs, durations, and eligibility details. If a specific detail is missing, offer to have a senior counselor share the complete brochure on WhatsApp.
+5. STRICT PROCESSING FEE POLICY: NEVER mention or disclose any processing fee, service fee, or consultancy fee numbers. If asked about processing fees, service charges, or consultancy fees, respond: "Our senior admission counselor will call you directly and explain our complete service and processing fee structure in detail."
+6. COUNSELOR GOAL: Gently invite the student to share their name, 12th PCB percentage, or NEET score so you can guide them to the best matching universities.
 
 DATABASE KNOWLEDGE:
 ${dbKnowledge}`;
 
     // Generate completion response
-    const replyText = await generateAiCompletion(systemPrompt, messages);
+    const rawReplyText = await generateAiCompletion(systemPrompt, messages);
+    const replyText = sanitizeWhatsAppText(rawReplyText);
 
     return NextResponse.json({
       success: true,
@@ -144,90 +154,70 @@ async function generateAiCompletion(systemPrompt: string, messages: { role: stri
 
   // RULE 1: STRICT PROCESSING FEE DISCLOSURE BLOCK (Applies ALWAYS)
   if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
-    return `Hello! 😊 Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail.\n\nCould you please share your **Name** and **WhatsApp Number** so I can arrange a quick call with our team?`;
+    return `Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail. Could you please share your Name and WhatsApp Number so I can arrange a quick call with our team?`;
   }
 
   // Attempt Gemini AI Call if API key is provided
   if (apiKey) {
-    try {
-      const contentsPayload = messages.map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }]
-      }));
+    const modelsToTry = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+    for (const modelName of modelsToTry) {
+      try {
+        const contentsPayload = messages.map(m => ({
+          role: m.role === 'user' ? 'user' : 'model',
+          parts: [{ text: m.content }]
+        }));
 
-      // Prepend system prompt context
-      contentsPayload.unshift({
-        role: 'user',
-        parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }]
-      }, {
-        role: 'model',
-        parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will guide the student warmly, concisely, and accurately according to your instructions.' }]
-      });
+        contentsPayload.unshift({
+          role: 'user',
+          parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }]
+        }, {
+          role: 'model',
+          parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will guide the student warmly, concisely, and accurately according to your instructions without emojis and without asterisks.' }]
+        });
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: contentsPayload })
-      });
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: contentsPayload })
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) return text;
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && text.trim().length > 0) return text;
+        }
+      } catch (err: any) {
+        console.warn(`[Gemini API Call Exception for ${modelName} - Trying fallback]:`, err.message);
       }
-    } catch (err: any) {
-      console.warn('[Gemini API Call Exception - Using Fallback]:', err.message);
     }
   }
 
-  // Smart Fallback Logic for Chitra Counselor Persona
+  // Smart Fallback Logic for Chitra Counselor Persona (Strictly emoji-free, asterisk-free, natural text)
   if (queryLower.includes('how to choose') || queryLower.includes('how do i select') || queryLower.includes('which country is best') || queryLower.includes('which college is best') || queryLower.includes('suggest me') || queryLower.includes('how to decide')) {
-    return `Choosing the right medical university is a crucial decision! As a counselor, here are the key factors I recommend keeping in mind:
-
-1. **Recognition**: Ensure the university is listed with **WHO, NMC (India), and ECFMG (USA)**.
-2. **Total Budget**: Balance annual tuition with living expenses & hostel fees over the 6-year duration.
-3. **FMGE / NExT Passing Rate**: Look for universities with strong academic track records for Indian students.
-4. **Clinical Exposure**: Choose universities with multi-specialty affiliated teaching hospitals.
-
-What is your approximate budget and 12th PCB percentage? If you share your **Name** and **WhatsApp Number**, I will have our senior team shortlist the top 3 matching universities for you!`;
+    return `Choosing the right medical university is an important decision. Key factors to compare are WHO and NMC accreditation, annual tuition fees, hostel safety, and hospital clinical exposure. What is your 12th PCB percentage or NEET score? If you share your Name and WhatsApp Number, I will have our senior team shortlist the top 3 matching universities for you.`;
   }
 
   if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('batumi') || queryLower.includes('alte') || queryLower.includes('seu')) {
-    return `🇬🇪 **Georgia** is one of our top recommendations! Universities like **SEU Georgian National University** (~$4,800/yr) and **Alte University** (~$5,500/yr) offer 100% English medium courses with European standards.
-
-Rather than overwhelming you with data, I can have our team send the complete fee structure & syllabus to your WhatsApp. 
-
-May I know your **Name** and **WhatsApp Number**?`;
+    return `Georgia is one of our top recommendations for medical studies. Top universities like SEU Georgian National University and Alte University offer 100 percent English medium courses with European standards. Would you like me to have our team send the complete fee structure and eligibility details to your WhatsApp?`;
   }
 
   if (queryLower.includes('uzbekistan') || queryLower.includes('andijan') || queryLower.includes('tashkent') || queryLower.includes('fergana')) {
-    return `🇺🇿 **Uzbekistan** offers excellent government medical institutes like **Andijan State Medical Institute** (~$3,500/yr) and **Tashkent State Medical University** (~$3,800/yr) with affordable living costs.
-
-Would you like us to check your NEET eligibility for Uzbekistan? Please share your **Name** and **WhatsApp Number**!`;
+    return `Uzbekistan offers government medical institutes like Andijan State Medical Institute and Tashkent State Medical University with affordable tuition and living costs. Would you like us to check your NEET eligibility for Uzbekistan?`;
   }
 
   if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('gullas') || queryLower.includes('brokenshire')) {
-    return `🇵🇭 **Philippines** is renowned for its American-pattern MD curriculum and high FMGE passing rate! Colleges like **Davao Medical School Foundation** and **Gullas College of Medicine** are top choices.
-
-Share your **Name** & **WhatsApp Number**, and our senior counselor will send you the direct admission checklist for Philippines!`;
+    return `The Philippines is renowned for its American pattern MD curriculum and high FMGE passing rates. Colleges like Brokenshire College of Medicine and Davao Medical School Foundation are top choices. Would you like me to send you the direct admission checklist?`;
   }
 
   if (queryLower.includes('eligibility') || queryLower.includes('neet') || queryLower.includes('marks')) {
-    return `📋 **General MBBS Abroad Eligibility**:
-• **NEET UG**: Must be NEET qualified (135+ for General, 107+ for OBC/SC/ST).
-• **12th PCB**: Minimum 50% aggregate in Physics, Chemistry & Biology.
-• **Age**: 17+ years.
-
-What is your 12th PCB percentage or NEET score? Please share your **Name** & **Phone Number** so we can verify your eligibility!`;
+    return `For MBBS abroad eligibility, you must be NEET qualified (minimum 135 for General, 107 for Reserved categories) and have at least 50 percent aggregate in 12th Physics, Chemistry, and Biology. What is your 12th PCB percentage or NEET score?`;
   }
 
   if (queryLower.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b[6-9]\d{9}\b/)) {
-    return `Thank you so much! 🎉 I have noted your details. 
-
-I am Chitra, and I am assigning one of our senior medical admission counselors to connect with you on WhatsApp / Call shortly to guide you step-by-step and send official brochures.
-
-Feel free to ask if you have any immediate questions in the meantime!`;
+    return `Thank you so much! I have noted your details. I am Chitra, and I am assigning one of our senior medical admission counselors to connect with you on WhatsApp or phone call shortly to guide you step by step. Feel free to ask if you have any questions in the meantime.`;
   }
+
+  return `Hello! I am Chitra, Senior Counselor at Perfect Scholar. We assist students with direct admissions to top accredited medical universities in Georgia, Philippines, and Uzbekistan. How can I help guide you today?`;
 
   return `Hello! 👋 I'm **Chitra**, Senior Counselor at Perfect Scholar. 
 
