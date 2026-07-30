@@ -59,42 +59,42 @@ export async function getDatabaseKnowledgeContext(forceRefresh = false): Promise
     const lines: string[] = [];
     lines.push('=== PERFECT SCHOLAR UNIVERSITY & MEDICAL COLLEGE DATABASE KNOWLEDGE ===\n');
 
-    colleges.forEach((c: CollegeKnowledge, idx: number) => {
+    colleges.forEach((c: any, idx: number) => {
+      const mainCourse = (Array.isArray(c.courses) && c.courses.length > 0) ? c.courses[0] : {};
+      const tuitionFee = c.tuition_range || c.yearly_tuition_fee || mainCourse.tuition_range || mainCourse.yearly_tuition_fee || 'Contact Counselor';
+      const hostelFee = c.accommodation_fee || c.hostel_fee || mainCourse.accommodation_fee || mainCourse.hostel_fee || 'Varies';
+      const hostelFreq = c.accommodation_freq || mainCourse.accommodation_freq || 'yearly';
+      const duration = c.duration || mainCourse.duration || '6 Years';
+
       lines.push(`${idx + 1}. ${c.name} (${c.country}${c.city ? ', ' + c.city : ''})`);
-      lines.push(`   • Course Types / Degrees: ${c.course_types?.join(', ') || 'MBBS / General Medicine'}`);
-      lines.push(`   • Duration: ${c.duration || '6 Years'}`);
-      lines.push(`   • Yearly Tuition Fee: ${c.yearly_tuition_fee || c.tuition_range || 'Contact Counselor'}`);
-      lines.push(`   • Hostel / Living Cost: ${c.hostel_fee || 'Varies by accommodation'}`);
-      if (c.one_time_fee) lines.push(`   • One-time Admission Fee: ${c.one_time_fee}`);
-      if (c.trc_fee && c.trc_fee.toUpperCase() !== 'N/A' && c.trc_fee !== '0') lines.push(`   • TRC & Residence Visa Fee: ${c.trc_fee}`);
-      if (c.processing_fee && c.processing_fee !== '0') lines.push(`   • Processing Fee: ${c.processing_fee}`);
+      lines.push(`   • Course / Degree: ${c.course_types?.join(', ') || mainCourse.course_type || 'MBBS / General Medicine'}`);
+      lines.push(`   • Duration: ${duration}`);
+      lines.push(`   • Yearly Tuition Fee: ${tuitionFee}`);
+      lines.push(`   • Hostel / Accommodation Fee: ${hostelFee}${hostelFreq ? ` (${hostelFreq})` : ''}`);
+      
+      if (mainCourse.bs_fee) {
+        lines.push(`   • BS / Pre-Med Upfront Fee: ${mainCourse.bs_fee} (${mainCourse.bs_duration || '1 Year'})`);
+      }
+      if (c.one_time_fee || mainCourse.one_time_fee) {
+        lines.push(`   • One-time Admission Fee: ${c.one_time_fee || mainCourse.one_time_fee}`);
+      }
+      if (c.trc_fee || mainCourse.trc_fee) {
+        const trc = c.trc_fee || mainCourse.trc_fee;
+        if (trc && trc.toUpperCase() !== 'N/A' && trc !== '0') {
+          lines.push(`   • TRC & Residence Visa Fee: ${trc}`);
+        }
+      }
 
       // Custom Fees
-      const customFeesList = Array.isArray(c.custom_fees) ? c.custom_fees : (typeof c.custom_fees === 'string' ? JSON.parse(c.custom_fees || '[]') : []);
+      const customFeesList = Array.isArray(c.custom_fees) ? c.custom_fees : (Array.isArray(mainCourse.custom_fees) ? mainCourse.custom_fees : []);
       if (customFeesList.length > 0) {
         const customStr = customFeesList.map((cf: any) => `${cf.name}: ${cf.amount}`).join('; ');
-        lines.push(`   • Custom / Additional Fee Breakdown: ${customStr}`);
+        lines.push(`   • Additional Fee Breakdown: ${customStr}`);
       }
 
-      if (c.intake) lines.push(`   • Intake Period: ${c.intake}`);
-      if (c.eligibility) lines.push(`   • Eligibility Criteria: ${c.eligibility}`);
-      if (c.overview) lines.push(`   • University Overview: ${c.overview}`);
-
-      if (c.admission_process && c.admission_process.length > 0) {
-        lines.push(`   • Admission Steps: ${c.admission_process.join(' → ')}`);
-      }
-      if (c.required_docs && c.required_docs.length > 0) {
-        lines.push(`   • Required Documents: ${c.required_docs.join(', ')}`);
-      }
-
-      // Individual Courses if available
-      if (c.courses && c.courses.length > 0) {
-        c.courses.forEach((crs: any) => {
-          if (crs.name || crs.course_type) {
-            lines.push(`     - Course: ${crs.name || crs.course_type} | Tuition: ${crs.yearly_tuition_fee || crs.tuition_range || c.yearly_tuition_fee || 'N/A'} | Duration: ${crs.duration || c.duration}`);
-          }
-        });
-      }
+      if (c.intake || mainCourse.intake) lines.push(`   • Intake Period: ${c.intake || mainCourse.intake}`);
+      if (c.eligibility || mainCourse.eligibility) lines.push(`   • Eligibility Criteria: ${c.eligibility || mainCourse.eligibility}`);
+      if (c.overview || mainCourse.overview) lines.push(`   • University Overview: ${c.overview || mainCourse.overview}`);
 
       lines.push(''); // Blank line between colleges
     });

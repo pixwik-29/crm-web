@@ -162,18 +162,25 @@ async function generateAiCompletion(systemPrompt: string, messages: { role: stri
     const modelsToTry = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
     for (const modelName of modelsToTry) {
       try {
-        const contentsPayload = messages.map(m => ({
-          role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: m.content }]
-        }));
+        const contentsPayload: any[] = [
+          { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }] },
+          { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will guide the student warmly, concisely, and accurately according to your instructions without emojis and without asterisks.' }] }
+        ];
 
-        contentsPayload.unshift({
-          role: 'user',
-          parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }]
-        }, {
-          role: 'model',
-          parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will guide the student warmly, concisely, and accurately according to your instructions without emojis and without asterisks.' }]
-        });
+        let lastRole = 'model';
+        if (messages && messages.length > 0) {
+          for (const m of messages) {
+            if (!m.content) continue;
+            const msgRole = m.role === 'user' ? 'user' : 'model';
+            if (msgRole !== lastRole) {
+              contentsPayload.push({
+                role: msgRole,
+                parts: [{ text: m.content }]
+              });
+              lastRole = msgRole;
+            }
+          }
+        }
 
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
           method: 'POST',

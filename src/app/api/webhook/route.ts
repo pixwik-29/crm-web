@@ -1237,35 +1237,40 @@ ${dbKnowledge}`;
     let aiReply = '';
     const apiKey = process.env.GEMINI_API_KEY;
 
-    // Format previous messages for Gemini API
-    const formattedMessages: { role: string; content: string }[] = [];
-    if (history && history.length > 0) {
-      history.forEach((h: any) => {
-        if (h.message_text) {
-          formattedMessages.push({
-            role: h.direction === 'incoming' ? 'user' : 'model',
-            content: h.message_text
-          });
-        }
-      });
-    }
-    if (formattedMessages.length === 0 || formattedMessages[formattedMessages.length - 1].content !== messageText) {
-      formattedMessages.push({ role: 'user', content: messageText });
-    }
-
     // Try Gemini API models in fallback order
     if (apiKey) {
       const modelsToTry = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
       for (const modelName of modelsToTry) {
         try {
-          const contentsPayload = [
+          // Construct payload with strict user/model role alternation
+          const contentsPayload: any[] = [
             { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }] },
-            { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will reply in a natural human tone without emojis and without asterisks.' }] },
-            ...formattedMessages.map(m => ({
-              role: m.role === 'user' ? 'user' : 'model',
-              parts: [{ text: m.content }]
-            }))
+            { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will reply accurately based on official database knowledge in a warm, natural human tone without emojis and without asterisks.' }] }
           ];
+
+          let lastRole = 'model';
+          if (history && history.length > 0) {
+            for (const h of history) {
+              if (!h.message_text) continue;
+              const msgRole = h.direction === 'incoming' ? 'user' : 'model';
+              if (msgRole !== lastRole) {
+                contentsPayload.push({
+                  role: msgRole,
+                  parts: [{ text: h.message_text }]
+                });
+                lastRole = msgRole;
+              }
+            }
+          }
+
+          if (lastRole !== 'user') {
+            contentsPayload.push({
+              role: 'user',
+              parts: [{ text: messageText }]
+            });
+          } else {
+            contentsPayload[contentsPayload.length - 1].parts[0].text += `\n${messageText}`;
+          }
 
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
             method: 'POST',
@@ -1278,9 +1283,12 @@ ${dbKnowledge}`;
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text && text.trim().length > 0) {
               aiReply = text;
-              console.log(`[WhatsApp AI Auto-Responder] Gemini model ${modelName} returned response.`);
+              console.log(`[WhatsApp AI Auto-Responder] Gemini model ${modelName} returned response successfully.`);
               break;
             }
+          } else {
+            const errData = await res.text();
+            console.warn(`[WhatsApp AI Auto-Responder] Model ${modelName} HTTP ${res.status}:`, errData.slice(0, 150));
           }
         } catch (e: any) {
           console.warn(`[WhatsApp AI Auto-Responder] Model ${modelName} error:`, e.message);
@@ -1293,11 +1301,11 @@ ${dbKnowledge}`;
       if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
         aiReply = 'Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail. Could you please share your Name and email ID so I can arrange a quick call for you?';
       } else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('seu')) {
-        aiReply = 'Georgia is a great choice for medicine with European standard education taught completely in English. Top options like SEU Georgian National University have annual tuition around 4800 USD per year. Would you like me to share the detailed eligibility checklist with you?';
+        aiReply = 'Georgia is a great choice for medicine with European standard education taught completely in English. Top options like SEU Georgian National University and Alte University offer high quality medical education. Would you like me to share the detailed fee structure and eligibility checklist for Georgia with you?';
       } else if (queryLower.includes('uzbekistan') || queryLower.includes('tashkent') || queryLower.includes('andijan')) {
-        aiReply = 'Uzbekistan offers government medical institutes with very affordable tuition starting around 3500 USD per year and low living expenses. Would you like us to check your NEET eligibility for Uzbekistan?';
+        aiReply = 'Uzbekistan offers government medical institutes with affordable tuition and low living expenses. Would you like us to check your NEET eligibility and send fee details for Uzbekistan?';
       } else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('brokenshire')) {
-        aiReply = 'The Philippines follows an American MD curriculum with clinical training in campus teaching hospitals. Top institutions like Brokenshire College of Medicine and Davao Medical School Foundation are very popular. Shall I send you the direct admission checklist?';
+        aiReply = 'The Philippines follows an American MD curriculum with clinical training in campus teaching hospitals. Top institutions like Brokenshire College of Medicine and Davao Medical School Foundation are very popular. Shall I send you the direct admission checklist for Philippines?';
       } else if (!isFirstMessage) {
         aiReply = 'I am happy to guide you further. Are you looking for universities within a specific budget, or do you have a preference for Georgia, Philippines, or Uzbekistan?';
       } else {
