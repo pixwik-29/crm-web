@@ -29,11 +29,13 @@ function getAllowedOrigins(): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  // Always allow localhost variants and tsmu.co.in
+  // Always allow localhost, perfectscholar.com, and tsmu.co.in
   const devOrigins = [
     'http://localhost:3000',
     'http://localhost:8000',
     'http://localhost:5173',
+    'https://perfectscholar.com',
+    'https://www.perfectscholar.com',
     'https://tsmu.co.in',
     'https://www.tsmu.co.in',
   ];
