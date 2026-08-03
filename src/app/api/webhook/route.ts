@@ -119,9 +119,15 @@ export async function POST(req: NextRequest) {
 
             console.log(`[Webhook] WhatsApp incoming message from ${senderPhone}: "${messageText}"`);
 
-            if (supabase) {
-              // Try to find the lead in this tenant matching the phone number
-              // Strip leading country code/special chars for safe matching
+            // ── Spam / Marketing Filter ────────────────────────────────────────────
+            // Check if this message is a marketing broadcast from another business.
+            // If so: skip AI response and skip auto-lead creation entirely.
+            const spamDetected = messageType === 'text' && isLikelyMarketingMessage(messageText, message);
+            if (spamDetected) {
+              console.log(`[Spam Filter] Marketing message detected from ${senderPhone} — skipping AI response and lead creation.`);
+              // Return early for this message (still ACK the webhook to Meta)
+            } else if (supabase) {
+              // ── Normal student message — proceed as usual ──────────────────────
               const cleanPhone = senderPhone.replace(/\D/g, '');
               const last10 = cleanPhone.slice(-10);
 
@@ -201,7 +207,7 @@ export async function POST(req: NextRequest) {
                         .filter((t): t is string => typeof t === 'string' && (t.startsWith('ExponentPushToken') || t.startsWith('ExpoPushToken')));
 
                       if (tokens.length > 0) {
-                        const leadName = senderName || "Candidate";
+                        const leadName = senderName || 'Candidate';
                         const pushMessages = tokens.map(token => ({
                           to: token,
                           sound: 'default',
@@ -221,7 +227,6 @@ export async function POST(req: NextRequest) {
                         });
                         const pushData = await pushRes.json();
                         console.log('[Webhook Push] Dispatched WhatsApp push notification delivery log:', JSON.stringify(pushData));
-                        // Log per-token errors
                         if (pushData?.data) {
                           const results = Array.isArray(pushData.data) ? pushData.data : [pushData.data];
                           results.forEach((r: any, i: number) => {
@@ -804,6 +809,102 @@ function neetMarksValue(val: any): number {
   return 0;
 }
 
+/**
+ * Detects if an incoming WhatsApp message is likely a marketing/promotional
+ * blast from another business rather than a genuine student inquiry.
+ * Uses multiple signals — returns true if the message should be IGNORED.
+ *
+ * When true: the message is still saved to whatsapp_history so the team
+ * can see it, but no AI reply is sent and no new lead is auto-created.
+ */
+function isLikelyMarketingMessage(messageText: string, messageObj: any): boolean {
+  if (!messageText) return false;
+
+  // Signal 1: WhatsApp API explicitly marks forwarded/broadcast messages
+  if (messageObj?.context?.forwarded === true) {
+    console.log('[Spam Filter] Blocked: forwarded message');
+    return true;
+  }
+  if (messageObj?.context?.frequently_forwarded === true) {
+    console.log('[Spam Filter] Blocked: frequently forwarded message');
+    return true;
+  }
+
+  const textLower = messageText.toLowerCase();
+
+  // Signal 2: Contains a URL — genuine student first messages almost never have links
+  if (/https?:\/\/|www\./i.test(messageText)) {
+    console.log('[Spam Filter] Blocked: message contains URL');
+    return true;
+  }
+
+  // Signal 3: Opt-out/unsubscribe language — unmistakably a marketing broadcast
+  if (/reply\s*stop|unsubscribe|opt.?out|to stop receiving/i.test(messageText)) {
+    console.log('[Spam Filter] Blocked: opt-out language detected');
+    return true;
+  }
+
+  // Signal 4: 2 or more marketing keywords in the same message
+  const marketingKeywords = [
+    'offer', 'discount', 'free', 'limited time', 'hurry', 'deal', 'sale',
+    'promo', 'promotion', 'exclusive', 'click here', 'buy now', 'order now',
+    'congratulations', 'you have won', 'you won', 'prize', 'lucky winner',
+    'loan', 'investment', 'earn money', 'work from home', 'referral code',
+    'insurance', 'policy', 'emi', 'credit card', 'personal loan',
+    'real estate', 'property for sale', 'flat for sale', 'plot',
+    'stock market', 'trading', 'crypto', 'bitcoin', 'forex',
+    'matrimony', 'shaadi', 'marriage bureau',
+    'restaurant', 'hotel booking', 'resort', 'spa deal', 'salon offer',
+    'order placed', 'your order', 'tracking', 'shipment',
+    'otp is', 'your otp', 'verification code', 'do not share'
+  ];
+  let keywordMatches = 0;
+  for (const kw of marketingKeywords) {
+    if (textLower.includes(kw)) {
+      keywordMatches++;
+      if (keywordMatches >= 2) {
+        console.log('[Spam Filter] Blocked: 2+ marketing keywords');
+        return true;
+      }
+    }
+  }
+
+  // Signal 5: Excessive exclamation marks (3 or more)
+  const exclamationCount = (messageText.match(/!/g) || []).length;
+  if (exclamationCount >= 3) {
+    console.log('[Spam Filter] Blocked: excessive exclamation marks');
+    return true;
+  }
+
+  // Signal 6: Very long message (>450 chars) with no question mark
+  // Real students ask short questions; marketing dumps paragraphs
+  if (messageText.length > 450 && !messageText.includes('?')) {
+    console.log('[Spam Filter] Blocked: long message with no question');
+    return true;
+  }
+
+  // Signal 7: Majority uppercase (>65% of letters) — shouting marketing style
+  const letters = messageText.replace(/[^a-zA-Z]/g, '');
+  if (letters.length > 20) {
+    const upperCount = (messageText.match(/[A-Z]/g) || []).length;
+    if (upperCount / letters.length > 0.65) {
+      console.log('[Spam Filter] Blocked: majority uppercase text');
+      return true;
+    }
+  }
+
+  // Signal 8: Two or more distinct phone numbers embedded in the text
+  // (marketing messages often list a contact number inside the broadcast)
+  const embeddedPhones = messageText.match(/\b(?:\+?91|0)?[6-9]\d{9}\b/g) || [];
+  const uniquePhones = new Set(embeddedPhones);
+  if (uniquePhones.size >= 2) {
+    console.log('[Spam Filter] Blocked: multiple phone numbers in message');
+    return true;
+  }
+
+  return false;
+}
+
 function extractField(fieldData: any[], fieldNames: string[]): string {
   const field = fieldData.find(f => fieldNames.includes(f.name.toLowerCase()));
   if (field && field.values && field.values.length > 0) {
@@ -1169,16 +1270,162 @@ async function triggerWelcomeWhatsAppMessage({
   }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHITRA AI COUNSELOR — 6-STAGE CONVERSATION ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Formats Markdown text into native WhatsApp formatting (e.g. *bold* instead of **bold**)
+ * Represents everything Chitra has learned about a student so far
  */
-function formatForWhatsApp(text: string): string {
-  if (!text) return '';
-  return text
-    .replace(/\*\*(.*?)\*\*/g, '*$1*') // **text** -> *text*
-    .replace(/\[(.*?)\]\((.*?)\)/g, '$1: $2'); // [label](url) -> label: url
+interface ConversationContext {
+  name: string;
+  neetScore?: string;
+  countryPreference?: string;
+  budget?: string;
+  hasSharedAcademics: boolean;
+  hasSharedPreference: boolean;
+  hasSharedBudget: boolean;
 }
 
+/**
+ * Scans the full conversation history to extract student profile details.
+ * This lets Chitra know what she already knows — avoiding re-asking things.
+ */
+function extractConversationContext(history: any[], leadName: string): ConversationContext {
+  const incomingText = history
+    .filter((h: any) => h.direction === 'incoming')
+    .map((h: any) => h.message_text || '')
+    .join(' ');
+  const textLower = incomingText.toLowerCase();
+
+  // NEET score or 12th %
+  const neetMatch = incomingText.match(/\b(\d{3,4})\b[^]*?neet|neet[^]*?\b(\d{3,4})\b/i);
+  const percentMatch = incomingText.match(/\b(\d{2,3})\s*(?:%|percent|pcb)/i);
+  let neetScore: string | undefined;
+  if (neetMatch) neetScore = `NEET ${neetMatch[1] || neetMatch[2]}`;
+  else if (percentMatch) neetScore = `${percentMatch[1] || percentMatch[2]}% in 12th`;
+
+  // Country or region preference
+  let countryPreference: string | undefined;
+  if (textLower.includes('georgia')) countryPreference = 'Georgia';
+  else if (textLower.includes('philippines')) countryPreference = 'Philippines';
+  else if (textLower.includes('uzbekistan')) countryPreference = 'Uzbekistan';
+  else if (textLower.includes('hungary')) countryPreference = 'Hungary';
+  else if (textLower.includes('russia')) countryPreference = 'Russia';
+  else if (textLower.includes('kazakhstan')) countryPreference = 'Kazakhstan';
+  else if (textLower.includes('europe')) countryPreference = 'Europe';
+  else if (textLower.includes('asia')) countryPreference = 'Asia';
+
+  // Budget range
+  let budget: string | undefined;
+  const budgetMatch = incomingText.match(/(\d+)\s*(?:lakh|lac|lakhs)/i);
+  if (budgetMatch) {
+    budget = `${budgetMatch[1]} lakh per year`;
+  } else if (/\busd\b|\$\s*\d|\b(under|below|above|around)\b.*(?:lakh|usd|dollar|budget)/i.test(incomingText)) {
+    budget = 'mentioned';
+  } else if (/\d+\s*(?:k|thousand).*(?:budget|year|annual)/i.test(incomingText)) {
+    budget = 'mentioned';
+  }
+
+  return {
+    name: leadName,
+    neetScore,
+    countryPreference,
+    budget,
+    hasSharedAcademics: !!(neetScore),
+    hasSharedPreference: !!(countryPreference),
+    hasSharedBudget: !!(budget),
+  };
+}
+
+/**
+ * Determines which conversation stage we are in.
+ * Stage advances when the student provides the context that unlocks the next stage.
+ *
+ * Stage 1 → Warm welcome, open question
+ * Stage 2 → Ask for academics (NEET / 12th %)
+ * Stage 3 → Acknowledge score, ask country/region preference
+ * Stage 4 → Suggest fitting countries, ask for budget range
+ * Stage 5+ → Full counselor with fee info that matches their budget
+ */
+function getConversationStage(incomingCount: number, ctx: ConversationContext): number {
+  if (incomingCount <= 1) return 1;
+  if (!ctx.hasSharedAcademics) return 2;
+  if (!ctx.hasSharedPreference) return 3;
+  if (!ctx.hasSharedBudget) return 4;
+  return 5;
+}
+
+/**
+ * Builds a stage-specific system prompt for Chitra.
+ * Fee information is gated behind budget discovery (stage 4).
+ */
+function buildStagedSystemPrompt(stage: number, ctx: ConversationContext, dbKnowledge: string): string {
+  const firstName =
+    ctx.name &&
+    ctx.name !== 'WhatsApp Contact' &&
+    !ctx.name.startsWith('Meta Lead') &&
+    !ctx.name.startsWith('Prospect')
+      ? ctx.name.split(' ')[0]
+      : null;
+
+  const baseRules = `You are Chitra, a warm and natural Senior Admission Counselor at Perfect Scholar — an education consultancy that helps Indian students get MBBS admissions in top accredited universities abroad.
+
+ABSOLUTE RULES — NEVER BREAK THESE:
+1. NO EMOJIS — not a single one, ever
+2. NO ASTERISKS OR BOLD — plain text only, always
+3. NO BULLET POINTS OR NUMBERED LISTS — write in flowing natural sentences
+4. SHORT — maximum 3 sentences per reply, no long paragraphs
+5. ONE QUESTION ONLY per message — never ask two things at once
+6. HUMAN WhatsApp TONE — casual, warm, direct. Like a knowledgeable friend texting, not a formal document
+7. NEVER mention your agency's processing fee, service fee, or consultancy charges under any circumstances. If asked, say a senior counselor will personally explain the complete structure during a direct call.
+${firstName ? `8. The student's name is ${firstName}. Use it naturally once in a while — not in every sentence.` : ''}`;
+
+  switch (stage) {
+    case 1:
+      return `${baseRules}
+
+YOUR TASK — STAGE 1 (FIRST CONTACT):
+The student has just messaged for the first time. Give them a warm, genuine welcome and ask one open question about what they are looking for or what brings them here. Do NOT mention any specific university, country, fees, or eligibility criteria yet. 2 sentences maximum. Sound like a real person, not an automated greeting.`;
+
+    case 2:
+      return `${baseRules}
+
+YOUR TASK — STAGE 2 (UNDERSTAND ACADEMICS):
+The student has shared their initial interest or query. Acknowledge what they said warmly and show genuine interest. Then ask them ONE thing only: their 12th PCB percentage OR their NEET score — whichever they have handy. Explain briefly in one phrase that this helps you find the right matching programs for them. Do NOT mention specific countries or fees. 2-3 sentences.`;
+
+    case 3:
+      return `${baseRules}
+
+YOUR TASK — STAGE 3 (COUNTRY PREFERENCE):
+The student has shared their academic score${ctx.neetScore ? ` (${ctx.neetScore})` : ''}. Respond positively and encouragingly to their score — make them feel reassured. Then ask them ONE question: whether they have any preference for where they want to study — for example European countries like Georgia or Hungary, Asian countries like Philippines or Uzbekistan, or if they are open to suggestions. Do NOT mention any fees or specific universities yet. 2-3 sentences.`;
+
+    case 4:
+      return `${baseRules}
+
+YOUR TASK — STAGE 4 (BUDGET DISCOVERY):
+You now have a good picture of this student — academics${ctx.neetScore ? ` (${ctx.neetScore})` : ''}${ctx.countryPreference ? ` and interest in ${ctx.countryPreference}` : ''}. Briefly and warmly mention 1-2 destinations or countries that look like a strong fit based on what they have shared. Keep it encouraging. Then ask ONE question about their rough yearly education budget. Give three simple ranges as options: under 4 lakh per year, 4 to 7 lakh per year, or above 7 lakh per year. Do NOT give any specific university fee numbers yet — only use the database below for deciding which countries to suggest as a general fit.
+
+COUNTRY DATABASE (for general fit suggestions only — no fee figures in your reply):
+${dbKnowledge}`;
+
+    case 5:
+    default:
+      return `${baseRules}
+
+YOUR TASK — STAGE 5+ (FULL COUNSELOR WITH FEES):
+You now have a complete profile for this student${ctx.neetScore ? ` — academics: ${ctx.neetScore}` : ''}${ctx.countryPreference ? `, preference: ${ctx.countryPreference}` : ''}${ctx.budget ? `, budget: ${ctx.budget}` : ''}. Answer their current question accurately and helpfully using the university database below. Share specific university names and relevant fee information that fits their profile and budget. Keep it natural, 2-3 sentences. Gently guide them toward sharing their contact details for a senior counselor follow-up when appropriate.
+
+COMPLETE UNIVERSITY AND FEE DATABASE:
+${dbKnowledge}`;
+  }
+}
+
+/**
+ * Extracts a clean name from freeform text.
+ * Handles phrases like "my name is Rahul", "I am Priya", etc.
+ */
 function extractNameFromText(text: string): string {
   if (!text) return '';
   let cleaned = text.trim()
@@ -1190,7 +1437,7 @@ function extractNameFromText(text: string): string {
     .replace(/^it's\s+/i, '')
     .replace(/[^a-zA-Z\s]/g, '')
     .trim();
-  
+
   const words = cleaned.split(/\s+/).filter(w => w.length > 0);
   if (words.length > 0 && words.length <= 4) {
     return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
@@ -1199,7 +1446,8 @@ function extractNameFromText(text: string): string {
 }
 
 /**
- * Worker function to dispatch Chitra (AI Counselor) auto-replies to incoming WhatsApp chats
+ * Main worker: receives an incoming WhatsApp message, determines the conversation
+ * stage, generates a stage-appropriate AI reply, and sends it back via Meta API.
  */
 async function dispatchWhatsAppAiCounselorReply({
   phoneId,
@@ -1208,7 +1456,7 @@ async function dispatchWhatsAppAiCounselorReply({
   leadId,
   messageText,
   senderName,
-  tenantId
+  tenantId,
 }: {
   phoneId: string;
   apiToken: string;
@@ -1221,234 +1469,195 @@ async function dispatchWhatsAppAiCounselorReply({
   try {
     if (!supabase) return;
 
-    // Fetch conversation history for this lead
+    // ── 1. Fetch conversation history ──────────────────────────────────────
     const { data: history } = await supabase
       .from('whatsapp_history')
       .select('direction, message_text, created_at')
       .eq('lead_id', leadId)
       .order('created_at', { ascending: true })
-      .limit(15);
+      .limit(25);
 
-    const queryLower = messageText.toLowerCase();
-
-    // Fetch lead record to check name and onboarding status
+    // ── 2. Fetch lead record ───────────────────────────────────────────────
     const { data: leadRecord } = await supabase
       .from('leads')
       .select('id, name')
       .eq('id', leadId)
       .maybeSingle();
 
-    const currentLeadName = leadRecord?.name || '';
-    const isUnknownLead = !currentLeadName || currentLeadName === 'WhatsApp Contact' || currentLeadName.startsWith('Meta Lead');
+    const currentLeadName = leadRecord?.name || senderName || '';
+    const isUnknownLead =
+      !currentLeadName ||
+      currentLeadName === 'WhatsApp Contact' ||
+      currentLeadName.startsWith('Meta Lead') ||
+      currentLeadName.startsWith('Prospect');
 
+    // ── 3. Count incoming messages ─────────────────────────────────────────
     const incomingMessages = history ? history.filter((h: any) => h.direction === 'incoming') : [];
-    const incomingCount = incomingMessages.length; // Includes current incoming message
+    const incomingCount = incomingMessages.length;
 
-    // 1. Fetch live university database knowledge from Supabase
-    let dbKnowledge = '';
-    try {
-      dbKnowledge = await getDatabaseKnowledgeContext();
-    } catch (dbErr: any) {
-      console.warn('[WhatsApp AI Auto-Responder] Knowledge fetch warning:', dbErr.message);
-    }
+    // ── 4. Extract conversation context ────────────────────────────────────
+    const ctx = extractConversationContext(history || [], currentLeadName);
 
-    let aiReply = '';
-
-    // STEP 1: FIRST MESSAGE FROM UNKNOWN NUMBER -> Warm Welcome
-    if (incomingCount === 1) {
-      aiReply = 'Hi! I am Chitra, Senior Counselor at Perfect Scholar. How can I help guide you today?';
-    }
-    // STEP 2: SECOND MESSAGE (User states query) -> Assurance + Ask for Name
-    else if (incomingCount === 2 && isUnknownLead) {
-      aiReply = 'I would be happy to help guide you with that! May I know your name please so I can assist you better?';
-    }
-    // STEP 3: THIRD MESSAGE (User provides name) -> Update Lead Name in DB, Give Info & Connect to Senior Counselor
-    else if (incomingCount === 3 && isUnknownLead) {
-      const extractedName = extractNameFromText(messageText) || (senderName !== 'WhatsApp Contact' ? senderName : 'Student');
-      
-      if (extractedName && extractedName !== 'Student') {
+    // ── 5. Update lead name if still unknown (turn 3) ─────────────────────
+    if (incomingCount >= 2 && isUnknownLead) {
+      const extractedName = extractNameFromText(messageText) || (senderName !== 'WhatsApp Contact' ? senderName : '');
+      if (extractedName && extractedName !== 'Student' && extractedName.length > 1) {
         await supabase.from('leads').update({ name: extractedName }).eq('id', leadId);
         await supabase.from('activity_logs').insert({
           lead_id: leadId,
           action_type: 'lead_updated',
           description: `Lead name updated to "${extractedName}" via WhatsApp conversation`,
-          tenant_id: tenantId
+          tenant_id: tenantId,
         });
+        ctx.name = extractedName;
       }
+    }
 
-      const prevQuery = incomingMessages[0]?.message_text || messageText;
+    // ── 6. Determine conversation stage ───────────────────────────────────
+    const stage = getConversationStage(incomingCount, ctx);
+    console.log(`[Chitra AI] Lead ${leadId} | Turn ${incomingCount} | Stage ${stage} | Context: neet=${ctx.neetScore}, country=${ctx.countryPreference}, budget=${ctx.budget}`);
 
-      const systemPromptHandoff = `You are Chitra, a warm, natural, human Senior Admission Counselor at Perfect Scholar.
+    // ── 7. Load knowledge (only needed at stage 4+) ────────────────────────
+    let dbKnowledge = '';
+    if (stage >= 4) {
+      try {
+        dbKnowledge = await getDatabaseKnowledgeContext();
+      } catch (dbErr: any) {
+        console.warn('[Chitra AI] Knowledge fetch warning:', dbErr.message);
+      }
+    }
 
-CRITICAL FORMATTING & STYLE RULES:
-1. STRICTLY NO EMOJIS: Do NOT use any emojis, icons, flags, or face symbols anywhere in your response. Absolute zero emojis.
-2. STRICTLY NO ASTERISKS OR BOLD MARKDOWN: Do NOT use asterisks (*) or bold markdown formatting anywhere. Write plain text words with standard capitalization.
-3. NATURAL HUMAN COUNSELOR TONE: Speak in 2-3 warm, natural sentences.
-4. YOUR EXACT HANDOFF TASK:
-   - Address the student by name: "Thank you ${extractedName}!"
-   - Answer their query (${prevQuery}) briefly using the database knowledge below.
-   - Conclude with: "I have also connected you with one of our senior medical admission counselors who will call you directly to assist you further. Feel free to ask if you have any questions in the meantime!"
+    // ── 8. Build staged system prompt ──────────────────────────────────────
+    const systemPrompt = buildStagedSystemPrompt(stage, ctx, dbKnowledge);
 
-DATABASE KNOWLEDGE:
-${dbKnowledge}`;
+    // ── 9. Call Gemini AI ──────────────────────────────────────────────────
+    const apiKey = process.env.GEMINI_API_KEY || Buffer.from('QVEuQWI4Uk42SXlxZ3kteUFKR0hDTjBWaEIzY1lOQ2lpZXlLdFJjTGdfYWVHNll5Y0FiNmc=', 'base64').toString('utf8');
+    let aiReply = '';
 
-      const apiKey = process.env.GEMINI_API_KEY || Buffer.from('QVEuQWI4Uk42SXlxZ3kteUFKR0hDTjBWaEIzY1lOQ2lpZXlLdFJjTGdfYWVHNll5Y0FiNmc=', 'base64').toString('utf8');
-      if (apiKey) {
+    if (apiKey) {
+      const modelsToTry = ['gemini-2.0-flash', 'gemini-flash-latest', 'gemini-2.0-flash-lite'];
+      for (const modelName of modelsToTry) {
         try {
-          const contentsPayload = [
-            { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPromptHandoff}` }] },
-            { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will reply in a natural human tone without emojis and without asterisks.' }] },
-            { role: 'user', parts: [{ text: `My name is ${extractedName}. My query is: ${prevQuery}` }] }
+          const contentsPayload: any[] = [
+            { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }] },
+            { role: 'model', parts: [{ text: 'Understood. I am Chitra. I will follow the conversation stage rules and formatting rules exactly.' }] },
           ];
 
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: contentsPayload })
-          });
+          // Append conversation history, merging consecutive same-role messages
+          let lastRole = 'model';
+          if (history && history.length > 0) {
+            for (const h of history) {
+              if (!h.message_text) continue;
+              const msgRole = h.direction === 'incoming' ? 'user' : 'model';
+              if (msgRole === lastRole && contentsPayload.length > 0) {
+                const last = contentsPayload[contentsPayload.length - 1];
+                last.parts[0].text += '\n' + h.message_text;
+              } else {
+                contentsPayload.push({ role: msgRole, parts: [{ text: h.message_text }] });
+                lastRole = msgRole;
+              }
+            }
+          }
+
+          // Ensure conversation ends with user's latest message
+          if (lastRole !== 'user') {
+            contentsPayload.push({ role: 'user', parts: [{ text: messageText }] });
+          } else {
+            contentsPayload[contentsPayload.length - 1].parts[0].text += '\n' + messageText;
+          }
+
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: contentsPayload }),
+            }
+          );
 
           if (res.ok) {
             const data = await res.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text && text.trim().length > 0) {
               aiReply = text;
+              console.log(`[Chitra AI] Got reply from ${modelName}`);
+              break;
             }
           }
         } catch (e: any) {
-          console.warn('[WhatsApp AI Auto-Responder] Handoff AI error:', e.message);
-        }
-      }
-
-      if (!aiReply) {
-        aiReply = `Thank you ${extractedName}! We offer top accredited MBBS programs in Georgia, Philippines, Uzbekistan, and Hungary with English medium instruction. I have connected you with one of our senior medical admission counselors who will call you directly to guide you step by step. Feel free to ask if you have any questions in the meantime!`;
-      }
-    }
-    // STEP 4+: ONGOING CONVERSATION TURN
-    else {
-      const systemPrompt = `You are Chitra, a warm, natural, human Senior Admission Counselor at Perfect Scholar.
-
-CRITICAL FORMATTING & STYLE RULES:
-1. STRICTLY NO EMOJIS: Do NOT use any emojis, icons, flags, or face symbols anywhere in your response. Absolute zero emojis.
-2. STRICTLY NO ASTERISKS OR BOLD MARKDOWN: Do NOT use asterisks (*) or bold markdown formatting anywhere. Write plain text words with standard capitalization.
-3. NATURAL HUMAN COUNSELOR TONE: Speak like a real, friendly human admission counselor chatting on WhatsApp. Keep your responses warm, concise, and natural in 2-3 sentences.
-4. ACCURATE DATABASE KNOWLEDGE: Rely strictly on the official database context below.
-5. STRICT PROCESSING FEE POLICY: NEVER mention or disclose any processing fee numbers. State that senior counselor will call them directly to explain.
-
-DATABASE KNOWLEDGE:
-${dbKnowledge}`;
-
-      const apiKey = process.env.GEMINI_API_KEY || Buffer.from('QVEuQWI4Uk42SXlxZ3kteUFKR0hDTjBWaEIzY1lOQ2lpZXlLdFJjTGdfYWVHNll5Y0FiNmc=', 'base64').toString('utf8');
-
-      if (apiKey) {
-        const modelsToTry = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
-        for (const modelName of modelsToTry) {
-          try {
-            const contentsPayload: any[] = [
-              { role: 'user', parts: [{ text: `SYSTEM INSTRUCTIONS:\n${systemPrompt}` }] },
-              { role: 'model', parts: [{ text: 'Understood. I am Chitra, Senior Counselor at Perfect Scholar. I will reply accurately based on official database knowledge in a warm, natural human tone without emojis and without asterisks.' }] }
-            ];
-
-            let lastRole = 'model';
-            if (history && history.length > 0) {
-              for (const h of history) {
-                if (!h.message_text) continue;
-                const msgRole = h.direction === 'incoming' ? 'user' : 'model';
-                if (msgRole !== lastRole) {
-                  contentsPayload.push({
-                    role: msgRole,
-                    parts: [{ text: h.message_text }]
-                  });
-                  lastRole = msgRole;
-                }
-              }
-            }
-
-            if (lastRole !== 'user') {
-              contentsPayload.push({
-                role: 'user',
-                parts: [{ text: messageText }]
-              });
-            } else {
-              contentsPayload[contentsPayload.length - 1].parts[0].text += `\n${messageText}`;
-            }
-
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ contents: contentsPayload })
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (text && text.trim().length > 0) {
-                aiReply = text;
-                break;
-              }
-            }
-          } catch (e: any) {
-            console.warn(`[WhatsApp AI Auto-Responder] Model ${modelName} error:`, e.message);
-          }
-        }
-      }
-
-      if (!aiReply) {
-        if (queryLower.includes('processing') || queryLower.includes('service fee') || queryLower.includes('consultancy fee') || queryLower.includes('your fee') || queryLower.includes('charge') || queryLower.includes('commission')) {
-          aiReply = 'Our senior admission counselor will call you directly and explain our complete transparent service and processing fee structure in detail. Could you please share your Name and email ID so I can arrange a quick call for you?';
-        } else if (queryLower.includes('fee') || queryLower.includes('fees') || queryLower.includes('cost') || queryLower.includes('tuition') || queryLower.includes('how much') || queryLower.includes('rate')) {
-          aiReply = 'Tuition fees vary by university and country. In Georgia, SEU Georgian National is 5900 USD per year and Alte University is 5950 USD per year. In Philippines, fees are in pesos around 220000 PHP per year for Brokenshire. In Uzbekistan, fees start around 3500 USD per year. Which university or country would you like detailed fee structures for?';
-        } else if (queryLower.includes('hungary')) {
-          aiReply = 'Hungary is a fantastic European destination for medical education with 100 percent English medium programs recognized across Europe and WHO/NMC. Would you like details on tuition fees and admission requirements for universities in Hungary?';
-        } else if (queryLower.includes('other country') || queryLower.includes('another country') || queryLower.includes('other options') || queryLower.includes('where else')) {
-          aiReply = 'Besides Georgia, Philippines, and Uzbekistan, we also guide students for MBBS in Hungary and Egypt. Which country or climate preference do you have in mind?';
-        } else if (queryLower.includes('georgia') || queryLower.includes('tbilisi') || queryLower.includes('seu')) {
-          aiReply = 'Georgia is a great choice for medicine with European standard education taught completely in English. Top options like SEU Georgian National University (5900 USD per year) and Alte University (5950 USD per year) offer high quality medical education. Would you like me to share the detailed fee brochure and eligibility checklist for Georgia with you?';
-        } else if (queryLower.includes('uzbekistan') || queryLower.includes('tashkent') || queryLower.includes('andijan')) {
-          aiReply = 'Uzbekistan offers government medical institutes with affordable tuition starting around 3500 USD per year and low living expenses. Would you like us to check your NEET eligibility and send fee details for Uzbekistan?';
-        } else if (queryLower.includes('philippines') || queryLower.includes('davao') || queryLower.includes('brokenshire')) {
-          aiReply = 'The Philippines follows an American MD curriculum with clinical training in campus teaching hospitals. Top institutions like Brokenshire College of Medicine and Davao Medical School Foundation are very popular. Shall I send you the direct admission checklist for Philippines?';
-        } else {
-          aiReply = 'Could you please share your 12th PCB percentage or NEET score? That will help me recommend the exact matching universities and fee structures for you.';
+          console.warn(`[Chitra AI] Model ${modelName} error:`, e.message);
         }
       }
     }
 
-    // Sanitize final text: ZERO emojis, ZERO asterisks, clean plain text
-    const finalFormattedReply = sanitizeWhatsAppText(aiReply);
+    // ── 10. Fallback replies if Gemini is unavailable ──────────────────────
+    if (!aiReply) {
+      const queryLower = messageText.toLowerCase();
+      if (stage === 1) {
+        aiReply = 'Hi there, welcome to Perfect Scholar! I am Chitra, I help students secure MBBS admissions in top universities abroad. What brings you here today?';
+      } else if (stage === 2) {
+        aiReply = 'Happy to help! To find the right fit for you, could you share your 12th PCB percentage or your NEET score?';
+      } else if (stage === 3) {
+        aiReply = 'That is a solid score to work with! Do you have any preference for the country you want to study in, or are you open to suggestions?';
+      } else if (stage === 4) {
+        aiReply = 'Based on what you have shared, Georgia and Philippines both look like strong options for you. Just to narrow things down further — roughly what yearly budget are you working with? Under 4 lakh, 4 to 7 lakh, or above 7 lakh per year?';
+      } else if (
+        queryLower.includes('processing') ||
+        queryLower.includes('service fee') ||
+        queryLower.includes('consultancy') ||
+        queryLower.includes('your fee') ||
+        queryLower.includes('your charge') ||
+        queryLower.includes('commission')
+      ) {
+        aiReply = 'Our senior admission counselor will personally walk you through our complete service structure during a call. Shall I have them reach out to you on this number?';
+      } else {
+        aiReply = 'Could you share your 12th PCB percentage or NEET score? That will help me match you with the best universities and programs available.';
+      }
+    }
 
-    // Send AI reply text to prospect via Meta WhatsApp Cloud API
+    // ── 11. Sanitize (strip emojis and asterisks) ──────────────────────────
+    const finalReply = sanitizeWhatsAppText(aiReply);
+
+    // ── 12. Simulate typing delay (makes it feel human) ───────────────────
+    // Scales with reply length: 1.5s base + ~100ms per 10 chars, capped at 3.5s
+    const typingDelayMs = Math.min(1500 + Math.floor(finalReply.length / 10) * 100, 3500);
+    await new Promise(resolve => setTimeout(resolve, typingDelayMs));
+
+    // ── 13. Send via Meta WhatsApp Cloud API ───────────────────────────────
     const cleanPhone = to.replace(/\D/g, '');
     const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
-    const res = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
+    const sendRes = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiToken}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
         to: formattedPhone,
         type: 'text',
-        text: { body: finalFormattedReply }
-      })
+        text: { body: finalReply },
+      }),
     });
 
-    const data = await res.json();
-    console.log(`[WhatsApp AI Auto-Responder] Sent Chitra AI reply to ${formattedPhone}, status: ${res.status}`);
+    const sendData = await sendRes.json();
+    console.log(`[Chitra AI] Sent reply to ${formattedPhone} | Stage ${stage} | Status: ${sendRes.status}`);
 
-    if (res.ok) {
-      // Save outgoing AI reply in whatsapp_history
+    // ── 14. Save outgoing reply to history ────────────────────────────────
+    if (sendRes.ok) {
       await supabase.from('whatsapp_history').insert({
         lead_id: leadId,
         direction: 'outgoing',
-        message_text: finalFormattedReply,
+        message_text: finalReply,
         status: 'sent',
-        tenant_id: tenantId
+        tenant_id: tenantId,
       });
+    } else {
+      console.error('[Chitra AI] Meta API send failed:', JSON.stringify(sendData));
     }
   } catch (err: any) {
-    console.error('[WhatsApp AI Auto-Responder Error]:', err.message);
+    console.error('[Chitra AI Auto-Responder Error]:', err.message);
   }
 }
