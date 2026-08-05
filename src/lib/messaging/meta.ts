@@ -95,7 +95,7 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
           if (options.variables && options.variables.length > 0) {
             const expectedCount = (matched?.namedParams && matched.namedParams.length > 0)
               ? matched.namedParams.length
-              : (placeholders.length > 0 ? placeholders.length : options.variables.length);
+              : (matched ? placeholders.length : options.variables.length);
             const paramCount = Math.min(options.variables.length, expectedCount);
             const paramList = options.variables.slice(0, paramCount);
             if (paramList.length > 0) {
