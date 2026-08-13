@@ -301,6 +301,8 @@ export const SharedInbox: React.FC = () => {
       if (!response.ok) throw new Error(result.error || 'Failed to send message');
 
       // 4. Write to whatsapp_history DB
+      // sent_by_ai: false — this is a human agent reply, which will pause Chitra's
+      // AI auto-responder for this lead (human takeover pattern).
       const newMsgId = `wa-out-${Date.now()}`;
       if (isConfigured && supabase) {
         const { data: inserted } = await supabase.from('whatsapp_history').insert({
@@ -309,7 +311,8 @@ export const SharedInbox: React.FC = () => {
           direction: 'outgoing',
           message_text: messageContent || '[Attachment]',
           status: 'sent',
-          tenant_id: tenantId
+          tenant_id: tenantId,
+          sent_by_ai: false
         }).select().maybeSingle();
 
         await supabase.from('activity_logs').insert({

@@ -68,19 +68,18 @@ export async function POST(req: NextRequest) {
           // Resolve tenant_id from settings using whatsapp_phone_id
           let resolvedTenantId = 'default';
           let whatsappApiToken = '';
-          let autoResponseTemplate = '';
           if (supabase && phoneId) {
               let tenantSettings = null;
               let queryResult = await supabase
                 .from('settings')
-                .select('tenant_id, whatsapp_api_token, whatsapp_encryption_iv, whatsapp_auto_response_template')
+                .select('tenant_id, whatsapp_api_token, whatsapp_encryption_iv')
                 .eq('whatsapp_phone_id', phoneId)
                 .maybeSingle();
 
               if (queryResult.error && (queryResult.error.code === '42703' || queryResult.error.code === 'PGRST204')) {
                 const fallbackQuery = await supabase
                   .from('settings')
-                  .select('tenant_id, whatsapp_api_token, whatsapp_auto_response_template')
+                  .select('tenant_id, whatsapp_api_token')
                   .eq('whatsapp_phone_id', phoneId)
                   .maybeSingle();
                 if (fallbackQuery.data) {
@@ -96,7 +95,6 @@ export async function POST(req: NextRequest) {
               if (tenantSettings) {
                 resolvedTenantId = tenantSettings.tenant_id;
                 whatsappApiToken = decryptToken(tenantSettings.whatsapp_api_token, tenantSettings.whatsapp_encryption_iv);
-                autoResponseTemplate = tenantSettings.whatsapp_auto_response_template || '';
                 console.log(`[Webhook] Resolved WhatsApp tenant: ${resolvedTenantId}`);
               }
           }
@@ -1466,16 +1464,21 @@ async function dispatchWhatsAppAiCounselorReply({
   senderName: string;
   tenantId: string;
 }) {
+  // ── MAX TURNS CONSTANT ────────────────────────────────────────────────────
+  // Chitra will stop replying automatically after this many incoming messages.
+  // This prevents the AI from running indefinitely and ensures a human takes over.
+  const MAX_AI_TURNS = 10;
+
   try {
     if (!supabase) return;
 
-    // ── 1. Fetch conversation history ──────────────────────────────────────
+    // ── 1. Fetch conversation history (include sent_by_ai for takeover check) ─
     const { data: history } = await supabase
       .from('whatsapp_history')
-      .select('direction, message_text, created_at')
+      .select('direction, message_text, created_at, sent_by_ai')
       .eq('lead_id', leadId)
       .order('created_at', { ascending: true })
-      .limit(25);
+      .limit(50);
 
     // ── 2. Fetch lead record ───────────────────────────────────────────────
     const { data: leadRecord } = await supabase
@@ -1494,6 +1497,25 @@ async function dispatchWhatsAppAiCounselorReply({
     // ── 3. Count incoming messages ─────────────────────────────────────────
     const incomingMessages = history ? history.filter((h: any) => h.direction === 'incoming') : [];
     const incomingCount = incomingMessages.length;
+
+    // ── GUARD A: Hard turn limit ───────────────────────────────────────────
+    // Stop Chitra after MAX_AI_TURNS incoming messages. A human should take over.
+    if (incomingCount >= MAX_AI_TURNS) {
+      console.log(`[Chitra AI] Lead ${leadId} — Max AI turns (${MAX_AI_TURNS}) reached. AI is stepping back. Human follow-up required.`);
+      return;
+    }
+
+    // ── GUARD B: Human takeover check ─────────────────────────────────────
+    // If the most recent OUTGOING message was sent by a human agent (sent_by_ai = false),
+    // Chitra pauses completely so the agent can own the conversation.
+    const outgoingMessages = (history || []).filter((h: any) => h.direction === 'outgoing');
+    if (outgoingMessages.length > 0) {
+      const lastOutgoing = outgoingMessages[outgoingMessages.length - 1];
+      if (lastOutgoing.sent_by_ai === false) {
+        console.log(`[Chitra AI] Lead ${leadId} — Human agent replied last. AI is paused (human takeover active).`);
+        return;
+      }
+    }
 
     // ── 4. Extract conversation context ────────────────────────────────────
     const ctx = extractConversationContext(history || [], currentLeadName);
@@ -1515,7 +1537,7 @@ async function dispatchWhatsAppAiCounselorReply({
 
     // ── 6. Determine conversation stage ───────────────────────────────────
     const stage = getConversationStage(incomingCount, ctx);
-    console.log(`[Chitra AI] Lead ${leadId} | Turn ${incomingCount} | Stage ${stage} | Context: neet=${ctx.neetScore}, country=${ctx.countryPreference}, budget=${ctx.budget}`);
+    console.log(`[Chitra AI] Lead ${leadId} | Turn ${incomingCount}/${MAX_AI_TURNS} | Stage ${stage} | Context: neet=${ctx.neetScore}, country=${ctx.countryPreference}, budget=${ctx.budget}`);
 
     // ── 7. Load knowledge (only needed at stage 4+) ────────────────────────
     let dbKnowledge = '';
@@ -1646,6 +1668,8 @@ async function dispatchWhatsAppAiCounselorReply({
     console.log(`[Chitra AI] Sent reply to ${formattedPhone} | Stage ${stage} | Status: ${sendRes.status}`);
 
     // ── 14. Save outgoing reply to history ────────────────────────────────
+    // sent_by_ai: true — marks this as a Chitra AI message so the human
+    // takeover guard in future turns knows a human hasn't intervened yet.
     if (sendRes.ok) {
       await supabase.from('whatsapp_history').insert({
         lead_id: leadId,
@@ -1653,6 +1677,7 @@ async function dispatchWhatsAppAiCounselorReply({
         message_text: finalReply,
         status: 'sent',
         tenant_id: tenantId,
+        sent_by_ai: true,
       });
     } else {
       console.error('[Chitra AI] Meta API send failed:', JSON.stringify(sendData));

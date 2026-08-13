@@ -231,12 +231,15 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         });
 
         // Insert history record
+        // sent_by_ai: false — campaign messages are human-initiated broadcasts,
+        // not Chitra AI replies. This ensures accurate history classification.
         await supabase.from('whatsapp_history').insert({
           lead_id: lead.id,
           direction: 'outgoing',
           message_text: compiledText || `[Sent template: ${templateName}]`,
           status: status as any,
-          tenant_id: tenantId
+          tenant_id: tenantId,
+          sent_by_ai: false
         });
 
         // Add activity log
