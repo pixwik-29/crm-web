@@ -12,7 +12,7 @@ function isPublicImageUrl(url?: string | null): boolean {
 }
 
 async function cacheMetaHeaderImage(
-  supabase: ReturnType<typeof createClient>,
+  supabase: { storage: { from: (bucket: string) => any } },
   templateName: string,
   headerUrl?: string
 ): Promise<string | null> {
