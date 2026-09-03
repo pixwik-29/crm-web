@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
         .eq('tenant_id', tenantId)
         .maybeSingle();
       if (!resolvedMedia && isPublicImageUrl(templateRow?.attachment_url)) {
-        resolvedMedia = templateRow.attachment_url;
+        resolvedMedia = templateRow?.attachment_url;
       }
       if (!resolvedBody) resolvedBody = templateRow?.body || resolvedBody;
     }
