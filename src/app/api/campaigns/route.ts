@@ -247,16 +247,17 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         // Build parameters values array based on variable selection mappings
         const paramValues: string[] = [];
         variables.forEach((v: string) => {
-          if (v === 'name') paramValues.push(lead.name || lead.primary_contact_name || '');
-          else if (v === 'agency' || v === 'business_name') paramValues.push(lead.business_name || '');
-          else if (v === 'email') paramValues.push(lead.email || '');
-          else if (v === 'phone') paramValues.push(lead.phone || lead.whatsapp_number || '');
-          else if (v === 'partner_level' || v === 'tier') paramValues.push(lead.partner_level || '');
-          else if (v === 'course') paramValues.push(lead.course || 'MBBS');
-          else if (v === 'preferred_destination') paramValues.push(lead.preferred_destination || '');
-          else if (v === 'budget') paramValues.push(lead.budget ? `\u20B9${lead.budget}` : '');
-          else if (v.startsWith('custom:')) paramValues.push(v.substring(7));
-          else paramValues.push('');
+          let value = '';
+          if (v === 'name') value = lead.name || lead.primary_contact_name || '';
+          else if (v === 'agency' || v === 'business_name') value = lead.business_name || '';
+          else if (v === 'email') value = lead.email || '';
+          else if (v === 'phone') value = lead.phone || lead.whatsapp_number || '';
+          else if (v === 'partner_level' || v === 'tier') value = lead.partner_level || '';
+          else if (v === 'course') value = lead.course || 'MBBS';
+          else if (v === 'preferred_destination') value = lead.preferred_destination || '';
+          else if (v === 'budget') value = lead.budget ? `\u20B9${lead.budget}` : '';
+          else if (v.startsWith('custom:')) value = v.substring(7);
+          paramValues.push(String(value || '-').replace(/[\r\n]+/g, ' ').trim() || '-');
         });
 
         // Compile display text for log history
