@@ -88,12 +88,10 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     let mime = downloaded.mime;
     let filename = 'file';
     if (kind === 'IMAGE') {
+      if (mime.includes('webp')) return null;
       if (mime.includes('png')) {
         mime = 'image/png';
         filename = 'header.png';
-      } else if (mime.includes('webp')) {
-        mime = 'image/webp';
-        filename = 'header.webp';
       } else {
         mime = 'image/jpeg';
         filename = 'header.jpg';
@@ -221,6 +219,15 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
           }
           return param;
         })
+      });
+    }
+
+    for (const index of matched?.urlButtonIndexes || []) {
+      components.push({
+        type: 'button',
+        sub_type: 'url',
+        index: String(index),
+        parameters: [{ type: 'text', text: this.sanitizeParamText(incoming[expectedCount] || incoming[0] || '1') }],
       });
     }
 

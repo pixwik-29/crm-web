@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { MessagingService } from '@/lib/messaging/service';
+import { formatDeliveryError, waitForDelivery, writeDeliveryStatus } from '@/lib/messaging/deliveryStatus';
+
+export const maxDuration = 60;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -13,16 +16,16 @@ function isPublicImageUrl(url?: string | null): boolean {
 // POST /api/whatsapp/send — sends a single WhatsApp message to one lead
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId, to, type = 'text', message, text, templateName, variables = [], templateBody, mediaUrl } = await req.json();
+    const { tenantId, to, type = 'text', message, text, templateName, variables = [], templateBody, mediaUrl, waitForDeliveryStatus = true } = await req.json();
 
     if (!tenantId) return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
     if (!to) return NextResponse.json({ error: 'to (phone number) is required' }, { status: 400 });
 
     let resolvedMedia = isPublicImageUrl(mediaUrl) ? mediaUrl : undefined;
     let resolvedBody = templateBody;
+    const supabase = supabaseUrl && serviceKey ? createClient(supabaseUrl, serviceKey) : null;
 
-    if (type === 'template' && templateName && supabaseUrl && serviceKey) {
-      const supabase = createClient(supabaseUrl, serviceKey);
+    if (type === 'template' && templateName && supabase) {
       const { data: templateRow } = await supabase
         .from('whatsapp_templates')
         .select('body, attachment_url')
@@ -47,11 +50,41 @@ export async function POST(req: NextRequest) {
       mediaUrl: resolvedMedia,
     });
 
+    if (supabase && result.messageId) {
+      await writeDeliveryStatus(supabase, {
+        messageId: result.messageId,
+        to: result.to || to,
+        status: 'queued',
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    if (supabase && waitForDeliveryStatus && result.messageId) {
+      const delivery = await waitForDelivery(supabase, result.messageId, 12000);
+      if (delivery?.status === 'failed') {
+        return NextResponse.json({
+          error: formatDeliveryError(delivery),
+          to: result.to || to,
+          messageId: result.messageId,
+          delivery: 'failed',
+          errorCode: delivery.errorCode,
+        }, { status: 422 });
+      }
+      return NextResponse.json({
+        success: true,
+        messageId: result.messageId,
+        status: delivery?.status || result.status,
+        to: result.to || to,
+        delivery: delivery?.status || 'pending',
+      });
+    }
+
     return NextResponse.json({
       success: true,
       messageId: result.messageId,
       status: result.status,
       to: result.to || to,
+      delivery: 'queued',
     });
   } catch (error: any) {
     console.error('[WhatsApp Send API] Error:', error.message);

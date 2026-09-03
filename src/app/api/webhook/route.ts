@@ -4,6 +4,7 @@ import { waitUntil } from '@vercel/functions';
 import nodemailer from 'nodemailer';
 import { decryptToken } from '@/lib/messaging/crypto';
 import { getDatabaseKnowledgeContext } from '@/lib/ai/knowledge';
+import { writeDeliveryStatus } from '@/lib/messaging/deliveryStatus';
 
 function sanitizeWhatsAppText(text: string): string {
   if (!text) return '';
@@ -273,8 +274,8 @@ export async function POST(req: NextRequest) {
             const messageStatus = statusUpdate.status; // sent, delivered, read, failed
 
             const deliveryErrors = statusUpdate.errors || [];
+            const firstError = deliveryErrors[0] || {};
             if (messageStatus === 'failed' || deliveryErrors.length > 0) {
-              const firstError = deliveryErrors[0] || {};
               console.error(
                 '[Webhook] WhatsApp delivery FAILED',
                 JSON.stringify({
@@ -289,6 +290,18 @@ export async function POST(req: NextRequest) {
               );
             } else {
               console.log(`[Webhook] WhatsApp status update to ${recipientPhone}: ${messageStatus}`);
+            }
+
+            if (supabase && statusUpdate.id) {
+              await writeDeliveryStatus(supabase, {
+                messageId: statusUpdate.id,
+                to: recipientPhone,
+                status: messageStatus,
+                errorCode: firstError.code,
+                errorTitle: firstError.title || firstError.message,
+                errorDetails: firstError.error_data?.details || firstError.message,
+                updatedAt: new Date().toISOString(),
+              });
             }
 
             if (supabase) {
