@@ -7,6 +7,7 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
   private cachedTemplates: WhatsAppTemplate[] | null = null;
   private lastSyncTime: number = 0;
   private CACHE_TTL_MS: number = 5 * 60 * 1000; // 5 minute cache
+  private DEFAULT_HEADER_IMAGE = 'https://partner.perfectscholar.com/logo.png';
 
   constructor(apiToken: string, phoneId: string, accountId: string) {
     this.apiToken = apiToken;
@@ -19,6 +20,107 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
       'Authorization': `Bearer ${this.apiToken}`,
       'Content-Type': 'application/json'
     };
+  }
+
+  private sanitizeParamText(value: string): string {
+    return String(value ?? '').replace(/[\r\n]+/g, ' ').trim() || '-';
+  }
+
+  private publicMediaUrl(...candidates: Array<string | undefined>): string {
+    return candidates.find((url) => {
+      const value = String(url || '').trim();
+      return /^https:\/\//i.test(value) && !value.includes('scontent.whatsapp.net');
+    }) || this.DEFAULT_HEADER_IMAGE;
+  }
+
+  private placeholdersIn(text?: string): string[] {
+    return [...String(text || '').matchAll(/\{\{\s*([^}]+)\s*\}\}/g)].map((m) => m[1].trim());
+  }
+
+  private shouldUseNamed(matched?: WhatsAppTemplate, _bodyText = ''): boolean {
+    const format = String(matched?.parameterFormat || '').toUpperCase();
+    if (format === 'NAMED') return true;
+    if (format === 'POSITIONAL') return false;
+    if ((matched?.namedParams || []).length > 0) return true;
+    // Meta defaults to positional. Guessing named from local {{name}} tags caused 132012.
+    return false;
+  }
+
+  private namedParam(raw: string, idx: number): string {
+    const cleaned = String(raw || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .replace(/^_+|_+$/g, '');
+    if (/^[a-z][a-z0-9_]*$/.test(cleaned)) return cleaned;
+    return `var_${idx + 1}`;
+  }
+
+  private buildTemplateComponents(
+    options: SendMessageOptions,
+    matched: WhatsAppTemplate | undefined,
+    useNamed: boolean
+  ): any[] {
+    const bodyText = matched?.body || options.templateBody || '';
+    const placeholders = this.placeholdersIn(bodyText);
+    const namedFromMeta = (matched?.namedParams || []).filter(Boolean);
+    const expectedNames = useNamed
+      ? (namedFromMeta.length > 0 ? namedFromMeta : placeholders.filter((p) => /^[A-Za-z]/.test(p)))
+      : placeholders;
+    const expectedCount = useNamed
+      ? (expectedNames.length || placeholders.length)
+      : placeholders.length;
+
+    const incoming = Array.isArray(options.variables) ? options.variables : [];
+    const bodyValues = Array.from({ length: expectedCount }, (_, idx) =>
+      this.sanitizeParamText(incoming[idx] ?? '')
+    );
+    const components: any[] = [];
+    const headerFormat = matched?.headerFormat;
+
+    if (headerFormat === 'IMAGE' || matched?.hasImageHeader) {
+      components.push({
+        type: 'header',
+        parameters: [{
+          type: 'image',
+          image: { link: this.publicMediaUrl(options.mediaUrl, matched?.headerImageUrl) }
+        }]
+      });
+    } else if (headerFormat === 'VIDEO') {
+      const link = this.publicMediaUrl(options.mediaUrl, matched?.headerImageUrl);
+      components.push({
+        type: 'header',
+        parameters: [{ type: 'video', video: { link } }]
+      });
+    } else if (headerFormat === 'DOCUMENT') {
+      const link = this.publicMediaUrl(options.mediaUrl, matched?.headerImageUrl);
+      components.push({
+        type: 'header',
+        parameters: [{ type: 'document', document: { link, filename: options.mediaName || 'document.pdf' } }]
+      });
+    } else if (headerFormat === 'TEXT') {
+      const headerVars = this.placeholdersIn(matched?.headerText);
+      if (headerVars.length > 0) {
+        const text = this.sanitizeParamText(incoming[0] || '');
+        const param: any = { type: 'text', text };
+        if (useNamed) param.parameter_name = this.namedParam(headerVars[0], 0);
+        components.push({ type: 'header', parameters: [param] });
+      }
+    }
+
+    if (expectedCount > 0) {
+      components.push({
+        type: 'body',
+        parameters: bodyValues.map((text, idx) => {
+          const param: any = { type: 'text', text };
+          if (useNamed) {
+            param.parameter_name = this.namedParam(expectedNames[idx] || placeholders[idx], idx);
+          }
+          return param;
+        })
+      });
+    }
+
+    return components;
   }
 
   async sendMessage(options: SendMessageOptions): Promise<{ messageId: string; status: string }> {
@@ -44,6 +146,8 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
 
     let templateLanguage = options.templateName === 'hello_world' ? 'en_US' : 'en';
     let fallbackLanguage = templateLanguage === 'en_US' ? 'en' : 'en_US';
+    let matchedTemplate: WhatsAppTemplate | undefined;
+    let usedNamed = false;
 
     switch (options.type) {
       case 'text':
@@ -73,63 +177,22 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
             fallbackLanguage = templateLanguage === 'en_US' ? 'en' : 'en_US';
           }
 
+          const bodyText = matched?.body || options.templateBody || '';
+          let useNamed = this.shouldUseNamed(matched, bodyText);
+          const components = this.buildTemplateComponents(options, matched, useNamed);
+          matchedTemplate = matched;
+          usedNamed = useNamed;
+
           body.template = {
             name: options.templateName,
             language: { code: templateLanguage }
           };
-
-          const bodyText = matched?.body || options.templateBody || '';
-          const placeholders = [...bodyText.matchAll(/\{\{\s*([^}]+)\s*\}\}/g)].map(m => m[1].trim());
-          const namedFromMeta = (matched?.namedParams || []).filter(Boolean);
-          const namedFromBody = placeholders.filter(p => /^[A-Za-z][A-Za-z0-9_]*$/.test(p));
-          const positionalFromBody = placeholders.filter(p => /^\d+$/.test(p));
-          const useNamed = namedFromMeta.length > 0 || (namedFromBody.length > 0 && positionalFromBody.length === 0);
-          const expectedNames = useNamed
-            ? (namedFromMeta.length > 0 ? namedFromMeta : namedFromBody)
-            : placeholders;
-          const expectedCount = expectedNames.length;
-
-          const components: any[] = [];
-
-          // Only attach a header when Meta actually defined an IMAGE header
-          if (matched?.hasImageHeader) {
-            const rawHeader = options.mediaUrl || matched.headerImageUrl || '';
-            if (rawHeader && !rawHeader.includes('scontent.whatsapp.net')) {
-              components.push({
-                type: 'header',
-                parameters: [{ type: 'image', image: { link: rawHeader } }]
-              });
-            }
-          }
-
-          if (expectedCount > 0) {
-            const incoming = Array.isArray(options.variables) ? options.variables : [];
-            const paramList = Array.from({ length: expectedCount }, (_, idx) => {
-              const raw = String(incoming[idx] ?? '').replace(/[\r\n]+/g, ' ').trim();
-              return raw || '-';
-            });
-            components.push({
-              type: 'body',
-              parameters: paramList.map((text, idx) => {
-                const param: any = { type: 'text', text };
-                if (useNamed) {
-                  const name = String(expectedNames[idx] || `var_${idx + 1}`)
-                    .toLowerCase()
-                    .replace(/[^a-z0-9_]/g, '_')
-                    .replace(/^(\d)/, 'v$1');
-                  param.parameter_name = name;
-                }
-                return param;
-              })
-            });
-          }
-
           if (components.length > 0) {
             body.template.components = components;
           }
 
           console.log(
-            `[MetaWhatsAppProvider] Template ${options.templateName} lang=${templateLanguage} named=${useNamed} vars=${expectedCount}`
+            `[MetaWhatsAppProvider] Template ${options.templateName} lang=${templateLanguage} format=${matched?.parameterFormat || 'guess'} named=${useNamed} header=${matched?.headerFormat || 'none'}`
           );
         }
         break;
@@ -204,11 +267,43 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
         });
         const retryData = await retryResponse.json();
         if (!retryResponse.ok) {
-          throw new Error(retryData.error?.message || 'Meta Cloud API message send failed');
+          throw new Error(retryData.error?.error_data?.details || retryData.error?.message || 'Meta Cloud API message send failed');
+        }
+        resData = retryData;
+      } else if (options.type === 'template' && resData.error?.code === 132012) {
+        const details = String(resData.error?.error_data?.details || resData.error?.message || '');
+        const flipped = !usedNamed;
+        let retryMatched = matchedTemplate;
+        if (/IMAGE/i.test(details)) {
+          retryMatched = {
+            ...(matchedTemplate || { id: '', name: options.templateName || '', body: options.templateBody || '', created_at: '' }),
+            hasImageHeader: true,
+            headerFormat: 'IMAGE',
+          };
+        }
+        console.warn(
+          `[MetaWhatsAppProvider] 132012 format mismatch. Retrying as ${flipped ? 'named' : 'positional'} parameters. details=${details}`
+        );
+        const retryComponents = this.buildTemplateComponents(options, retryMatched, flipped);
+        body.template.components = retryComponents.length > 0 ? retryComponents : undefined;
+        const retryResponse = await fetch(url, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(body)
+        });
+        const retryData = await retryResponse.json();
+        if (!retryResponse.ok) {
+          throw new Error(
+            retryData.error?.error_data?.details ||
+            retryData.error?.message ||
+            resData.error?.error_data?.details ||
+            resData.error?.message ||
+            'Meta Cloud API message send failed'
+          );
         }
         resData = retryData;
       } else {
-        throw new Error(resData.error?.message || 'Meta Cloud API message send failed');
+        throw new Error(resData.error?.error_data?.details || resData.error?.message || 'Meta Cloud API message send failed');
       }
     }
 
@@ -224,36 +319,46 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
       return this.cachedTemplates;
     }
 
-    const url = `https://graph.facebook.com/v19.0/${this.accountId}/message_templates?fields=name,status,category,language,components`;
+    const rawTemplates: any[] = [];
+    let nextUrl: string | null = `https://graph.facebook.com/v21.0/${this.accountId}/message_templates?fields=name,status,category,language,components,parameter_format&limit=100`;
     console.log(`[MetaWhatsAppProvider] Syncing templates for account: ${this.accountId}`);
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: this.getHeaders()
-    });
 
-    const resData = await response.json();
-    if (!response.ok) {
-      throw new Error(resData.error?.message || 'Failed to sync Meta message templates');
+    while (nextUrl) {
+      const response = await fetch(nextUrl, {
+        method: 'GET',
+        headers: this.getHeaders()
+      });
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error?.message || 'Failed to sync Meta message templates');
+      }
+      rawTemplates.push(...(resData.data || []));
+      nextUrl = resData.paging?.next || null;
     }
 
-    const rawTemplates = resData.data || [];
     const templates: WhatsAppTemplate[] = rawTemplates.map((t: any) => {
-      // Find body and header components
       const bodyComp = t.components?.find((c: any) => c.type === 'BODY');
       const headerComp = t.components?.find((c: any) => c.type === 'HEADER');
-      const hasImageHeader = headerComp?.format === 'IMAGE';
-      // Extract header image URL from example handle if present
-      const headerImageUrl = headerComp?.example?.header_handle?.[0] || '';
+      const buttonsComp = t.components?.find((c: any) => c.type === 'BUTTONS');
+      const headerFormat = headerComp?.format as WhatsAppTemplate['headerFormat'] | undefined;
       const namedParams = bodyComp?.example?.body_text_named_params?.map((p: any) => p.param_name) || [];
+      const urlButtonIndexes = (buttonsComp?.buttons || [])
+        .map((btn: any, index: number) =>
+          btn?.type === 'URL' && String(btn.url || '').includes('{{') ? index : -1
+        )
+        .filter((index: number) => index >= 0);
 
       return {
         id: t.id || `temp-meta-${t.name}`,
         name: t.name,
         body: bodyComp?.text || '',
-        hasImageHeader,
-        headerImageUrl,
+        hasImageHeader: headerFormat === 'IMAGE',
+        headerFormat,
+        headerText: headerComp?.text || '',
+        headerImageUrl: headerComp?.example?.header_handle?.[0] || '',
+        parameterFormat: String(t.parameter_format || '').toUpperCase() as WhatsAppTemplate['parameterFormat'],
         namedParams,
+        urlButtonIndexes,
         status: t.status,
         category: t.category,
         language: t.language,

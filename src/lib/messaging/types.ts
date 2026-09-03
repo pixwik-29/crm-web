@@ -28,7 +28,11 @@ export interface WhatsAppTemplate {
   attachment_name?: string;
   headerImageUrl?: string;
   hasImageHeader?: boolean;
+  headerFormat?: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'LOCATION';
+  headerText?: string;
+  parameterFormat?: 'NAMED' | 'POSITIONAL';
   namedParams?: string[];
+  urlButtonIndexes?: number[];
   status?: 'APPROVED' | 'REJECTED' | 'PENDING' | 'PAUSED';
   category?: string;
   language?: string;
