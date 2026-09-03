@@ -226,12 +226,13 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
     // Load template definition to log the compiled body text
     const { data: templateObj } = await supabase
       .from('whatsapp_templates')
-      .select('body')
+      .select('body, attachment_url')
       .eq('name', templateName)
       .eq('tenant_id', tenantId)
       .maybeSingle();
 
     const templateBodyRaw = templateObj?.body || '';
+    const templateMediaUrl = templateObj?.attachment_url || '';
 
     console.log(`[Campaign worker] Dispatching WhatsApp messages to ${targets.length} leads...`);
 
@@ -275,7 +276,8 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
           type: 'template',
           templateName,
           variables: paramValues,
-          templateBody: templateBodyRaw
+          templateBody: templateBodyRaw,
+          mediaUrl: templateMediaUrl || undefined,
         });
 
         if (!skipLeadHistory && lead.id && !String(lead.id).startsWith('extra-')) {

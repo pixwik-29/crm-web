@@ -25,14 +25,22 @@ export async function GET(req: NextRequest) {
 
     // 3. Persist the fetched templates in our local database for fast lookup and offline access
     if (metaTemplates.length > 0) {
-      const dbTemplates = metaTemplates.map(t => ({
-        name: t.name,
-        body: t.body,
-        attachment_url: t.attachment_url || null,
-        attachment_name: t.attachment_name || null,
-        tenant_id: tenantId,
-        // Sync custom columns if they exist in schema (or let them fall back)
-      }));
+      const { data: existingLocal } = await supabase
+        .from('whatsapp_templates')
+        .select('id, name, attachment_url, attachment_name')
+        .eq('tenant_id', tenantId);
+      const localByName = new Map((existingLocal || []).map((t: any) => [t.name, t]));
+
+      const dbTemplates = metaTemplates.map(t => {
+        const existing = localByName.get(t.name);
+        return {
+          name: t.name,
+          body: t.body,
+          attachment_url: t.attachment_url || existing?.attachment_url || null,
+          attachment_name: t.attachment_name || existing?.attachment_name || null,
+          tenant_id: tenantId,
+        };
+      });
 
       // In multi-tenant settings, we try to upsert based on (name, tenant_id)
       let { error: upsertErr } = await supabase
@@ -44,11 +52,6 @@ export async function GET(req: NextRequest) {
         console.warn('[Templates API] Missing unique constraint, executing manual fallback sync...');
         
         // Fetch current local templates to avoid duplicate primary key errors
-        const { data: existingLocal } = await supabase
-          .from('whatsapp_templates')
-          .select('id, name')
-          .eq('tenant_id', tenantId);
-          
         const localMap = new Map(existingLocal?.map(t => [t.name, t.id]) || []);
         
         for (const t of dbTemplates) {

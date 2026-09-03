@@ -422,6 +422,11 @@ export const CampaignManager: React.FC = () => {
     ? calculateGroupCount(groups.find(g => g.id === targetGroupId)?.filters) 
     : targetingConsultants ? manualConsultantCount : matchedLeadsCount;
 
+  const selectedTemplate = whatsappTemplates.find(t => t.name === selectedTemplateName);
+  const selectedTemplateImage = selectedTemplate?.attachment_url && !/\.pdf(\?|$)/i.test(selectedTemplate.attachment_url) && !/\.pdf/i.test(selectedTemplate.attachment_name || '')
+    ? selectedTemplate.attachment_url
+    : '';
+
   return (
     <div className="space-y-6">
       
@@ -636,8 +641,16 @@ export const CampaignManager: React.FC = () => {
                 {selectedTemplateName && (
                   <div className="bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-2xl p-4 space-y-3">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Template Preview</span>
+                    {selectedTemplateImage && (
+                      <img src={selectedTemplateImage} alt="Template header" className="w-full max-h-56 object-cover rounded-xl border border-slate-200 dark:border-zinc-800" />
+                    )}
+                    {!selectedTemplateImage && selectedTemplate?.attachment_url && (
+                      <a href={selectedTemplate.attachment_url} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-indigo-600 underline">
+                        {selectedTemplate.attachment_name || 'View attached file'}
+                      </a>
+                    )}
                     <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed font-mono whitespace-pre-wrap">
-                      {whatsappTemplates.find(t => t.name === selectedTemplateName)?.body}
+                      {selectedTemplate?.body}
                     </p>
                   </div>
                 )}
@@ -1440,9 +1453,12 @@ export const CampaignManager: React.FC = () => {
 
             {/* Template Body Preview */}
             <div className="bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-2xl p-4 space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Template Message Text Preview</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Template Message Preview</span>
+              {selectedTemplateImage && (
+                <img src={selectedTemplateImage} alt="Template header" className="w-full max-h-48 object-cover rounded-xl border border-slate-200 dark:border-zinc-800" />
+              )}
               <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed font-mono whitespace-pre-wrap">
-                {whatsappTemplates.find(t => t.name === selectedTemplateName)?.body}
+                {selectedTemplate?.body}
               </p>
             </div>
 

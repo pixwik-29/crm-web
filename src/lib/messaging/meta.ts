@@ -320,20 +320,25 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     }
 
     const rawTemplates: any[] = [];
-    let nextUrl: string | null = `https://graph.facebook.com/v21.0/${this.accountId}/message_templates?fields=name,status,category,language,components,parameter_format&limit=100`;
+    let pageUrl: string | undefined = `https://graph.facebook.com/v21.0/${this.accountId}/message_templates?fields=name,status,category,language,components,parameter_format&limit=100`;
     console.log(`[MetaWhatsAppProvider] Syncing templates for account: ${this.accountId}`);
 
-    while (nextUrl) {
-      const response = await fetch(nextUrl, {
+    while (pageUrl) {
+      const requestUrl: string = pageUrl;
+      const pageResponse: Response = await fetch(requestUrl, {
         method: 'GET',
         headers: this.getHeaders()
       });
-      const resData = await response.json();
-      if (!response.ok) {
-        throw new Error(resData.error?.message || 'Failed to sync Meta message templates');
+      const pageData: {
+        error?: { message?: string };
+        data?: any[];
+        paging?: { next?: string };
+      } = await pageResponse.json();
+      if (!pageResponse.ok) {
+        throw new Error(pageData.error?.message || 'Failed to sync Meta message templates');
       }
-      rawTemplates.push(...(resData.data || []));
-      nextUrl = resData.paging?.next || null;
+      rawTemplates.push(...(pageData.data || []));
+      pageUrl = pageData.paging?.next;
     }
 
     const templates: WhatsAppTemplate[] = rawTemplates.map((t: any) => {
