@@ -409,8 +409,13 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
       }
     }
 
+    const messageId = resData.messages?.[0]?.id;
+    if (!messageId) {
+      throw new Error(`Meta did not return a WhatsApp message id for ${cleanTo}`);
+    }
+
     return {
-      messageId: resData.messages?.[0]?.id || `wamid-mock-${Date.now()}`,
+      messageId,
       status: 'sent',
       to: cleanTo,
     };
