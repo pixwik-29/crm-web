@@ -26,11 +26,119 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     return String(value ?? '').replace(/[\r\n]+/g, ' ').trim() || '-';
   }
 
-  private publicMediaUrl(...candidates: Array<string | undefined>): string {
+  private publicMediaUrl(...candidates: Array<string | undefined>): string | undefined {
     return candidates.find((url) => {
       const value = String(url || '').trim();
-      return /^https:\/\//i.test(value) && !value.includes('scontent.whatsapp.net');
-    }) || this.DEFAULT_HEADER_IMAGE;
+      return /^https:\/\//i.test(value) && !value.includes('scontent.') && !value.includes('lookaside.fbsbx.com');
+    });
+  }
+
+  private headerMediaKind(matched?: WhatsAppTemplate): 'IMAGE' | 'VIDEO' | 'DOCUMENT' | null {
+    if (matched?.headerFormat === 'VIDEO') return 'VIDEO';
+    if (matched?.headerFormat === 'DOCUMENT') return 'DOCUMENT';
+    if (matched?.headerFormat === 'IMAGE' || matched?.hasImageHeader) return 'IMAGE';
+    return null;
+  }
+
+  private async downloadMediaBytes(url: string): Promise<{ buf: Buffer; mime: string } | null> {
+    const headerSets: Array<Record<string, string>> = [
+      { Authorization: `Bearer ${this.apiToken}` },
+      {},
+    ];
+    for (const headers of headerSets) {
+      try {
+        const res = await fetch(url, { redirect: 'follow', headers });
+        if (!res.ok) continue;
+        const mime = (res.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+        if (mime.includes('text/html') || mime.includes('application/json')) continue;
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length < 1000) continue;
+        return { buf, mime };
+      } catch (err: any) {
+        console.warn(`[MetaWhatsAppProvider] Header download failed for ${url}:`, err.message);
+      }
+    }
+    return null;
+  }
+
+  private async uploadMediaBuffer(buf: Buffer, mime: string, filename: string): Promise<string | null> {
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mime);
+    form.append('file', new Blob([new Uint8Array(buf)], { type: mime }), filename);
+
+    const res = await fetch(`https://graph.facebook.com/v21.0/${this.phoneId}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.apiToken}` },
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok || !data.id) {
+      console.warn('[MetaWhatsAppProvider] Media upload failed:', data.error?.message || JSON.stringify(data));
+      return null;
+    }
+    console.log(`[MetaWhatsAppProvider] Uploaded media ${data.id} (${mime}, ${buf.length} bytes)`);
+    return String(data.id);
+  }
+
+  private async uploadMediaFromUrl(url: string, kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'): Promise<string | null> {
+    const downloaded = await this.downloadMediaBytes(url);
+    if (!downloaded) return null;
+
+    let mime = downloaded.mime;
+    let filename = 'file';
+    if (kind === 'IMAGE') {
+      if (mime.includes('png')) {
+        mime = 'image/png';
+        filename = 'header.png';
+      } else if (mime.includes('webp')) {
+        mime = 'image/webp';
+        filename = 'header.webp';
+      } else {
+        mime = 'image/jpeg';
+        filename = 'header.jpg';
+      }
+    } else if (kind === 'VIDEO') {
+      mime = mime.startsWith('video/') ? mime : 'video/mp4';
+      filename = 'header.mp4';
+    } else {
+      mime = mime || 'application/pdf';
+      filename = 'document.pdf';
+    }
+
+    return this.uploadMediaBuffer(downloaded.buf, mime, filename);
+  }
+
+  private async resolveHeaderMedia(
+    options: SendMessageOptions,
+    matched?: WhatsAppTemplate
+  ): Promise<Record<string, any> | null> {
+    const kind = this.headerMediaKind(matched);
+    if (!kind) return null;
+
+    const urls = [options.mediaUrl, matched?.headerImageUrl, kind === 'IMAGE' ? this.DEFAULT_HEADER_IMAGE : undefined];
+    for (const url of urls) {
+      const trimmed = String(url || '').trim();
+      if (!/^https:\/\//i.test(trimmed)) continue;
+      const mediaId = await this.uploadMediaFromUrl(trimmed, kind);
+      if (!mediaId) continue;
+      if (kind === 'IMAGE') return { id: mediaId };
+      if (kind === 'VIDEO') return { id: mediaId };
+      return { id: mediaId, filename: options.mediaName || 'document.pdf' };
+    }
+
+    if (kind === 'IMAGE') {
+      throw new Error(
+        'This WhatsApp template has an image header, but the image could not be uploaded to Meta. The Cloud API will accept the send and then drop the message. Attach a public JPEG/PNG on the template in CRM → Settings → WhatsApp, then send again.'
+      );
+    }
+
+    const link = this.publicMediaUrl(options.mediaUrl, matched?.headerImageUrl);
+    if (!link) {
+      throw new Error(`This WhatsApp template needs a ${kind.toLowerCase()} header, but no public file URL was available.`);
+    }
+    if (kind === 'VIDEO') return { link };
+    return { link, filename: options.mediaName || 'document.pdf' };
   }
 
   private placeholdersIn(text?: string): string[] {
@@ -58,7 +166,8 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
   private buildTemplateComponents(
     options: SendMessageOptions,
     matched: WhatsAppTemplate | undefined,
-    useNamed: boolean
+    useNamed: boolean,
+    headerMedia?: Record<string, any> | null
   ): any[] {
     const bodyText = matched?.body || options.templateBody || '';
     const placeholders = this.placeholdersIn(bodyText);
@@ -77,25 +186,20 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     const components: any[] = [];
     const headerFormat = matched?.headerFormat;
 
-    if (headerFormat === 'IMAGE' || matched?.hasImageHeader) {
+    if ((headerFormat === 'IMAGE' || matched?.hasImageHeader) && headerMedia) {
       components.push({
         type: 'header',
-        parameters: [{
-          type: 'image',
-          image: { link: this.publicMediaUrl(options.mediaUrl, matched?.headerImageUrl) }
-        }]
+        parameters: [{ type: 'image', image: headerMedia }]
       });
-    } else if (headerFormat === 'VIDEO') {
-      const link = this.publicMediaUrl(options.mediaUrl, matched?.headerImageUrl);
+    } else if (headerFormat === 'VIDEO' && headerMedia) {
       components.push({
         type: 'header',
-        parameters: [{ type: 'video', video: { link } }]
+        parameters: [{ type: 'video', video: headerMedia }]
       });
-    } else if (headerFormat === 'DOCUMENT') {
-      const link = this.publicMediaUrl(options.mediaUrl, matched?.headerImageUrl);
+    } else if (headerFormat === 'DOCUMENT' && headerMedia) {
       components.push({
         type: 'header',
-        parameters: [{ type: 'document', document: { link, filename: options.mediaName || 'document.pdf' } }]
+        parameters: [{ type: 'document', document: headerMedia }]
       });
     } else if (headerFormat === 'TEXT') {
       const headerVars = this.placeholdersIn(matched?.headerText);
@@ -175,7 +279,8 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
 
           const bodyText = matched?.body || options.templateBody || '';
           let useNamed = this.shouldUseNamed(matched, bodyText);
-          const components = this.buildTemplateComponents(options, matched, useNamed);
+          const headerMedia = await this.resolveHeaderMedia(options, matched);
+          const components = this.buildTemplateComponents(options, matched, useNamed, headerMedia);
           matchedTemplate = matched;
           usedNamed = useNamed;
 
@@ -280,7 +385,8 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
         console.warn(
           `[MetaWhatsAppProvider] 132012 format mismatch. Retrying as ${flipped ? 'named' : 'positional'} parameters. details=${details}`
         );
-        const retryComponents = this.buildTemplateComponents(options, retryMatched, flipped);
+        const retryHeader = await this.resolveHeaderMedia(options, retryMatched);
+        const retryComponents = this.buildTemplateComponents(options, retryMatched, flipped, retryHeader);
         body.template.components = retryComponents.length > 0 ? retryComponents : undefined;
         const retryResponse = await fetch(url, {
           method: 'POST',

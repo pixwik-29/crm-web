@@ -272,7 +272,24 @@ export async function POST(req: NextRequest) {
             const recipientPhone = statusUpdate.recipient_id;
             const messageStatus = statusUpdate.status; // sent, delivered, read, failed
 
-            console.log(`[Webhook] WhatsApp status update to ${recipientPhone}: ${messageStatus}`);
+            const deliveryErrors = statusUpdate.errors || [];
+            if (messageStatus === 'failed' || deliveryErrors.length > 0) {
+              const firstError = deliveryErrors[0] || {};
+              console.error(
+                '[Webhook] WhatsApp delivery FAILED',
+                JSON.stringify({
+                  to: recipientPhone,
+                  wamid: statusUpdate.id,
+                  status: messageStatus,
+                  code: firstError.code,
+                  title: firstError.title,
+                  message: firstError.message,
+                  details: firstError.error_data?.details || firstError.error_data,
+                })
+              );
+            } else {
+              console.log(`[Webhook] WhatsApp status update to ${recipientPhone}: ${messageStatus}`);
+            }
 
             if (supabase) {
               const cleanPhone = recipientPhone.replace(/\D/g, '');
