@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { waitUntil } from '@vercel/functions';
 import { MessagingService } from '@/lib/messaging/service';
+import { buildConsultantTargets, isConsultantAudience } from '@/lib/consultantTargets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -65,6 +65,47 @@ export async function POST(req: NextRequest) {
     };
 
     let targets: any[] = [];
+
+    if (isConsultantAudience(activeFilters) || body.audience === 'consultants') {
+      const consultantFilters = {
+        ...(activeFilters || {}),
+        audience: 'consultants',
+        ...(body.audience === 'consultants' && !activeFilters?.audience ? (filters || {}) : {}),
+      };
+      const { data: partners } = await supabase.from('partners').select('*');
+      const { data: partnerUsers } = await supabase.from('partner_users').select('*');
+      targets = buildConsultantTargets(partners || [], partnerUsers || [], consultantFilters);
+
+      if (!targets.length) {
+        return NextResponse.json({ success: true, targetsCount: 0, message: 'No consultants matched this group or extra numbers.' });
+      }
+
+      if (scheduledTime) {
+        console.log(`[Campaign API] Scheduling consultant campaign for ${scheduledTime} on ${targets.length} targets`);
+        return NextResponse.json({
+          success: true,
+          targetsCount: targets.length,
+          message: `Campaign scheduled successfully to launch at ${new Date(scheduledTime).toLocaleString()}`
+        });
+      }
+
+      const results = await processCampaignBroadcast({
+        targets,
+        templateName,
+        variables,
+        tenantId,
+        skipLeadHistory: true,
+      });
+
+      return NextResponse.json({
+        success: true,
+        targetsCount: targets.length,
+        sentCount: results.sentCount,
+        failedCount: results.failedCount,
+        message: `Consultant campaign completed! Sent: ${results.sentCount}, Failed: ${results.failedCount}`
+      });
+    }
+
     const hasDyn = hasDynamicFilters(activeFilters);
 
     if (activeFilters) {
@@ -150,7 +191,8 @@ export async function POST(req: NextRequest) {
       targets,
       templateName,
       variables,
-      tenantId
+      tenantId,
+      skipLeadHistory: false,
     });
 
     return NextResponse.json({ 
@@ -167,11 +209,12 @@ export async function POST(req: NextRequest) {
 }
 
 // Worker function to deliver template messages to filtered leads
-async function processCampaignBroadcast({ targets, templateName, variables, tenantId }: {
+async function processCampaignBroadcast({ targets, templateName, variables, tenantId, skipLeadHistory = false }: {
   targets: any[];
   templateName: string;
   variables: string[];
   tenantId: string;
+  skipLeadHistory?: boolean;
 }): Promise<{ sentCount: number; failedCount: number }> {
   let sentCount = 0;
   let failedCount = 0;
@@ -204,7 +247,11 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         // Build parameters values array based on variable selection mappings
         const paramValues: string[] = [];
         variables.forEach((v: string) => {
-          if (v === 'name') paramValues.push(lead.name || '');
+          if (v === 'name') paramValues.push(lead.name || lead.primary_contact_name || '');
+          else if (v === 'agency' || v === 'business_name') paramValues.push(lead.business_name || '');
+          else if (v === 'email') paramValues.push(lead.email || '');
+          else if (v === 'phone') paramValues.push(lead.phone || lead.whatsapp_number || '');
+          else if (v === 'partner_level' || v === 'tier') paramValues.push(lead.partner_level || '');
           else if (v === 'course') paramValues.push(lead.course || 'MBBS');
           else if (v === 'preferred_destination') paramValues.push(lead.preferred_destination || '');
           else if (v === 'budget') paramValues.push(lead.budget ? `\u20B9${lead.budget}` : '');
@@ -230,25 +277,23 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
           templateBody: templateBodyRaw
         });
 
-        // Insert history record
-        // sent_by_ai: false — campaign messages are human-initiated broadcasts,
-        // not Chitra AI replies. This ensures accurate history classification.
-        await supabase.from('whatsapp_history').insert({
-          lead_id: lead.id,
-          direction: 'outgoing',
-          message_text: compiledText || `[Sent template: ${templateName}]`,
-          status: status as any,
-          tenant_id: tenantId,
-          sent_by_ai: false
-        });
+        if (!skipLeadHistory && lead.id && !String(lead.id).startsWith('extra-')) {
+          await supabase.from('whatsapp_history').insert({
+            lead_id: lead.id,
+            direction: 'outgoing',
+            message_text: compiledText || `[Sent template: ${templateName}]`,
+            status: status as any,
+            tenant_id: tenantId,
+            sent_by_ai: false
+          });
 
-        // Add activity log
-        await supabase.from('activity_logs').insert({
-          lead_id: lead.id,
-          action_type: 'whatsapp_sent',
-          description: `Sent broadcast template message: "${templateName}"`,
-          tenant_id: tenantId
-        });
+          await supabase.from('activity_logs').insert({
+            lead_id: lead.id,
+            action_type: 'whatsapp_sent',
+            description: `Sent broadcast template message: "${templateName}"`,
+            tenant_id: tenantId
+          });
+        }
 
         sentCount++;
 
@@ -259,13 +304,15 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         failedCount++;
         
         // Log detailed failure state in history
-        await supabase.from('whatsapp_history').insert({
-          lead_id: lead.id,
-          direction: 'outgoing',
-          message_text: compiledText ? `${compiledText}\n\n[Error: ${sendErr.message}]` : `[Failed broadcast template: ${templateName} - ${sendErr.message}]`,
-          status: 'failed',
-          tenant_id: tenantId
-        });
+        if (!skipLeadHistory && lead.id && !String(lead.id).startsWith('extra-')) {
+          await supabase.from('whatsapp_history').insert({
+            lead_id: lead.id,
+            direction: 'outgoing',
+            message_text: compiledText ? `${compiledText}\n\n[Error: ${sendErr.message}]` : `[Failed broadcast template: ${templateName} - ${sendErr.message}]`,
+            status: 'failed',
+            tenant_id: tenantId
+          });
+        }
       }
     }
 

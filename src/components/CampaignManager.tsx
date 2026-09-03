@@ -4,15 +4,18 @@ import { supabase } from '@/lib/supabase';
 import { 
   Send, Users, Filter, Calendar, CheckCircle2, AlertCircle, 
   Play, Clock, RefreshCw, BarChart2, Check, UserCheck, MessageSquare,
-  Plus, Trash2, Edit3, X, ChevronRight 
+  Plus, Trash2, Edit3, X, ChevronRight
 } from 'lucide-react';
+import { buildConsultantTargets, isConsultantAudience, parseExtraPhones } from '@/lib/consultantTargets';
 
 export const CampaignManager: React.FC = () => {
   const { 
     leads, 
     whatsappTemplates, 
     tenantId, 
-    settings 
+    settings,
+    partners,
+    partnerUsers
   } = useData();
 
   // Tab State
@@ -39,6 +42,23 @@ export const CampaignManager: React.FC = () => {
   const [groupBudgetMax, setGroupBudgetMax] = useState('');
   const [groupLeadIds, setGroupLeadIds] = useState<string[]>([]);
   const [leadSearchQuery, setLeadSearchQuery] = useState('');
+  const [groupAudience, setGroupAudience] = useState<'leads' | 'consultants'>('leads');
+  const [groupIncludeAllConsultants, setGroupIncludeAllConsultants] = useState(true);
+  const [groupPartnerIds, setGroupPartnerIds] = useState<string[]>([]);
+  const [groupPartnerStatuses, setGroupPartnerStatuses] = useState<string[]>(['active']);
+  const [groupPartnerTiers, setGroupPartnerTiers] = useState<string[]>([]);
+  const [groupIncludeStaff, setGroupIncludeStaff] = useState(false);
+  const [groupExtraPhones, setGroupExtraPhones] = useState<{ phone: string; name?: string }[]>([]);
+  const [extraPhoneInput, setExtraPhoneInput] = useState('');
+  const [extraPhoneName, setExtraPhoneName] = useState('');
+  const [consultantSearch, setConsultantSearch] = useState('');
+
+  const [broadcastAudience, setBroadcastAudience] = useState<'leads' | 'consultants'>('leads');
+  const [manualConsultantStatus, setManualConsultantStatus] = useState('active');
+  const [manualIncludeStaff, setManualIncludeStaff] = useState(false);
+  const [manualExtraPhones, setManualExtraPhones] = useState<{ phone: string; name?: string }[]>([]);
+  const [manualExtraInput, setManualExtraInput] = useState('');
+  const [manualExtraName, setManualExtraName] = useState('');
 
   // Manual Broadcast Filters state
   const [filterStatus, setFilterStatus] = useState('all');
@@ -90,6 +110,9 @@ export const CampaignManager: React.FC = () => {
   // Calculate dynamic matching count for a specific filters object
   const calculateGroupCount = (filters: any) => {
     if (!filters) return 0;
+    if (isConsultantAudience(filters)) {
+      return buildConsultantTargets(partners, partnerUsers, filters).length;
+    }
 
     const hasDynamicFilters = (f: any) => {
       const hasStatuses = f.statuses && Array.isArray(f.statuses) && f.statuses.length > 0 && !f.statuses.includes('all');
@@ -166,6 +189,20 @@ export const CampaignManager: React.FC = () => {
     setMatchedLeadsCount(filtered.length);
   }, [leads, filterStatus, filterDestination, filterCourse, neetMin, budgetMax, targetTag]);
 
+  const manualConsultantFilters = {
+    audience: 'consultants' as const,
+    include_all: true,
+    partner_statuses: manualConsultantStatus === 'all' ? [] : [manualConsultantStatus],
+    include_staff: manualIncludeStaff,
+    extra_phones: manualExtraPhones,
+  };
+
+  const manualConsultantCount = buildConsultantTargets(partners, partnerUsers, manualConsultantFilters).length;
+
+  const targetingConsultants = targetGroupId
+    ? isConsultantAudience(groups.find(g => g.id === targetGroupId)?.filters)
+    : broadcastAudience === 'consultants';
+
   // Adjust personalization fields based on selected template's placeholders
   useEffect(() => {
     if (!selectedTemplateName) {
@@ -178,9 +215,12 @@ export const CampaignManager: React.FC = () => {
     const placeholderMatches = template.body.match(/\{\{[\w\d_]+\}\}/g) || [];
     const counts = placeholderMatches.length;
     
-    const initial = Array(counts).fill('').map((_, idx) => idx === 0 ? 'name' : 'course');
+    const initial = Array(counts).fill('').map((_, idx) => {
+      if (targetingConsultants) return idx === 0 ? 'name' : idx === 1 ? 'agency' : '';
+      return idx === 0 ? 'name' : 'course';
+    });
     setVariableMappings(initial);
-  }, [selectedTemplateName, whatsappTemplates]);
+  }, [selectedTemplateName, whatsappTemplates, targetingConsultants]);
 
   // Trigger double-check confirmation modal before launch
   const handleSubmitTrigger = (e: React.FormEvent) => {
@@ -194,7 +234,7 @@ export const CampaignManager: React.FC = () => {
       return;
     }
     if (targetGroupCount === 0) {
-      setCampaignError('No leads are matched with current filter selection.');
+      setCampaignError(targetingConsultants ? 'No consultants are matched with the current selection.' : 'No leads are matched with current filter selection.');
       return;
     }
     setCampaignError(null);
@@ -218,6 +258,9 @@ export const CampaignManager: React.FC = () => {
 
       if (targetGroupId) {
         payload.groupId = targetGroupId;
+      } else if (broadcastAudience === 'consultants') {
+        payload.audience = 'consultants';
+        payload.filters = manualConsultantFilters;
       } else {
         payload.filters = {
           status: filterStatus,
@@ -238,7 +281,10 @@ export const CampaignManager: React.FC = () => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to trigger campaign');
 
-      setCampaignStatus(`🚀 Campaign started successfully! Dispatched to ${data.targetsCount} target lead(s).`);
+      setCampaignStatus(
+        data.message ||
+        `🚀 Campaign started successfully! Dispatched to ${data.targetsCount} ${targetingConsultants ? 'consultant' : 'lead'}(s).`
+      );
       
       // Reset form states
       setSelectedTemplateName('');
@@ -264,15 +310,25 @@ export const CampaignManager: React.FC = () => {
         tenantId,
         name: groupName,
         description: groupDesc,
-        filters: {
-          statuses: groupStatuses,
-          destinations: groupDestinations,
-          courses: groupCourses,
-          tags: groupTags,
-          neet_marks_min: groupNeetMin || undefined,
-          budget_max: groupBudgetMax || undefined,
-          lead_ids: groupLeadIds
-        }
+        filters: groupAudience === 'consultants'
+          ? {
+              audience: 'consultants',
+              include_all: groupIncludeAllConsultants,
+              partner_ids: groupPartnerIds,
+              partner_statuses: groupPartnerStatuses,
+              partner_tiers: groupPartnerTiers,
+              include_staff: groupIncludeStaff,
+              extra_phones: groupExtraPhones,
+            }
+          : {
+              statuses: groupStatuses,
+              destinations: groupDestinations,
+              courses: groupCourses,
+              tags: groupTags,
+              neet_marks_min: groupNeetMin || undefined,
+              budget_max: groupBudgetMax || undefined,
+              lead_ids: groupLeadIds
+            }
       };
 
       const method = editingGroupId ? 'PUT' : 'POST';
@@ -295,6 +351,16 @@ export const CampaignManager: React.FC = () => {
         setGroupBudgetMax('');
         setGroupLeadIds([]);
         setLeadSearchQuery('');
+        setGroupAudience('leads');
+        setGroupIncludeAllConsultants(true);
+        setGroupPartnerIds([]);
+        setGroupPartnerStatuses(['active']);
+        setGroupPartnerTiers([]);
+        setGroupIncludeStaff(false);
+        setGroupExtraPhones([]);
+        setExtraPhoneInput('');
+        setExtraPhoneName('');
+        setConsultantSearch('');
         fetchGroups();
       }
     } catch (err) {
@@ -315,6 +381,17 @@ export const CampaignManager: React.FC = () => {
     setGroupBudgetMax(group.filters?.budget_max || '');
     setGroupLeadIds(group.filters?.lead_ids || []);
     setLeadSearchQuery('');
+    const isConsultant = isConsultantAudience(group.filters);
+    setGroupAudience(isConsultant ? 'consultants' : 'leads');
+    setGroupIncludeAllConsultants(group.filters?.include_all !== false);
+    setGroupPartnerIds(group.filters?.partner_ids || []);
+    setGroupPartnerStatuses(group.filters?.partner_statuses || (isConsultant ? ['active'] : []));
+    setGroupPartnerTiers(group.filters?.partner_tiers || []);
+    setGroupIncludeStaff(!!group.filters?.include_staff);
+    setGroupExtraPhones(group.filters?.extra_phones || []);
+    setExtraPhoneInput('');
+    setExtraPhoneName('');
+    setConsultantSearch('');
     setIsGroupModalOpen(true);
   };
 
@@ -343,7 +420,7 @@ export const CampaignManager: React.FC = () => {
 
   const targetGroupCount = targetGroupId 
     ? calculateGroupCount(groups.find(g => g.id === targetGroupId)?.filters) 
-    : matchedLeadsCount;
+    : targetingConsultants ? manualConsultantCount : matchedLeadsCount;
 
   return (
     <div className="space-y-6">
@@ -392,6 +469,26 @@ export const CampaignManager: React.FC = () => {
           {/* Left panel: Broadcast Form */}
           <div className="lg:col-span-2 bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm space-y-6 animate-fade-in">
             
+            {/* Audience toggle when not using a saved group */}
+            {!targetGroupId && (
+              <div className="flex rounded-xl bg-slate-100 dark:bg-zinc-900 p-1 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setBroadcastAudience('leads')}
+                  className={`flex-1 py-2.5 rounded-lg text-center transition-all cursor-pointer border-none ${broadcastAudience === 'leads' ? 'bg-white dark:bg-black shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 bg-transparent'}`}
+                >
+                  Student leads
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBroadcastAudience('consultants')}
+                  className={`flex-1 py-2.5 rounded-lg text-center transition-all cursor-pointer border-none ${broadcastAudience === 'consultants' ? 'bg-white dark:bg-black shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 bg-transparent'}`}
+                >
+                  Consultants
+                </button>
+              </div>
+            )}
+
             {/* If targeting a saved group */}
             {targetGroupId ? (
               <div className="space-y-4">
@@ -417,6 +514,52 @@ export const CampaignManager: React.FC = () => {
                   >
                     Use Manual Filters
                   </button>
+                </div>
+              </div>
+            ) : broadcastAudience === 'consultants' ? (
+              <div className="space-y-4">
+                <h3 className="font-extrabold text-sm uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
+                  <Users className="w-4 h-4 text-emerald-500" /> Consultant audience
+                </h3>
+                <p className="text-xs text-slate-500">WhatsApp numbers are pulled automatically from partner profiles. Add extra numbers if someone is not in the directory.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Partner status</label>
+                    <select value={manualConsultantStatus} onChange={(e) => setManualConsultantStatus(e.target.value)} className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 font-bold">
+                      <option value="active">Active consultants</option>
+                      <option value="pending">Pending</option>
+                      <option value="suspended">Suspended</option>
+                      <option value="all">All statuses</option>
+                    </select>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-zinc-300 mt-6">
+                    <input type="checkbox" checked={manualIncludeStaff} onChange={(e) => setManualIncludeStaff(e.target.checked)} />
+                    Also include staff phone numbers
+                  </label>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Add extra numbers</label>
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                    <input value={manualExtraName} onChange={(e) => setManualExtraName(e.target.value)} placeholder="Name (optional)" className="md:col-span-3 bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs outline-none" />
+                    <input value={manualExtraInput} onChange={(e) => setManualExtraInput(e.target.value)} placeholder="+91..., comma or line separated" className="md:col-span-7 bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs outline-none" />
+                    <button type="button" onClick={() => {
+                      const parsed = parseExtraPhones(manualExtraInput, manualExtraName);
+                      if (!parsed.length) return;
+                      setManualExtraPhones((prev) => [...prev, ...parsed]);
+                      setManualExtraInput('');
+                      setManualExtraName('');
+                    }} className="md:col-span-2 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer">Add</button>
+                  </div>
+                  {manualExtraPhones.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {manualExtraPhones.map((p, idx) => (
+                        <span key={`${p.phone}-${idx}`} className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-full text-[11px] font-bold">
+                          {p.name ? `${p.name} · ${p.phone}` : p.phone}
+                          <button type="button" onClick={() => setManualExtraPhones((prev) => prev.filter((_, i) => i !== idx))} className="text-slate-400 hover:text-rose-500">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -528,10 +671,21 @@ export const CampaignManager: React.FC = () => {
                             }} 
                             className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs text-slate-800 dark:text-white outline-none focus:border-emerald-500 font-bold"
                           >
-                            <option value="name">Candidate Full Name (lead.name)</option>
-                            <option value="course">Selected Course (lead.course)</option>
-                            <option value="preferred_destination">Preferred Country (lead.preferred_destination)</option>
-                            <option value="budget">Candidate Budget (lead.budget)</option>
+                            <option value="name">{targetingConsultants ? 'Consultant name' : 'Candidate Full Name (lead.name)'}</option>
+                            {targetingConsultants ? (
+                              <>
+                                <option value="agency">Agency name</option>
+                                <option value="email">Email</option>
+                                <option value="phone">Phone</option>
+                                <option value="partner_level">Partner tier</option>
+                              </>
+                            ) : (
+                              <>
+                                <option value="course">Selected Course (lead.course)</option>
+                                <option value="preferred_destination">Preferred Country (lead.preferred_destination)</option>
+                                <option value="budget">Candidate Budget (lead.budget)</option>
+                              </>
+                            )}
                             <option value="custom">✍️ Custom Text / Link</option>
                           </select>
                           
@@ -599,7 +753,7 @@ export const CampaignManager: React.FC = () => {
               <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">Total Targets</h4>
               <div className="flex items-baseline justify-center gap-1.5">
                 <span className="text-5xl font-black text-slate-800 dark:text-white tracking-tight">{targetGroupCount}</span>
-                <span className="text-xs font-bold text-slate-400 font-bold">lead(s)</span>
+                <span className="text-xs font-bold text-slate-400 font-bold">{targetingConsultants ? 'consultant(s)' : 'lead(s)'}</span>
               </div>
               <p className="text-[10px] text-slate-400 leading-normal px-2">Matches current active filter selections dynamically evaluated from your database</p>
             </div>
@@ -631,8 +785,9 @@ export const CampaignManager: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-extrabold text-sm uppercase tracking-wider text-slate-800 dark:text-white">Active Segment Groups</h3>
-              <p className="text-xs text-slate-400 mt-1 font-medium">Define lead categories dynamically using multi-select filter parameters</p>
+              <p className="text-xs text-slate-400 mt-1 font-medium">Save lead segments or consultant groups with auto-fetched WhatsApp numbers</p>
             </div>
+            <div className="flex gap-2">
             <button 
               onClick={() => {
                 setEditingGroupId(null);
@@ -646,27 +801,68 @@ export const CampaignManager: React.FC = () => {
                 setGroupBudgetMax('');
                 setGroupLeadIds([]);
                 setLeadSearchQuery('');
+                setGroupAudience('leads');
+                setGroupIncludeAllConsultants(true);
+                setGroupPartnerIds([]);
+                setGroupPartnerStatuses(['active']);
+                setGroupPartnerTiers([]);
+                setGroupIncludeStaff(false);
+                setGroupExtraPhones([]);
+                setIsGroupModalOpen(true);
+              }}
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 rounded-2xl text-xs font-bold tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Lead group
+            </button>
+            <button 
+              onClick={() => {
+                setEditingGroupId(null);
+                setGroupName('');
+                setGroupDesc('');
+                setGroupStatuses([]);
+                setGroupDestinations([]);
+                setGroupCourses([]);
+                setGroupTags([]);
+                setGroupNeetMin('');
+                setGroupBudgetMax('');
+                setGroupLeadIds([]);
+                setLeadSearchQuery('');
+                setGroupAudience('consultants');
+                setGroupIncludeAllConsultants(true);
+                setGroupPartnerIds([]);
+                setGroupPartnerStatuses(['active']);
+                setGroupPartnerTiers([]);
+                setGroupIncludeStaff(false);
+                setGroupExtraPhones([]);
+                setExtraPhoneInput('');
+                setExtraPhoneName('');
+                setConsultantSearch('');
                 setIsGroupModalOpen(true);
               }}
               className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold tracking-wider uppercase transition-all shadow-md shadow-emerald-600/10 flex items-center gap-2 cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> Create Group
+              <Plus className="w-4 h-4" /> Consultant group
             </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {groups.map(group => {
               const leadCount = calculateGroupCount(group.filters);
+              const consultantGroup = isConsultantAudience(group.filters);
               return (
                 <div key={group.id} className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-900 rounded-3xl p-6 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all group">
                   <div className="space-y-4">
                     <div className="flex justify-between items-start">
                       <div className="space-y-1">
+                        <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border ${consultantGroup ? 'text-indigo-600 border-indigo-200 bg-indigo-50 dark:bg-indigo-950/30' : 'text-slate-500 border-slate-200 bg-slate-50'}`}>
+                          {consultantGroup ? 'Consultants' : 'Leads'}
+                        </span>
                         <h4 className="font-extrabold text-sm text-slate-800 dark:text-white">{group.name}</h4>
                         <p className="text-xs text-slate-400 font-medium">{group.description || 'No description'}</p>
                       </div>
                       <div className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded-full text-xs font-black">
-                        {leadCount} leads
+                        {leadCount} {consultantGroup ? 'contacts' : 'leads'}
                       </div>
                     </div>
 
@@ -674,6 +870,26 @@ export const CampaignManager: React.FC = () => {
                     <div className="border-t border-slate-100 dark:border-zinc-900 pt-3 space-y-2">
                       <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">Filters Config</span>
                       <div className="flex flex-wrap gap-1">
+                        {consultantGroup && (
+                          <>
+                            <span className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-300 px-2 py-0.5 rounded text-[10px] font-bold">
+                              {group.filters?.include_all === false ? 'Picked consultants' : 'Auto-fetched numbers'}
+                            </span>
+                            {group.filters?.partner_statuses?.length > 0 && (
+                              <span className="bg-slate-50 dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded text-[10px] font-bold">
+                                Status: {group.filters.partner_statuses.join(', ')}
+                              </span>
+                            )}
+                            {group.filters?.include_staff && (
+                              <span className="bg-slate-50 dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded text-[10px] font-bold">Includes staff</span>
+                            )}
+                            {group.filters?.extra_phones?.length > 0 && (
+                              <span className="bg-slate-50 dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded text-[10px] font-bold">
+                                +{group.filters.extra_phones.length} extra
+                              </span>
+                            )}
+                          </>
+                        )}
                         {group.filters?.statuses?.length > 0 && (
                           <span className="bg-slate-50 dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded text-[10px] font-bold">
                             Stage: {group.filters.statuses.join(', ')}
@@ -753,8 +969,8 @@ export const CampaignManager: React.FC = () => {
             
             {/* Modal Header */}
             <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 dark:border-zinc-900 sticky top-0 bg-white dark:bg-zinc-950 z-10">
-              <h3 className="font-extrabold text-sm uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
-                <Users className="w-5 h-5 text-emerald-500" /> {editingGroupId ? 'Modify Saved Segment' : 'Create Messaging Group'}
+                <h3 className="font-extrabold text-sm uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
+                <Users className="w-5 h-5 text-emerald-500" /> {editingGroupId ? 'Modify Saved Segment' : groupAudience === 'consultants' ? 'Create Consultant Group' : 'Create Messaging Group'}
               </h3>
               <button 
                 onClick={() => setIsGroupModalOpen(false)}
@@ -766,6 +982,11 @@ export const CampaignManager: React.FC = () => {
 
             <form onSubmit={handleSaveGroup} className="p-6 space-y-6 flex-1">
               
+              <div className="flex rounded-xl bg-slate-100 dark:bg-zinc-900 p-1 text-[11px] font-bold">
+                <button type="button" onClick={() => setGroupAudience('leads')} className={`flex-1 py-2.5 rounded-lg cursor-pointer border-none ${groupAudience === 'leads' ? 'bg-white dark:bg-black shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 bg-transparent'}`}>Student leads</button>
+                <button type="button" onClick={() => setGroupAudience('consultants')} className={`flex-1 py-2.5 rounded-lg cursor-pointer border-none ${groupAudience === 'consultants' ? 'bg-white dark:bg-black shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 bg-transparent'}`}>Consultants</button>
+              </div>
+
               {/* Basic Fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -791,6 +1012,8 @@ export const CampaignManager: React.FC = () => {
                 </div>
               </div>
 
+              {groupAudience === 'leads' && (
+              <>
               {/* RLS/Multi-select Badge Pickers */}
               <div className="space-y-4 border-t border-slate-100 dark:border-zinc-900 pt-4">
                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Multi-Select Filtering Specifications</span>
@@ -1024,6 +1247,102 @@ export const CampaignManager: React.FC = () => {
                   )}
                 </div>
               </div>
+              </>
+              )}
+
+              {groupAudience === 'consultants' && (
+                <div className="space-y-4 border-t border-slate-100 dark:border-zinc-900 pt-4">
+                  <p className="text-xs text-slate-500 font-medium">Consultant WhatsApp numbers are fetched from partner profiles automatically. You can narrow the list and paste extra numbers that are not in the directory.</p>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-zinc-200">
+                    <input type="checkbox" checked={groupIncludeAllConsultants} onChange={(e) => setGroupIncludeAllConsultants(e.target.checked)} />
+                    Include all matching consultants (auto-fetch)
+                  </label>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Partner status</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['active', 'pending', 'suspended'].map((st) => {
+                        const isSelected = groupPartnerStatuses.includes(st);
+                        return (
+                          <button key={st} type="button" onClick={() => setGroupPartnerStatuses(isSelected ? groupPartnerStatuses.filter(s => s !== st) : [...groupPartnerStatuses, st])} className={`px-3 py-1.5 rounded-full text-xs font-bold border cursor-pointer ${isSelected ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-600'}`}>{st}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Partner tier (optional)</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'].map((tier) => {
+                        const isSelected = groupPartnerTiers.includes(tier);
+                        return (
+                          <button key={tier} type="button" onClick={() => setGroupPartnerTiers(isSelected ? groupPartnerTiers.filter(t => t !== tier) : [...groupPartnerTiers, tier])} className={`px-3 py-1.5 rounded-full text-xs font-bold border cursor-pointer ${isSelected ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-600'}`}>{tier}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-zinc-200">
+                    <input type="checkbox" checked={groupIncludeStaff} onChange={(e) => setGroupIncludeStaff(e.target.checked)} />
+                    Also include agency staff numbers
+                  </label>
+                  {!groupIncludeAllConsultants && (
+                    <div className="space-y-2">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pick consultants</label>
+                      <input value={consultantSearch} onChange={(e) => setConsultantSearch(e.target.value)} placeholder="Search agency or contact..." className="w-full bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs outline-none" />
+                      <div className="max-h-44 overflow-y-auto border border-slate-200 dark:border-zinc-900 rounded-xl divide-y divide-slate-100 dark:divide-zinc-900">
+                        {partners.filter((p: any) => {
+                          const q = consultantSearch.toLowerCase();
+                          const hay = `${p.business_name} ${p.primary_contact_name} ${p.phone} ${p.whatsapp_number || ''}`.toLowerCase();
+                          return !q || hay.includes(q);
+                        }).map((p: any) => {
+                          const phone = p.whatsapp_number || p.phone;
+                          const checked = groupPartnerIds.includes(p.id);
+                          return (
+                            <label key={p.id} className="flex items-center gap-2 px-3 py-2 text-xs cursor-pointer">
+                              <input type="checkbox" checked={checked} disabled={!phone} onChange={() => setGroupPartnerIds(checked ? groupPartnerIds.filter(id => id !== p.id) : [...groupPartnerIds, p.id])} />
+                              <span className="flex-1 font-bold text-slate-700 dark:text-zinc-200 truncate">{p.business_name}</span>
+                              <span className="text-slate-400 font-mono">{phone || 'No number'}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Add extra numbers</label>
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                      <input value={extraPhoneName} onChange={(e) => setExtraPhoneName(e.target.value)} placeholder="Name (optional)" className="md:col-span-3 bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs outline-none" />
+                      <input value={extraPhoneInput} onChange={(e) => setExtraPhoneInput(e.target.value)} placeholder="+91 9xxxxxxxxx, comma or line separated" className="md:col-span-7 bg-slate-50 dark:bg-black border border-slate-200 dark:border-zinc-900 rounded-xl p-3 text-xs outline-none" />
+                      <button type="button" onClick={() => {
+                        const parsed = parseExtraPhones(extraPhoneInput, extraPhoneName);
+                        if (!parsed.length) return;
+                        setGroupExtraPhones((prev) => [...prev, ...parsed]);
+                        setExtraPhoneInput('');
+                        setExtraPhoneName('');
+                      }} className="md:col-span-2 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer">Add</button>
+                    </div>
+                    {groupExtraPhones.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {groupExtraPhones.map((p, idx) => (
+                          <span key={`${p.phone}-${idx}`} className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full text-[11px] font-bold">
+                            {p.name ? `${p.name} · ${p.phone}` : p.phone}
+                            <button type="button" onClick={() => setGroupExtraPhones((prev) => prev.filter((_, i) => i !== idx))}>×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] font-bold text-emerald-600">
+                    {buildConsultantTargets(partners, partnerUsers, {
+                      audience: 'consultants',
+                      include_all: groupIncludeAllConsultants,
+                      partner_ids: groupPartnerIds,
+                      partner_statuses: groupPartnerStatuses,
+                      partner_tiers: groupPartnerTiers,
+                      include_staff: groupIncludeStaff,
+                      extra_phones: groupExtraPhones,
+                    }).length} unique numbers in this group
+                  </p>
+                </div>
+              )}
 
               {/* Action buttons */}
               <div className="border-t border-slate-100 dark:border-zinc-900 pt-6 flex gap-3 justify-end sticky bottom-0 bg-white dark:bg-zinc-950 z-10 pb-2">
@@ -1075,16 +1394,18 @@ export const CampaignManager: React.FC = () => {
               <div className="flex justify-between items-center pt-0">
                 <span className="text-slate-400 font-semibold">Matched Audience</span>
                 <span className="font-extrabold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md">
-                  {targetGroupCount} lead(s) targeted
+                  {targetGroupCount} {targetingConsultants ? 'consultant(s)' : 'lead(s)'} targeted
                 </span>
               </div>
 
               <div className="flex justify-between items-start pt-3">
                 <span className="text-slate-400 font-semibold flex-shrink-0">Target Criteria</span>
                 <span className="font-bold text-slate-700 dark:text-zinc-300 text-right">
-                  {targetGroupId 
-                    ? `Group: ${groups.find(g => g.id === targetGroupId)?.name}` 
-                    : `Filters: Status [${filterStatus}], Destination [${filterDestination}], Course [${filterCourse}]`
+                  {targetGroupId
+                    ? `Group: ${groups.find(g => g.id === targetGroupId)?.name}`
+                    : targetingConsultants
+                      ? `Consultants [${manualConsultantStatus}]${manualIncludeStaff ? ' + staff' : ''}${manualExtraPhones.length ? ` + ${manualExtraPhones.length} extra` : ''}`
+                      : `Filters: Status [${filterStatus}], Destination [${filterDestination}], Course [${filterCourse}]`
                   }
                 </span>
               </div>
@@ -1102,7 +1423,7 @@ export const CampaignManager: React.FC = () => {
                   <div className="grid grid-cols-2 gap-1.5 pl-2">
                     {variableMappings.map((mapping, idx) => (
                       <div key={idx} className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">
-                        {`{{${idx + 1}}}`} → {mapping.startsWith('custom:') ? mapping.substring(7) : `lead.${mapping}`}
+                        {`{{${idx + 1}}}`} → {mapping.startsWith('custom:') ? mapping.substring(7) : targetingConsultants ? mapping : `lead.${mapping}`}
                       </div>
                     ))}
                   </div>
