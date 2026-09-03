@@ -14,7 +14,7 @@ export interface SendMessageOptions {
 }
 
 export interface IMessagingProvider {
-  sendMessage(options: SendMessageOptions): Promise<{ messageId: string; status: string }>;
+  sendMessage(options: SendMessageOptions): Promise<{ messageId: string; status: string; to?: string }>;
   syncTemplates(): Promise<WhatsAppTemplate[]>;
   createTemplate(template: Omit<WhatsAppTemplate, 'id' | 'created_at'>): Promise<WhatsAppTemplate>;
   deleteTemplate(templateName: string): Promise<boolean>;

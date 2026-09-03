@@ -4,6 +4,44 @@ import { MessagingService } from '@/lib/messaging/service';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const HEADER_BUCKET = 'whatsapp_attachments';
+
+function isPublicImageUrl(url?: string | null): boolean {
+  const value = String(url || '').trim();
+  return /^https:\/\//i.test(value) && !value.includes('scontent.') && !value.includes('lookaside.fbsbx.com');
+}
+
+async function cacheMetaHeaderImage(
+  supabase: ReturnType<typeof createClient>,
+  templateName: string,
+  headerUrl?: string
+): Promise<string | null> {
+  if (!headerUrl || !/^https:\/\//i.test(headerUrl)) return null;
+  try {
+    const res = await fetch(headerUrl, { redirect: 'follow' });
+    if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+    if (!contentType.startsWith('image/')) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 2000) return null;
+    const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+    const fileKey = `meta-headers/${templateName.replace(/[^a-z0-9_]+/gi, '_')}.${ext}`;
+    const upload = await supabase.storage.from(HEADER_BUCKET).upload(fileKey, buf, {
+      upsert: true,
+      contentType,
+      cacheControl: '86400',
+    });
+    if (upload.error) {
+      console.warn(`[Templates API] Could not cache header for ${templateName}:`, upload.error.message);
+      return null;
+    }
+    const { data } = supabase.storage.from(HEADER_BUCKET).getPublicUrl(fileKey);
+    return data.publicUrl || null;
+  } catch (err: any) {
+    console.warn(`[Templates API] Header download failed for ${templateName}:`, err.message);
+    return null;
+  }
+}
 
 // GET /api/whatsapp/templates — sync templates from Meta and return local list
 export async function GET(req: NextRequest) {
@@ -31,16 +69,26 @@ export async function GET(req: NextRequest) {
         .eq('tenant_id', tenantId);
       const localByName = new Map((existingLocal || []).map((t: any) => [t.name, t]));
 
-      const dbTemplates = metaTemplates.map(t => {
+      const dbTemplates = [];
+      for (const t of metaTemplates) {
         const existing = localByName.get(t.name);
-        return {
+        let attachmentUrl = t.attachment_url || existing?.attachment_url || null;
+        let attachmentName = t.attachment_name || existing?.attachment_name || null;
+        if (t.hasImageHeader && !isPublicImageUrl(attachmentUrl)) {
+          const cached = await cacheMetaHeaderImage(supabase, t.name, t.headerImageUrl);
+          if (cached) {
+            attachmentUrl = cached;
+            attachmentName = attachmentName || `${t.name}-header`;
+          }
+        }
+        dbTemplates.push({
           name: t.name,
           body: t.body,
-          attachment_url: t.attachment_url || existing?.attachment_url || null,
-          attachment_name: t.attachment_name || existing?.attachment_name || null,
+          attachment_url: attachmentUrl,
+          attachment_name: attachmentName,
           tenant_id: tenantId,
-        };
-      });
+        });
+      }
 
       // In multi-tenant settings, we try to upsert based on (name, tenant_id)
       let { error: upsertErr } = await supabase
@@ -105,7 +153,17 @@ export async function GET(req: NextRequest) {
 
     if (fetchErr) throw new Error(fetchErr.message);
 
-    return NextResponse.json({ success: true, templates: localTemplates || [] });
+    const metaByName = new Map(metaTemplates.map((t) => [t.name, t]));
+    const templates = (localTemplates || []).map((t: any) => {
+      const meta = metaByName.get(t.name);
+      return {
+        ...t,
+        has_image_header: !!meta?.hasImageHeader || !!t.attachment_url,
+        header_format: meta?.headerFormat || null,
+      };
+    });
+
+    return NextResponse.json({ success: true, templates });
   } catch (error: any) {
     console.error('[Templates API] GET Error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });

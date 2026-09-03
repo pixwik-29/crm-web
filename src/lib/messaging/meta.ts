@@ -7,7 +7,7 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
   private cachedTemplates: WhatsAppTemplate[] | null = null;
   private lastSyncTime: number = 0;
   private CACHE_TTL_MS: number = 5 * 60 * 1000; // 5 minute cache
-  private DEFAULT_HEADER_IMAGE = 'https://partner.perfectscholar.com/logo.png';
+  private DEFAULT_HEADER_IMAGE = 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&q=80';
 
   constructor(apiToken: string, phoneId: string, accountId: string) {
     this.apiToken = apiToken;
@@ -123,20 +123,16 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     return components;
   }
 
-  async sendMessage(options: SendMessageOptions): Promise<{ messageId: string; status: string }> {
+  async sendMessage(options: SendMessageOptions): Promise<{ messageId: string; status: string; to?: string }> {
     const url = `https://graph.facebook.com/v19.0/${this.phoneId}/messages`;
 
-    // Sanitize recipient phone number for Meta WhatsApp Cloud API (E.164 format)
+    // Sanitize recipient phone number for Meta WhatsApp Cloud API (E.164 digits only)
     let cleanTo = String(options.to || '').replace(/[^0-9]/g, '');
-    if (cleanTo.startsWith('00')) {
-      cleanTo = cleanTo.substring(2);
-    }
-    if (cleanTo.startsWith('0') && cleanTo.length === 11) {
-      cleanTo = cleanTo.substring(1);
-    }
-    if (cleanTo.length === 10 && /^[6-9]/.test(cleanTo)) {
-      cleanTo = '91' + cleanTo;
-    }
+    if (cleanTo.startsWith('00')) cleanTo = cleanTo.substring(2);
+    if (cleanTo.startsWith('910') && cleanTo.length === 13) cleanTo = '91' + cleanTo.substring(3);
+    if (cleanTo.startsWith('0') && cleanTo.length === 11) cleanTo = cleanTo.substring(1);
+    if (cleanTo.length === 11 && cleanTo.startsWith('0')) cleanTo = cleanTo.substring(1);
+    if (cleanTo.length === 10 && /^[6-9]/.test(cleanTo)) cleanTo = '91' + cleanTo;
 
     let body: any = {
       messaging_product: 'whatsapp',
@@ -309,7 +305,8 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
 
     return {
       messageId: resData.messages?.[0]?.id || `wamid-mock-${Date.now()}`,
-      status: 'sent'
+      status: 'sent',
+      to: cleanTo,
     };
   }
 
