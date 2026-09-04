@@ -23,12 +23,35 @@ const IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp
 const DOC_MIMES = new Set(['application/pdf']);
 
 export function extractIncomingWhatsAppContent(message: any): IncomingWhatsAppContent {
-  const type = String(message?.type || 'text');
+  const type = String(message?.type || 'text').toLowerCase().trim();
   const links: string[] = [];
   const collect = (text: string) => {
     const found = String(text || '').match(/https?:\/\/[^\s<>\]]+/gi) || [];
     links.push(...found.map((u) => u.replace(/[),.;]+$/g, '')));
   };
+
+  const flowBody = (() => {
+    const raw = message?.interactive?.nfm_reply?.response_json;
+    if (!raw) return '';
+    if (typeof raw === 'string') return raw.trim();
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return '';
+    }
+  })();
+
+  const buttonLabel = [
+    message?.button?.text,
+    message?.interactive?.button_reply?.title,
+    message?.interactive?.list_reply?.title,
+    message?.interactive?.list_reply?.description,
+    message?.interactive?.nfm_reply?.body,
+    message?.interactive?.nfm_reply?.name,
+    flowBody,
+    message?.button?.payload,
+    message?.interactive?.button_reply?.id,
+  ].map((value) => String(value || '').trim()).find(Boolean);
 
   if (type === 'text') {
     const body = message.text?.body || '';
@@ -94,9 +117,21 @@ export function extractIncomingWhatsAppContent(message: any): IncomingWhatsAppCo
     const names = (message.contacts || []).map((c: any) => c.name?.formatted_name).filter(Boolean).join(', ');
     return { messageText: `[Contact card] ${names || 'shared'}`.trim(), links };
   }
-  if (type === 'button' || type === 'interactive') {
-    const body = message.button?.text || message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || '';
-    return { messageText: body || `[Interactive ${type} reply]`, links };
+  if (
+    type === 'button' ||
+    type === 'interactive' ||
+    type === 'quick_reply' ||
+    message?.button ||
+    message?.interactive
+  ) {
+    collect(buttonLabel || '');
+    return { messageText: buttonLabel || 'Button tapped', links };
+  }
+  if (type === 'reaction') {
+    return { messageText: message.reaction?.emoji ? `Reacted ${message.reaction.emoji}` : '[Reaction]', links };
+  }
+  if (buttonLabel) {
+    return { messageText: buttonLabel, links };
   }
 
   return { messageText: `[Received WhatsApp ${type} message]`, links };
