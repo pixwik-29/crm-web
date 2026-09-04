@@ -306,46 +306,59 @@ export const SharedInbox: React.FC = () => {
       const targetPhone = activeLead.whatsapp_number || activeLead.phone || '';
       if (!targetPhone) throw new Error('Lead has no WhatsApp/phone number.');
 
-      // 3. Upload any attached file so Meta receives a public URL / media ID
-      let mediaUrl: string | undefined;
-      let mediaName: string | undefined;
+      // 3. Send the file itself to WhatsApp (media ID), not a Supabase link
       let sendType: 'template' | 'text' | 'image' | 'document' | 'video' = selectedTemplateId ? 'template' : 'text';
-
       if (selectedFile && !selectedTemplateId) {
-        const uploaded = await uploadAttachment(selectedFile);
-        mediaUrl = uploaded.url;
-        mediaName = uploaded.name;
         const mime = String(selectedFile.type || '').toLowerCase();
         const name = selectedFile.name.toLowerCase();
-        if (mime.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(name)) sendType = 'image';
+        if (mime.startsWith('image/') || /\.(jpg|jpeg|png|gif)$/i.test(name)) sendType = 'image';
         else if (mime.startsWith('video/') || /\.(mp4|3gp|mov)$/i.test(name)) sendType = 'video';
         else sendType = 'document';
       }
 
-      const payload: any = {
-        tenantId,
-        to: targetPhone,
-        type: sendType,
-        message: messageContent,
-        mediaUrl,
-        mediaName,
-      };
-
-      if (selectedTemplateId) {
-        const tpl = whatsappTemplates.find(t => t.id === selectedTemplateId);
-        payload.templateName = tpl?.name;
+      let response: Response;
+      if (selectedFile && !selectedTemplateId) {
+        const form = new FormData();
+        form.append('tenantId', tenantId);
+        form.append('to', targetPhone);
+        form.append('type', sendType);
+        form.append('message', messageContent);
+        form.append('file', selectedFile);
+        response = await fetch('/api/whatsapp/send', { method: 'POST', body: form });
+      } else {
+        const payload: any = {
+          tenantId,
+          to: targetPhone,
+          type: sendType,
+          message: messageContent,
+        };
+        if (selectedTemplateId) {
+          const tpl = whatsappTemplates.find(t => t.id === selectedTemplateId);
+          payload.templateName = tpl?.name;
+        }
+        response = await fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
       }
-
-      const response = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
 
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to send message');
 
-      const historyText = [messageContent.trim(), mediaUrl].filter(Boolean).join('\n') || `[Attachment: ${mediaName || 'file'}]`;
+      let archiveUrl = '';
+      if (selectedFile) {
+        try {
+          const uploaded = await uploadAttachment(selectedFile);
+          archiveUrl = uploaded.url;
+        } catch (archiveErr: any) {
+          console.warn('[Inbox] Saved to WhatsApp but could not archive file in CRM storage:', archiveErr?.message);
+        }
+      }
+      const historyText = [
+        messageContent.trim(),
+        archiveUrl || (selectedFile ? selectedFile.name : ''),
+      ].filter(Boolean).join('\n') || '[Attachment]';
 
       // 4. Write to whatsapp_history DB
       // sent_by_ai: false — this is a human agent reply, which will pause Chitra's
@@ -541,19 +554,30 @@ export const SharedInbox: React.FC = () => {
                   return (
                     <div key={message.id} className={`flex ${isOutgoing ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[70%] rounded-2xl p-3 shadow-sm text-xs leading-relaxed space-y-1 ${isOutgoing ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-white dark:bg-zinc-900 text-slate-800 dark:text-white rounded-tl-none border border-slate-100 dark:border-zinc-800'}`}>
-                        <p className="whitespace-pre-wrap break-words">
+                        <div className="whitespace-pre-wrap break-words space-y-1">
                           {String(message.message_text || '').split(/(https?:\/\/[^\s]+)/g).map((part, idx) => {
-                            if (!/^https?:\/\//i.test(part)) return <span key={idx}>{part}</span>;
+                            if (!part) return null;
+                            if (!/^https?:\/\//i.test(part)) {
+                              return <span key={idx}>{part}</span>;
+                            }
                             if (/\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(part)) {
                               return <img key={idx} src={part} alt="" className="max-w-full rounded-lg my-1" />;
                             }
+                            const filename = decodeURIComponent(part.split('/').pop()?.split('?')[0] || 'File');
                             return (
-                              <a key={idx} href={part} target="_blank" rel="noreferrer" className={`underline break-all ${isOutgoing ? 'text-white' : 'text-emerald-700 dark:text-emerald-400'}`}>
-                                {part}
+                              <a
+                                key={idx}
+                                href={part}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`mt-1 flex items-center gap-2 rounded-lg px-2 py-1.5 no-underline ${isOutgoing ? 'bg-white/15 text-white' : 'bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-white'}`}
+                              >
+                                <Paperclip className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span className="truncate font-semibold">{filename}</span>
                               </a>
                             );
                           })}
-                        </p>
+                        </div>
                         
                         <div className="flex justify-end items-center gap-1 text-[9px] opacity-75">
                           <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>

@@ -342,20 +342,47 @@ export async function sendWhatsAppAutoReply({
     to,
   };
 
+  const uploadMedia = async (url: string, mime: string, filename: string): Promise<string | null> => {
+    try {
+      const fileRes = await fetch(url);
+      if (!fileRes.ok) return null;
+      const buf = Buffer.from(await fileRes.arrayBuffer());
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('type', mime);
+      form.append('file', new Blob([new Uint8Array(buf)], { type: mime }), filename);
+      const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiToken}` },
+        body: form,
+      });
+      const data = await res.json();
+      return data.id ? String(data.id) : null;
+    } catch {
+      return null;
+    }
+  };
+
   if (imageUrl) {
+    const mediaId = await uploadMedia(imageUrl, 'image/jpeg', 'image.jpg');
     const media = await send({
       ...base,
       type: 'image',
-      image: { link: imageUrl, caption: text.slice(0, 1024) || undefined },
+      image: mediaId
+        ? { id: mediaId, caption: text.slice(0, 1024) || undefined }
+        : { link: imageUrl, caption: text.slice(0, 1024) || undefined },
     });
     if (media.ok) return media;
   }
 
   if (documentUrl) {
+    const mediaId = await uploadMedia(documentUrl, 'application/pdf', 'document.pdf');
     const media = await send({
       ...base,
       type: 'document',
-      document: { link: documentUrl, filename: 'document.pdf', caption: text.slice(0, 1024) || undefined },
+      document: mediaId
+        ? { id: mediaId, filename: 'document.pdf', caption: text.slice(0, 1024) || undefined }
+        : { link: documentUrl, filename: 'document.pdf', caption: text.slice(0, 1024) || undefined },
     });
     if (media.ok) return media;
   }

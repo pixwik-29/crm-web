@@ -5,6 +5,9 @@ export interface SendMessageOptions {
   templateName?: string;
   mediaUrl?: string;
   mediaName?: string;
+  mediaId?: string;
+  mediaMime?: string;
+  mediaBytes?: Buffer;
   latitude?: number;
   longitude?: number;
   contactName?: string;

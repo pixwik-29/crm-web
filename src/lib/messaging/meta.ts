@@ -111,19 +111,38 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     options: SendMessageOptions,
     kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'
   ): Promise<Record<string, any>> {
-    const url = this.publicMediaUrl(options.mediaUrl);
-    if (!url) {
-      throw new Error('WhatsApp needs a public file URL or media ID. Upload the PDF/image again and retry.');
+    const filename = options.mediaName || (kind === 'DOCUMENT' ? 'document.pdf' : kind === 'IMAGE' ? 'image.jpg' : 'video.mp4');
+    const caption = options.text ? String(options.text).slice(0, 1024) : undefined;
+    const payload: Record<string, any> = {};
+    if (kind === 'DOCUMENT') payload.filename = filename;
+    if (caption) payload.caption = caption;
+
+    if (options.mediaId) {
+      payload.id = options.mediaId;
+      return payload;
     }
 
-    const filename = options.mediaName || (kind === 'DOCUMENT' ? 'document.pdf' : undefined);
-    const mediaId = await this.uploadMediaFromUrl(url, kind, filename);
-    const payload: Record<string, any> = {};
-    if (mediaId) payload.id = mediaId;
-    else payload.link = url;
-    if (filename && kind === 'DOCUMENT') payload.filename = filename;
-    if (options.text) payload.caption = String(options.text).slice(0, 1024);
-    return payload;
+    if (options.mediaBytes && options.mediaBytes.length > 0) {
+      const mime = options.mediaMime || (kind === 'DOCUMENT' ? 'application/pdf' : kind === 'IMAGE' ? 'image/jpeg' : 'video/mp4');
+      const mediaId = await this.uploadMediaBuffer(options.mediaBytes, mime, filename);
+      if (!mediaId) {
+        throw new Error('WhatsApp rejected the file upload. Use a PDF, JPEG, or PNG under the size limit.');
+      }
+      payload.id = mediaId;
+      return payload;
+    }
+
+    const url = this.publicMediaUrl(options.mediaUrl);
+    if (url) {
+      const mediaId = await this.uploadMediaFromUrl(url, kind, filename);
+      if (!mediaId) {
+        throw new Error('Could not send this as a WhatsApp file. Upload a PDF, JPEG, or PNG and try again.');
+      }
+      payload.id = mediaId;
+      return payload;
+    }
+
+    throw new Error('No file was attached.');
   }
 
   private async resolveHeaderMedia(

@@ -9,20 +9,99 @@ export const maxDuration = 60;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-function isPublicImageUrl(url?: string | null): boolean {
+function isPublicMediaUrl(url?: string | null): boolean {
   const value = String(url || '').trim();
   return /^https:\/\//i.test(value) && !value.includes('scontent.') && !value.includes('lookaside.fbsbx.com');
 }
 
-// POST /api/whatsapp/send — sends a single WhatsApp message to one lead
+function guessSendType(file: File | null, fallback: string): string {
+  if (!file) return fallback || 'text';
+  const mime = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  if (mime.startsWith('image/') || /\.(jpg|jpeg|png|gif)$/i.test(name)) return 'image';
+  if (mime.startsWith('video/') || /\.(mp4|3gp|mov)$/i.test(name)) return 'video';
+  return 'document';
+}
+
+async function parseSendRequest(req: NextRequest): Promise<{
+  tenantId: string;
+  to: string;
+  type: string;
+  message: string;
+  text?: string;
+  templateName?: string;
+  variables: string[];
+  templateBody?: string;
+  mediaUrl?: string;
+  mediaName?: string;
+  mediaMime?: string;
+  mediaBytes?: Buffer;
+  waitForDeliveryStatus: boolean;
+  logHistory: boolean;
+}> {
+  const contentType = req.headers.get('content-type') || '';
+  if (contentType.includes('multipart/form-data')) {
+    const form = await req.formData();
+    const fileValue = form.get('file');
+    const file = fileValue instanceof File ? fileValue : null;
+    const requestedType = String(form.get('type') || '');
+    return {
+      tenantId: String(form.get('tenantId') || ''),
+      to: String(form.get('to') || ''),
+      type: file ? guessSendType(file, requestedType) : (requestedType || 'text'),
+      message: String(form.get('message') || form.get('text') || ''),
+      templateName: String(form.get('templateName') || '') || undefined,
+      variables: [],
+      templateBody: String(form.get('templateBody') || '') || undefined,
+      mediaUrl: String(form.get('mediaUrl') || '') || undefined,
+      mediaName: file?.name || String(form.get('mediaName') || '') || undefined,
+      mediaMime: file?.type || undefined,
+      mediaBytes: file ? Buffer.from(await file.arrayBuffer()) : undefined,
+      waitForDeliveryStatus: String(form.get('waitForDeliveryStatus') || 'true') !== 'false',
+      logHistory: String(form.get('logHistory') || '') === 'true',
+    };
+  }
+
+  const body = await req.json();
+  return {
+    tenantId: body.tenantId || '',
+    to: body.to || '',
+    type: body.type || 'text',
+    message: body.message || '',
+    text: body.text,
+    templateName: body.templateName,
+    variables: Array.isArray(body.variables) ? body.variables : [],
+    templateBody: body.templateBody,
+    mediaUrl: body.mediaUrl,
+    mediaName: body.mediaName,
+    waitForDeliveryStatus: body.waitForDeliveryStatus !== false,
+    logHistory: !!body.logHistory,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId, to, type = 'text', message, text, templateName, variables = [], templateBody, mediaUrl, mediaName, waitForDeliveryStatus = true, logHistory = false } = await req.json();
+    const parsed = await parseSendRequest(req);
+    const {
+      tenantId,
+      to,
+      type,
+      message,
+      text,
+      templateName,
+      variables,
+      templateBody,
+      mediaName,
+      mediaMime,
+      mediaBytes,
+      waitForDeliveryStatus,
+      logHistory,
+    } = parsed;
 
     if (!tenantId) return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
     if (!to) return NextResponse.json({ error: 'to (phone number) is required' }, { status: 400 });
 
-    let resolvedMedia = isPublicImageUrl(mediaUrl) ? mediaUrl : undefined;
+    let resolvedMedia = isPublicMediaUrl(parsed.mediaUrl) ? parsed.mediaUrl : undefined;
     let resolvedBody = templateBody;
     const supabase = supabaseUrl && serviceKey ? createClient(supabaseUrl, serviceKey) : null;
 
@@ -33,15 +112,16 @@ export async function POST(req: NextRequest) {
         .eq('name', templateName)
         .eq('tenant_id', tenantId)
         .maybeSingle();
-      if (!resolvedMedia && isPublicImageUrl(templateRow?.attachment_url)) {
+      if (!resolvedMedia && isPublicMediaUrl(templateRow?.attachment_url)) {
         resolvedMedia = templateRow?.attachment_url;
       }
       if (!resolvedBody) resolvedBody = templateRow?.body || resolvedBody;
     }
 
-    if (!resolvedMedia && (type === 'document' || type === 'image' || type === 'video')) {
+    const needsFile = type === 'document' || type === 'image' || type === 'video';
+    if (needsFile && !mediaBytes?.length && !resolvedMedia) {
       return NextResponse.json({
-        error: 'This file could not be sent. Upload a PDF, image, or video and try again — WhatsApp needs a public file URL.',
+        error: 'Attach a PDF, image, or video. WhatsApp will receive it as a file, not a link.',
       }, { status: 400 });
     }
 
@@ -56,6 +136,8 @@ export async function POST(req: NextRequest) {
       templateBody: resolvedBody,
       mediaUrl: resolvedMedia,
       mediaName,
+      mediaMime,
+      mediaBytes,
     });
 
     if (supabase && result.messageId) {
