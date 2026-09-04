@@ -13,6 +13,7 @@ import {
   findConsultantByPhone,
   mediaUsableByGemini,
   sendWhatsAppAutoReply,
+  type ConsultantMatch,
 } from '@/lib/ai/whatsappAutoReply';
 
 function sanitizeWhatsAppText(text: string): string {
@@ -1508,7 +1509,7 @@ async function dispatchWhatsAppAiCounselorReply({
   senderName: string;
   tenantId: string;
   audience?: 'student' | 'consultant';
-  consultant?: { name: string; agency: string; level?: string; status?: string } | null;
+  consultant?: ConsultantMatch | null;
   incomingMediaId?: string;
   incomingMimeHint?: string;
 }) {
