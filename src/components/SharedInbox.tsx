@@ -55,6 +55,7 @@ export const SharedInbox: React.FC = () => {
 
   // Local optimistic state: messages added immediately after sending (before DB re-fetch)
   const [localHistory, setLocalHistory] = useState<any[]>([]);
+  const [threadHistory, setThreadHistory] = useState<any[]>([]);
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -64,7 +65,7 @@ export const SharedInbox: React.FC = () => {
     if (chatBottomRef.current) {
       chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [activeThreadId, whatsappHistory, localHistory]);
+  }, [activeThreadId, whatsappHistory, localHistory, threadHistory]);
 
   // Dedicated realtime subscription for incoming messages in this component
   // Handles both INSERT (new messages) and UPDATE (status changes: sent→delivered→read)
@@ -104,13 +105,38 @@ export const SharedInbox: React.FC = () => {
     };
   }, [tenantId]);
 
+  // Load this thread from the database so older messages are not dropped by the global inbox cap
+  useEffect(() => {
+    if (!activeThreadId || !supabase) {
+      setThreadHistory([]);
+      return;
+    }
+    let cancelled = false;
+    const loadThread = async () => {
+      const { data } = await supabase
+        .from('whatsapp_history')
+        .select('*')
+        .eq('lead_id', activeThreadId)
+        .order('created_at', { ascending: true });
+      if (!cancelled && data) setThreadHistory(data);
+    };
+    loadThread();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThreadId]);
+
   // Merge all messages: DataContext (DB) + localHistory (optimistic/realtime)
   // This unified pool is used for BOTH thread list previews AND chat panel
   const allMessages = React.useMemo(() => {
-    const dbIds = new Set(whatsappHistory.map(m => m.id));
-    const merged = [...whatsappHistory, ...localHistory.filter(m => !dbIds.has(m.id))];
-    return merged;
-  }, [whatsappHistory, localHistory]);
+    const byId = new Map<string, any>();
+    for (const message of [...whatsappHistory, ...threadHistory, ...localHistory]) {
+      if (!message) continue;
+      const key = message.id || `${message.lead_id}-${message.created_at}-${message.message_text}`;
+      byId.set(key, message);
+    }
+    return Array.from(byId.values());
+  }, [whatsappHistory, threadHistory, localHistory]);
 
   // Use the unified allMessages pool filtered to the active thread for the chat panel
   const activeChats = React.useMemo(() => {

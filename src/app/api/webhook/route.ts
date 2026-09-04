@@ -124,7 +124,17 @@ export async function POST(req: NextRequest) {
 
             const senderName = val.contacts?.[0]?.profile?.name || 'WhatsApp Contact';
 
-            console.log(`[Webhook] WhatsApp incoming message from ${senderPhone}: "${messageText}"`);
+            console.log(
+              '[Webhook] WhatsApp incoming message from',
+              senderPhone,
+              JSON.stringify({
+                type: messageType,
+                parsed: messageText,
+                keys: Object.keys(message || {}),
+                button: message.button || null,
+                interactive: message.interactive || null,
+              })
+            );
 
             // ── Spam / Marketing Filter ────────────────────────────────────────────
             // Check if this message is a marketing broadcast from another business.

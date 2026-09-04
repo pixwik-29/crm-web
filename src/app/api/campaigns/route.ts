@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { MessagingService } from '@/lib/messaging/service';
 import { buildConsultantTargets, isConsultantAudience } from '@/lib/consultantTargets';
+import { resolveLeadIdForWhatsAppHistory } from '@/lib/messaging/whatsappLead';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -94,7 +95,6 @@ export async function POST(req: NextRequest) {
         templateName,
         variables,
         tenantId,
-        skipLeadHistory: true,
       });
 
       return NextResponse.json({
@@ -192,7 +192,6 @@ export async function POST(req: NextRequest) {
       templateName,
       variables,
       tenantId,
-      skipLeadHistory: false,
     });
 
     return NextResponse.json({ 
@@ -209,12 +208,11 @@ export async function POST(req: NextRequest) {
 }
 
 // Worker function to deliver template messages to filtered leads
-async function processCampaignBroadcast({ targets, templateName, variables, tenantId, skipLeadHistory = false }: {
+async function processCampaignBroadcast({ targets, templateName, variables, tenantId }: {
   targets: any[];
   templateName: string;
   variables: string[];
   tenantId: string;
-  skipLeadHistory?: boolean;
 }): Promise<{ sentCount: number; failedCount: number }> {
   let sentCount = 0;
   let failedCount = 0;
@@ -280,9 +278,20 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
           mediaUrl: templateMediaUrl || undefined,
         });
 
-        if (!skipLeadHistory && lead.id && !String(lead.id).startsWith('extra-')) {
+        if (status as any === 'failed' || !messageId || String(messageId).startsWith('wamid-mock-')) {
+          throw new Error('Meta did not queue a real WhatsApp message');
+        }
+
+        const historyLeadId = await resolveLeadIdForWhatsAppHistory(
+          supabase,
+          lead,
+          tenantId,
+          phone,
+        );
+
+        if (historyLeadId) {
           await supabase.from('whatsapp_history').insert({
-            lead_id: lead.id,
+            lead_id: historyLeadId,
             direction: 'outgoing',
             message_text: compiledText || `[Sent template: ${templateName}]`,
             status: status as any,
@@ -291,7 +300,7 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
           });
 
           await supabase.from('activity_logs').insert({
-            lead_id: lead.id,
+            lead_id: historyLeadId,
             action_type: 'whatsapp_sent',
             description: `Sent broadcast template message: "${templateName}"`,
             tenant_id: tenantId
@@ -307,13 +316,20 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
         failedCount++;
         
         // Log detailed failure state in history
-        if (!skipLeadHistory && lead.id && !String(lead.id).startsWith('extra-')) {
+        const historyLeadId = await resolveLeadIdForWhatsAppHistory(
+          supabase,
+          lead,
+          tenantId,
+          lead.whatsapp_number || lead.phone,
+        );
+        if (historyLeadId) {
           await supabase.from('whatsapp_history').insert({
-            lead_id: lead.id,
+            lead_id: historyLeadId,
             direction: 'outgoing',
             message_text: compiledText ? `${compiledText}\n\n[Error: ${sendErr.message}]` : `[Failed broadcast template: ${templateName} - ${sendErr.message}]`,
             status: 'failed',
-            tenant_id: tenantId
+            tenant_id: tenantId,
+            sent_by_ai: null,
           });
         }
       }

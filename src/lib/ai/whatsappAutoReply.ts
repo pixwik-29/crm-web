@@ -22,6 +22,35 @@ export type DownloadedMedia = {
 const IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']);
 const DOC_MIMES = new Set(['application/pdf']);
 
+function isUsefulWhatsAppLabel(value: string): boolean {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  if (text.startsWith('wamid.')) return false;
+  if (/^[0-9a-f-]{20,}$/i.test(text)) return false;
+  if (/^\d{10,}$/.test(text)) return false;
+  return true;
+}
+
+function collectInteractiveLabels(value: any, depth = 0): string[] {
+  if (value == null || depth > 6) return [];
+  if (typeof value === 'string') return isUsefulWhatsAppLabel(value) ? [value.trim()] : [];
+  if (typeof value === 'number' || typeof value === 'boolean') return [];
+  if (Array.isArray(value)) return value.flatMap((item) => collectInteractiveLabels(item, depth + 1));
+  if (typeof value !== 'object') return [];
+
+  const preferred = ['text', 'title', 'body', 'caption', 'description', 'payload', 'name', 'button_text', 'display_text'];
+  const labels: string[] = [];
+  for (const key of preferred) {
+    if (value[key] != null) labels.push(...collectInteractiveLabels(value[key], depth + 1));
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (['from', 'id', 'timestamp', 'context', 'errors', 'type', 'to', 'recipient_id'].includes(key)) continue;
+    if (preferred.includes(key)) continue;
+    labels.push(...collectInteractiveLabels(nested, depth + 1));
+  }
+  return labels;
+}
+
 export function extractIncomingWhatsAppContent(message: any): IncomingWhatsAppContent {
   const type = String(message?.type || 'text').toLowerCase().trim();
   const links: string[] = [];
@@ -51,7 +80,9 @@ export function extractIncomingWhatsAppContent(message: any): IncomingWhatsAppCo
     flowBody,
     message?.button?.payload,
     message?.interactive?.button_reply?.id,
-  ].map((value) => String(value || '').trim()).find(Boolean);
+    ...collectInteractiveLabels(message?.button),
+    ...collectInteractiveLabels(message?.interactive),
+  ].map((value) => String(value || '').trim()).find((value) => isUsefulWhatsAppLabel(value));
 
   if (type === 'text') {
     const body = message.text?.body || '';
@@ -134,7 +165,21 @@ export function extractIncomingWhatsAppContent(message: any): IncomingWhatsAppCo
     return { messageText: buttonLabel, links };
   }
 
-  return { messageText: `[Received WhatsApp ${type} message]`, links };
+  const nestedLabel = collectInteractiveLabels({
+    button: message?.button,
+    interactive: message?.interactive,
+    text: message?.text,
+  })[0];
+  if (nestedLabel) {
+    collect(nestedLabel);
+    return { messageText: nestedLabel, links };
+  }
+
+  if (type === 'button' || type === 'interactive' || type === 'quick_reply') {
+    return { messageText: 'Button tapped', links };
+  }
+
+  return { messageText: type === 'text' ? '' : `[${type} message]`, links };
 }
 
 export async function downloadWhatsAppMedia(apiToken: string, mediaId: string): Promise<DownloadedMedia | null> {

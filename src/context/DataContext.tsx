@@ -541,7 +541,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const { data: aList } = await client.from('activity_logs').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
           if (aList) setActivityLogs(aList as ActivityLog[]);
 
-          const { data: wHist } = await client.from('whatsapp_history').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
+          const { data: wHist } = await client.from('whatsapp_history').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(5000);
           if (wHist) setWhatsappHistory(wHist as WhatsAppMessage[]);
 
           const { data: wTemp } = await client.from('whatsapp_templates').select('*').eq('tenant_id', tenantId);

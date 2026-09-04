@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { MessagingService } from '@/lib/messaging/service';
 import { formatDeliveryError, waitForDelivery, writeDeliveryStatus } from '@/lib/messaging/deliveryStatus';
+import { compileWhatsAppTemplateBody, logOutgoingWhatsApp } from '@/lib/messaging/whatsappLead';
 
 export const maxDuration = 60;
 
@@ -16,7 +17,7 @@ function isPublicImageUrl(url?: string | null): boolean {
 // POST /api/whatsapp/send — sends a single WhatsApp message to one lead
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId, to, type = 'text', message, text, templateName, variables = [], templateBody, mediaUrl, waitForDeliveryStatus = true } = await req.json();
+    const { tenantId, to, type = 'text', message, text, templateName, variables = [], templateBody, mediaUrl, waitForDeliveryStatus = true, logHistory = false } = await req.json();
 
     if (!tenantId) return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
     if (!to) return NextResponse.json({ error: 'to (phone number) is required' }, { status: 400 });
@@ -59,9 +60,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    let deliveryStatus = result.status || 'sent';
     if (supabase && waitForDeliveryStatus && result.messageId) {
       const delivery = await waitForDelivery(supabase, result.messageId, 12000);
       if (delivery?.status === 'failed') {
+        if (logHistory) {
+          const outgoingText =
+            type === 'template'
+              ? compileWhatsAppTemplateBody(resolvedBody, variables, templateName)
+              : String(text || message || '').trim();
+          await logOutgoingWhatsApp(supabase, {
+            tenantId,
+            phone: result.to || to,
+            text: outgoingText || (templateName ? `[Sent template: ${templateName}]` : ''),
+            status: 'failed',
+          });
+        }
         return NextResponse.json({
           error: formatDeliveryError(delivery),
           to: result.to || to,
@@ -70,12 +84,38 @@ export async function POST(req: NextRequest) {
           errorCode: delivery.errorCode,
         }, { status: 422 });
       }
+      deliveryStatus = delivery?.status || result.status;
+      if (logHistory && !String(result.messageId).startsWith('wamid-mock-')) {
+        const outgoingText =
+          type === 'template'
+            ? compileWhatsAppTemplateBody(resolvedBody, variables, templateName)
+            : String(text || message || '').trim();
+        await logOutgoingWhatsApp(supabase, {
+          tenantId,
+          phone: result.to || to,
+          text: outgoingText || (templateName ? `[Sent template: ${templateName}]` : ''),
+          status: deliveryStatus || 'sent',
+        });
+      }
       return NextResponse.json({
         success: true,
         messageId: result.messageId,
-        status: delivery?.status || result.status,
+        status: deliveryStatus,
         to: result.to || to,
         delivery: delivery?.status || 'pending',
+      });
+    }
+
+    if (logHistory && supabase && result.messageId && !String(result.messageId).startsWith('wamid-mock-')) {
+      const outgoingText =
+        type === 'template'
+          ? compileWhatsAppTemplateBody(resolvedBody, variables, templateName)
+          : String(text || message || '').trim();
+      await logOutgoingWhatsApp(supabase, {
+        tenantId,
+        phone: result.to || to,
+        text: outgoingText || (templateName ? `[Sent template: ${templateName}]` : ''),
+        status: deliveryStatus || 'sent',
       });
     }
 
