@@ -26,7 +26,10 @@ export function formatDeliveryError(record: DeliveryRecord): string {
     return `WhatsApp rejected a free-form message to ${record.to} outside the 24-hour window. Use an approved template.`;
   }
   if (code === 130472 || code === 131050) {
-    return `WhatsApp did not deliver to ${record.to} because the user has marketing messages turned off.`;
+    return `WhatsApp did not deliver to ${record.to} because that person turned off marketing messages in WhatsApp. Do not retry a Marketing template to them.`;
+  }
+  if (code === 131049) {
+    return `WhatsApp withheld the Marketing template to ${record.to} (131049). Meta caps how many marketing messages a person gets from all businesses. Do not retry today. Wait at least 24 hours, or reach them with a Utility template / after they message you first.`;
   }
   if (code === 131042) {
     return `WhatsApp blocked the message to ${record.to} because Meta cannot charge this WhatsApp Business account (131042). Add a payment method in Meta Business Suite → WhatsApp Accounts → this WABA → Payment settings, assign it to this account, and set timezone/currency. This is not a CRM billing issue.`;
