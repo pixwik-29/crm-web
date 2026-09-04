@@ -17,7 +17,7 @@ function isPublicImageUrl(url?: string | null): boolean {
 // POST /api/whatsapp/send — sends a single WhatsApp message to one lead
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId, to, type = 'text', message, text, templateName, variables = [], templateBody, mediaUrl, waitForDeliveryStatus = true, logHistory = false } = await req.json();
+    const { tenantId, to, type = 'text', message, text, templateName, variables = [], templateBody, mediaUrl, mediaName, waitForDeliveryStatus = true, logHistory = false } = await req.json();
 
     if (!tenantId) return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
     if (!to) return NextResponse.json({ error: 'to (phone number) is required' }, { status: 400 });
@@ -39,6 +39,12 @@ export async function POST(req: NextRequest) {
       if (!resolvedBody) resolvedBody = templateRow?.body || resolvedBody;
     }
 
+    if (!resolvedMedia && (type === 'document' || type === 'image' || type === 'video')) {
+      return NextResponse.json({
+        error: 'This file could not be sent. Upload a PDF, image, or video and try again — WhatsApp needs a public file URL.',
+      }, { status: 400 });
+    }
+
     const provider = await MessagingService.getProviderForTenant(tenantId);
 
     const result = await provider.sendMessage({
@@ -49,6 +55,7 @@ export async function POST(req: NextRequest) {
       variables,
       templateBody: resolvedBody,
       mediaUrl: resolvedMedia,
+      mediaName,
     });
 
     if (supabase && result.messageId) {

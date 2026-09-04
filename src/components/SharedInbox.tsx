@@ -27,7 +27,8 @@ export const SharedInbox: React.FC = () => {
     currentUser, 
     tenantId, 
     isConfigured,
-    settings
+    settings,
+    uploadAttachment,
   } = useData();
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -305,12 +306,29 @@ export const SharedInbox: React.FC = () => {
       const targetPhone = activeLead.whatsapp_number || activeLead.phone || '';
       if (!targetPhone) throw new Error('Lead has no WhatsApp/phone number.');
 
-      // 3. Call the real Meta Cloud API via campaigns endpoint
+      // 3. Upload any attached file so Meta receives a public URL / media ID
+      let mediaUrl: string | undefined;
+      let mediaName: string | undefined;
+      let sendType: 'template' | 'text' | 'image' | 'document' | 'video' = selectedTemplateId ? 'template' : 'text';
+
+      if (selectedFile && !selectedTemplateId) {
+        const uploaded = await uploadAttachment(selectedFile);
+        mediaUrl = uploaded.url;
+        mediaName = uploaded.name;
+        const mime = String(selectedFile.type || '').toLowerCase();
+        const name = selectedFile.name.toLowerCase();
+        if (mime.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(name)) sendType = 'image';
+        else if (mime.startsWith('video/') || /\.(mp4|3gp|mov)$/i.test(name)) sendType = 'video';
+        else sendType = 'document';
+      }
+
       const payload: any = {
         tenantId,
         to: targetPhone,
-        type: selectedTemplateId ? 'template' : (selectedFile ? 'document' : 'text'),
+        type: sendType,
         message: messageContent,
+        mediaUrl,
+        mediaName,
       };
 
       if (selectedTemplateId) {
@@ -327,6 +345,8 @@ export const SharedInbox: React.FC = () => {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to send message');
 
+      const historyText = [messageContent.trim(), mediaUrl].filter(Boolean).join('\n') || `[Attachment: ${mediaName || 'file'}]`;
+
       // 4. Write to whatsapp_history DB
       // sent_by_ai: false — this is a human agent reply, which will pause Chitra's
       // AI auto-responder for this lead (human takeover pattern).
@@ -336,7 +356,7 @@ export const SharedInbox: React.FC = () => {
           id: newMsgId,
           lead_id: activeThreadId,
           direction: 'outgoing',
-          message_text: messageContent || '[Attachment]',
+          message_text: historyText,
           status: 'sent',
           tenant_id: tenantId,
           sent_by_ai: false
@@ -346,7 +366,7 @@ export const SharedInbox: React.FC = () => {
           lead_id: activeThreadId,
           actor_id: currentUser?.id || null,
           action_type: 'whatsapp_sent',
-          description: `Sent WhatsApp: "${messageContent.substring(0, 50)}"`,
+          description: `Sent WhatsApp: "${historyText.substring(0, 50)}"`,
           tenant_id: tenantId
         });
       }
@@ -357,7 +377,7 @@ export const SharedInbox: React.FC = () => {
           id: newMsgId,
           lead_id: activeThreadId,
           direction: 'outgoing' as const,
-          message_text: messageContent || '[Attachment]',
+          message_text: historyText,
           status: 'sent',
           created_at: new Date().toISOString(),
           tenant_id: tenantId

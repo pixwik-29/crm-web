@@ -81,30 +81,49 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
     return String(data.id);
   }
 
-  private async uploadMediaFromUrl(url: string, kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'): Promise<string | null> {
+  private async uploadMediaFromUrl(url: string, kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT', filenameHint?: string): Promise<string | null> {
     const downloaded = await this.downloadMediaBytes(url);
     if (!downloaded) return null;
 
     let mime = downloaded.mime;
-    let filename = 'file';
+    let filename = filenameHint || 'file';
     if (kind === 'IMAGE') {
       if (mime.includes('webp')) return null;
       if (mime.includes('png')) {
         mime = 'image/png';
-        filename = 'header.png';
+        filename = filenameHint || 'image.png';
       } else {
         mime = 'image/jpeg';
-        filename = 'header.jpg';
+        filename = filenameHint || 'image.jpg';
       }
     } else if (kind === 'VIDEO') {
       mime = mime.startsWith('video/') ? mime : 'video/mp4';
-      filename = 'header.mp4';
+      filename = filenameHint || 'video.mp4';
     } else {
-      mime = mime || 'application/pdf';
-      filename = 'document.pdf';
+      mime = mime.includes('pdf') || /\.pdf$/i.test(filenameHint || url) ? 'application/pdf' : (mime || 'application/pdf');
+      filename = filenameHint || 'document.pdf';
     }
 
     return this.uploadMediaBuffer(downloaded.buf, mime, filename);
+  }
+
+  private async resolveSessionMedia(
+    options: SendMessageOptions,
+    kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'
+  ): Promise<Record<string, any>> {
+    const url = this.publicMediaUrl(options.mediaUrl);
+    if (!url) {
+      throw new Error('WhatsApp needs a public file URL or media ID. Upload the PDF/image again and retry.');
+    }
+
+    const filename = options.mediaName || (kind === 'DOCUMENT' ? 'document.pdf' : undefined);
+    const mediaId = await this.uploadMediaFromUrl(url, kind, filename);
+    const payload: Record<string, any> = {};
+    if (mediaId) payload.id = mediaId;
+    else payload.link = url;
+    if (filename && kind === 'DOCUMENT') payload.filename = filename;
+    if (options.text) payload.caption = String(options.text).slice(0, 1024);
+    return payload;
   }
 
   private async resolveHeaderMedia(
@@ -307,26 +326,17 @@ export class MetaWhatsAppProvider implements IMessagingProvider {
 
       case 'image':
         body.type = 'image';
-        body.image = {
-          link: options.mediaUrl,
-          caption: options.mediaName || undefined
-        };
+        body.image = await this.resolveSessionMedia(options, 'IMAGE');
         break;
 
       case 'document':
         body.type = 'document';
-        body.document = {
-          link: options.mediaUrl,
-          filename: options.mediaName || 'Document'
-        };
+        body.document = await this.resolveSessionMedia(options, 'DOCUMENT');
         break;
 
       case 'video':
         body.type = 'video';
-        body.video = {
-          link: options.mediaUrl,
-          caption: options.mediaName || undefined
-        };
+        body.video = await this.resolveSessionMedia(options, 'VIDEO');
         break;
 
       case 'location':
