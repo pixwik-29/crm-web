@@ -5,6 +5,15 @@ import nodemailer from 'nodemailer';
 import { decryptToken } from '@/lib/messaging/crypto';
 import { getDatabaseKnowledgeContext } from '@/lib/ai/knowledge';
 import { writeDeliveryStatus } from '@/lib/messaging/deliveryStatus';
+import {
+  buildConsultantSystemPrompt,
+  downloadWhatsAppMedia,
+  extractIncomingWhatsAppContent,
+  extractOutboundFiles,
+  findConsultantByPhone,
+  mediaUsableByGemini,
+  sendWhatsAppAutoReply,
+} from '@/lib/ai/whatsappAutoReply';
 
 function sanitizeWhatsAppText(text: string): string {
   if (!text) return '';
@@ -104,14 +113,12 @@ export async function POST(req: NextRequest) {
           if (val.messages && val.messages.length > 0) {
             const message = val.messages[0];
             const senderPhone = message.from; // e.g. "919988776655"
-            const messageId = message.id;
+            const incoming = extractIncomingWhatsAppContent(message);
             const messageType = message.type;
-            let messageText = '';
-
-            if (messageType === 'text') {
-              messageText = message.text?.body || '';
-            } else {
-              messageText = `[Received WhatsApp ${messageType} message]`;
+            let messageText = incoming.messageText;
+            if (incoming.links.length > 0) {
+              const extra = incoming.links.filter((link) => !messageText.includes(link));
+              if (extra.length > 0) messageText = `${messageText}\n${extra.join('\n')}`.trim();
             }
 
             const senderName = val.contacts?.[0]?.profile?.name || 'WhatsApp Contact';
@@ -129,10 +136,11 @@ export async function POST(req: NextRequest) {
               // ── Normal student message — proceed as usual ──────────────────────
               const cleanPhone = senderPhone.replace(/\D/g, '');
               const last10 = cleanPhone.slice(-10);
+              const consultant = await findConsultantByPhone(supabase, last10);
 
               const { data: leads } = await supabase
                 .from('leads')
-                .select('id, name')
+                .select('id, name, tags')
                 .eq('tenant_id', resolvedTenantId)
                 .or(`phone.ilike.%${last10}%,whatsapp_number.ilike.%${last10}%`);
 
@@ -152,13 +160,13 @@ export async function POST(req: NextRequest) {
                 const { data: newLead, error: insertLeadErr } = await supabase
                   .from('leads')
                   .insert({
-                    name: senderName,
+                    name: consultant?.name || senderName,
                     phone: `+${cleanPhone}`,
                     whatsapp_number: `+${cleanPhone}`,
-                    lead_source: 'WhatsApp',
+                    lead_source: consultant ? 'WhatsApp Consultant' : 'WhatsApp',
                     status: '1st followup',
-                    score: 30,
-                    tags: ['WhatsApp Ingestion'],
+                    score: consultant ? 50 : 30,
+                    tags: consultant ? ['Consultant', 'WhatsApp'] : ['WhatsApp Ingestion'],
                     tenant_id: resolvedTenantId,
                     pipeline_id: defaultPipe?.id || null
                   })
@@ -259,8 +267,12 @@ export async function POST(req: NextRequest) {
                     to: senderPhone,
                     leadId,
                     messageText,
-                    senderName,
-                    tenantId: resolvedTenantId
+                    senderName: consultant?.name || senderName,
+                    tenantId: resolvedTenantId,
+                    audience: consultant ? 'consultant' : 'student',
+                    consultant,
+                    incomingMediaId: incoming.mediaId,
+                    incomingMimeHint: incoming.mimeType,
                   }));
                 }
               }
@@ -860,11 +872,7 @@ function isLikelyMarketingMessage(messageText: string, messageObj: any): boolean
 
   const textLower = messageText.toLowerCase();
 
-  // Signal 2: Contains a URL — genuine student first messages almost never have links
-  if (/https?:\/\/|www\./i.test(messageText)) {
-    console.log('[Spam Filter] Blocked: message contains URL');
-    return true;
-  }
+  // URLs alone are not spam. Students and consultants send marksheets, portal links, and college pages.
 
   // Signal 3: Opt-out/unsubscribe language — unmistakably a marketing broadcast
   if (/reply\s*stop|unsubscribe|opt.?out|to stop receiving/i.test(messageText)) {
@@ -1408,7 +1416,9 @@ ABSOLUTE RULES — NEVER BREAK THESE:
 5. ONE QUESTION ONLY per message — never ask two things at once
 6. HUMAN WhatsApp TONE — casual, warm, direct. Like a knowledgeable friend texting, not a formal document
 7. NEVER mention your agency's processing fee, service fee, or consultancy charges under any circumstances. If asked, say a senior counselor will personally explain the complete structure during a direct call.
-${firstName ? `8. The student's name is ${firstName}. Use it naturally once in a while — not in every sentence.` : ''}`;
+8. You MAY include full https links (college pages, document URLs, WhatsApp click-to-chat). Never wrap links in asterisks or markdown. WhatsApp will preview them.
+9. If the student sent an image, PDF, or link, look at it and respond to what is actually there (marksheet, passport, offer letter, screenshot).
+${firstName ? `10. The student's name is ${firstName}. Use it naturally once in a while — not in every sentence.` : ''}`;
 
   switch (stage) {
     case 1:
@@ -1485,6 +1495,10 @@ async function dispatchWhatsAppAiCounselorReply({
   messageText,
   senderName,
   tenantId,
+  audience = 'student',
+  consultant = null,
+  incomingMediaId,
+  incomingMimeHint,
 }: {
   phoneId: string;
   apiToken: string;
@@ -1493,6 +1507,10 @@ async function dispatchWhatsAppAiCounselorReply({
   messageText: string;
   senderName: string;
   tenantId: string;
+  audience?: 'student' | 'consultant';
+  consultant?: { name: string; agency: string; level?: string; status?: string } | null;
+  incomingMediaId?: string;
+  incomingMimeHint?: string;
 }) {
   // ── MAX TURNS CONSTANT ────────────────────────────────────────────────────
   // Chitra will stop replying automatically after this many incoming messages.
@@ -1535,23 +1553,21 @@ async function dispatchWhatsAppAiCounselorReply({
       return;
     }
 
-    // ── GUARD B: Human takeover check ─────────────────────────────────────
-    // If the most recent OUTGOING message was sent by a human agent (sent_by_ai = false),
-    // Chitra pauses completely so the agent can own the conversation.
+    // ── GUARD B: Human takeover (sticky) ──────────────────────────────────
+    // Any human inbox reply (sent_by_ai === false) permanently pauses Chitra
+    // for this thread. Broadcasts leave sent_by_ai null and do not count.
     const outgoingMessages = (history || []).filter((h: any) => h.direction === 'outgoing');
-    if (outgoingMessages.length > 0) {
-      const lastOutgoing = outgoingMessages[outgoingMessages.length - 1];
-      if (lastOutgoing.sent_by_ai === false) {
-        console.log(`[Chitra AI] Lead ${leadId} — Human agent replied last. AI is paused (human takeover active).`);
-        return;
-      }
+    const humanTookOver = outgoingMessages.some((h: any) => h.sent_by_ai === false);
+    if (humanTookOver) {
+      console.log(`[Chitra AI] Lead ${leadId} — Human agent has already replied. Auto-reply is off.`);
+      return;
     }
 
     // ── 4. Extract conversation context ────────────────────────────────────
     const ctx = extractConversationContext(history || [], currentLeadName);
 
     // ── 5. Update lead name if still unknown (turn 3) ─────────────────────
-    if (incomingCount >= 2 && isUnknownLead) {
+    if (incomingCount >= 2 && isUnknownLead && audience !== 'consultant') {
       const extractedName = extractNameFromText(messageText) || (senderName !== 'WhatsApp Contact' ? senderName : '');
       if (extractedName && extractedName !== 'Student' && extractedName.length > 1) {
         await supabase.from('leads').update({ name: extractedName }).eq('id', leadId);
@@ -1566,12 +1582,13 @@ async function dispatchWhatsAppAiCounselorReply({
     }
 
     // ── 6. Determine conversation stage ───────────────────────────────────
-    const stage = getConversationStage(incomingCount, ctx);
-    console.log(`[Chitra AI] Lead ${leadId} | Turn ${incomingCount}/${MAX_AI_TURNS} | Stage ${stage} | Context: neet=${ctx.neetScore}, country=${ctx.countryPreference}, budget=${ctx.budget}`);
+    const isConsultant = audience === 'consultant';
+    const stage = isConsultant ? 0 : getConversationStage(incomingCount, ctx);
+    console.log(`[Chitra AI] Lead ${leadId} | audience=${audience} | Turn ${incomingCount}/${MAX_AI_TURNS} | Stage ${stage} | Context: neet=${ctx.neetScore}, country=${ctx.countryPreference}, budget=${ctx.budget}`);
 
-    // ── 7. Load knowledge (only needed at stage 4+) ────────────────────────
+    // ── 7. Load knowledge ──────────────────────────────────────────────────
     let dbKnowledge = '';
-    if (stage >= 4) {
+    if (isConsultant || stage >= 4) {
       try {
         dbKnowledge = await getDatabaseKnowledgeContext();
       } catch (dbErr: any) {
@@ -1579,8 +1596,22 @@ async function dispatchWhatsAppAiCounselorReply({
       }
     }
 
-    // ── 8. Build staged system prompt ──────────────────────────────────────
-    const systemPrompt = buildStagedSystemPrompt(stage, ctx, dbKnowledge);
+    // ── 8. Build system prompt ─────────────────────────────────────────────
+    const systemPrompt = isConsultant
+      ? buildConsultantSystemPrompt(
+          consultant || { kind: 'partner', name: senderName || 'Consultant', agency: '' },
+          dbKnowledge
+        )
+      : buildStagedSystemPrompt(stage, ctx, dbKnowledge);
+
+    let incomingMedia = null;
+    if (incomingMediaId) {
+      incomingMedia = await downloadWhatsAppMedia(apiToken, incomingMediaId);
+      if (incomingMedia && incomingMimeHint && incomingMedia.mimeType === 'application/octet-stream') {
+        incomingMedia = { ...incomingMedia, mimeType: incomingMimeHint };
+      }
+      if (incomingMedia && !mediaUsableByGemini(incomingMedia)) incomingMedia = null;
+    }
 
     // ── 9. Call Gemini AI ──────────────────────────────────────────────────
     const apiKey = process.env.GEMINI_API_KEY || Buffer.from('QVEuQWI4Uk42SXlxZ3kteUFKR0hDTjBWaEIzY1lOQ2lpZXlLdFJjTGdfYWVHNll5Y0FiNmc=', 'base64').toString('utf8');
@@ -1613,9 +1644,17 @@ async function dispatchWhatsAppAiCounselorReply({
 
           // Ensure conversation ends with user's latest message
           if (lastRole !== 'user') {
-            contentsPayload.push({ role: 'user', parts: [{ text: messageText }] });
+            const parts: any[] = [{ text: messageText }];
+            if (incomingMedia && mediaUsableByGemini(incomingMedia)) {
+              parts.push({ inline_data: { mime_type: incomingMedia.mimeType, data: incomingMedia.base64 } });
+            }
+            contentsPayload.push({ role: 'user', parts });
           } else {
-            contentsPayload[contentsPayload.length - 1].parts[0].text += '\n' + messageText;
+            const last = contentsPayload[contentsPayload.length - 1];
+            last.parts[0].text += '\n' + messageText;
+            if (incomingMedia && mediaUsableByGemini(incomingMedia)) {
+              last.parts.push({ inline_data: { mime_type: incomingMedia.mimeType, data: incomingMedia.base64 } });
+            }
           }
 
           const res = await fetch(
@@ -1645,7 +1684,9 @@ async function dispatchWhatsAppAiCounselorReply({
     // ── 10. Fallback replies if Gemini is unavailable ──────────────────────
     if (!aiReply) {
       const queryLower = messageText.toLowerCase();
-      if (stage === 1) {
+      if (isConsultant) {
+        aiReply = 'Hi, this is Chitra from the Perfect Scholar partner desk. You can refer students and check commissions on https://partner.perfectscholar.com — what do you need help with today?';
+      } else if (stage === 1) {
         aiReply = 'Hi there, welcome to Perfect Scholar! I am Chitra, I help students secure MBBS admissions in top universities abroad. What brings you here today?';
       } else if (stage === 2) {
         aiReply = 'Happy to help! To find the right fit for you, could you share your 12th PCB percentage or your NEET score?';
@@ -1675,32 +1716,35 @@ async function dispatchWhatsAppAiCounselorReply({
     const typingDelayMs = Math.min(1500 + Math.floor(finalReply.length / 10) * 100, 3500);
     await new Promise(resolve => setTimeout(resolve, typingDelayMs));
 
-    // ── 13. Send via Meta WhatsApp Cloud API ───────────────────────────────
+    // Re-check takeover in case a human replied while the model was generating.
+    const { data: takeoverCheck } = await supabase
+      .from('whatsapp_history')
+      .select('sent_by_ai')
+      .eq('lead_id', leadId)
+      .eq('direction', 'outgoing')
+      .eq('sent_by_ai', false)
+      .limit(1);
+    if (takeoverCheck && takeoverCheck.length > 0) {
+      console.log(`[Chitra AI] Lead ${leadId} — Human replied during generation. Dropping auto-reply.`);
+      return;
+    }
+
     const cleanPhone = to.replace(/\D/g, '');
     const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const outboundFiles = extractOutboundFiles(finalReply);
 
-    const sendRes = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: formattedPhone,
-        type: 'text',
-        text: { body: finalReply },
-      }),
+    const sendResult = await sendWhatsAppAutoReply({
+      phoneId,
+      apiToken,
+      to: formattedPhone,
+      text: finalReply,
+      imageUrl: outboundFiles.images[0],
+      documentUrl: outboundFiles.documents[0],
     });
 
-    const sendData = await sendRes.json();
-    console.log(`[Chitra AI] Sent reply to ${formattedPhone} | Stage ${stage} | Status: ${sendRes.status}`);
+    console.log(`[Chitra AI] Sent reply to ${formattedPhone} | audience=${audience} | Stage ${stage} | ok=${sendResult.ok}`);
 
-    // ── 14. Save outgoing reply to history ────────────────────────────────
-    // sent_by_ai: true — marks this as a Chitra AI message so the human
-    // takeover guard in future turns knows a human hasn't intervened yet.
-    if (sendRes.ok) {
+    if (sendResult.ok) {
       await supabase.from('whatsapp_history').insert({
         lead_id: leadId,
         direction: 'outgoing',
@@ -1710,7 +1754,7 @@ async function dispatchWhatsAppAiCounselorReply({
         sent_by_ai: true,
       });
     } else {
-      console.error('[Chitra AI] Meta API send failed:', JSON.stringify(sendData));
+      console.error('[Chitra AI] Meta API send failed:', sendResult.error);
     }
   } catch (err: any) {
     console.error('[Chitra AI Auto-Responder Error]:', err.message);

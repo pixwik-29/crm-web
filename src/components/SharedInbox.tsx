@@ -494,7 +494,19 @@ export const SharedInbox: React.FC = () => {
                   return (
                     <div key={message.id} className={`flex ${isOutgoing ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[70%] rounded-2xl p-3 shadow-sm text-xs leading-relaxed space-y-1 ${isOutgoing ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-white dark:bg-zinc-900 text-slate-800 dark:text-white rounded-tl-none border border-slate-100 dark:border-zinc-800'}`}>
-                        <p>{message.message_text}</p>
+                        <p className="whitespace-pre-wrap break-words">
+                          {String(message.message_text || '').split(/(https?:\/\/[^\s]+)/g).map((part, idx) => {
+                            if (!/^https?:\/\//i.test(part)) return <span key={idx}>{part}</span>;
+                            if (/\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(part)) {
+                              return <img key={idx} src={part} alt="" className="max-w-full rounded-lg my-1" />;
+                            }
+                            return (
+                              <a key={idx} href={part} target="_blank" rel="noreferrer" className={`underline break-all ${isOutgoing ? 'text-white' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                                {part}
+                              </a>
+                            );
+                          })}
+                        </p>
                         
                         <div className="flex justify-end items-center gap-1 text-[9px] opacity-75">
                           <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>

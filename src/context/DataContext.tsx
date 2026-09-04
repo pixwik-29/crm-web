@@ -2269,7 +2269,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (isSupabaseConfigured && supabase) {
-      await supabase.from('whatsapp_history').insert([{ ...newMessage, tenant_id: tenantId }]);
+      await supabase.from('whatsapp_history').insert([{ ...newMessage, tenant_id: tenantId, sent_by_ai: false }]);
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
         actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,
@@ -2348,7 +2348,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (isSupabaseConfigured && supabase) {
-      await supabase.from('whatsapp_history').insert([{ ...newMessage, tenant_id: tenantId }]);
+      await supabase.from('whatsapp_history').insert([{ ...newMessage, tenant_id: tenantId, sent_by_ai: false }]);
       await supabase.from('activity_logs').insert([{
         lead_id: leadId,
         actor_id: isValidUuid(currentUser?.id) ? currentUser?.id : null,

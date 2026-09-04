@@ -287,7 +287,7 @@ async function processCampaignBroadcast({ targets, templateName, variables, tena
             message_text: compiledText || `[Sent template: ${templateName}]`,
             status: status as any,
             tenant_id: tenantId,
-            sent_by_ai: false
+            sent_by_ai: null
           });
 
           await supabase.from('activity_logs').insert({
