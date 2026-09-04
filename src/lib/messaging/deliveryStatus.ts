@@ -28,6 +28,9 @@ export function formatDeliveryError(record: DeliveryRecord): string {
   if (code === 130472 || code === 131050) {
     return `WhatsApp did not deliver to ${record.to} because the user has marketing messages turned off.`;
   }
+  if (code === 131042) {
+    return `WhatsApp blocked the message to ${record.to} because Meta cannot charge this WhatsApp Business account (131042). Add a payment method in Meta Business Suite → WhatsApp Accounts → this WABA → Payment settings, assign it to this account, and set timezone/currency. This is not a CRM billing issue.`;
+  }
   const detail = [record.errorCode, record.errorTitle, record.errorDetails].filter(Boolean).join(' — ');
   return `WhatsApp did not deliver to ${record.to}${detail ? `: ${detail}` : '. Meta sent no error details.'}`;
 }
