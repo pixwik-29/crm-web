@@ -111,9 +111,10 @@ export const SharedInbox: React.FC = () => {
       setThreadHistory([]);
       return;
     }
+    const client = supabase;
     let cancelled = false;
     const loadThread = async () => {
-      const { data } = await supabase
+      const { data } = await client
         .from('whatsapp_history')
         .select('*')
         .eq('lead_id', activeThreadId)
